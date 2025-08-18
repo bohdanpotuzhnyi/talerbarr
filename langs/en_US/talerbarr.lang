@@ -1,0 +1,55 @@
+# Translation file
+
+#
+# Generic
+#
+
+# Module label 'ModuleTalerBarrName'
+ModuleTalerBarrName = TalerBarr
+# Module description 'ModuleTalerBarrDesc'
+ModuleTalerBarrDesc = TalerBarr description
+
+#
+# Admin page
+#
+TalerBarrSetup = TalerBarr setup
+Settings = Settings
+TalerBarrSetupPage = TalerBarr setup page
+NewSection=New section
+TALERBARR_MYPARAM1 = My param 1
+TALERBARR_MYPARAM1Tooltip = My param 1 tooltip
+TALERBARR_MYPARAM2=My param 2
+TALERBARR_MYPARAM2Tooltip=My param 2 tooltip
+
+
+#
+# About page
+#
+About = About
+TalerBarrAbout = About TalerBarr
+TalerBarrAboutPage = TalerBarr about page
+
+#
+# Sample page
+#
+TalerBarrArea = Home TalerBarr
+MyPageName = My page name
+
+#
+# Sample widget
+#
+MyWidget = My widget
+MyWidgetDescription = My widget description
+
+#
+# Taler config page
+#
+TalerConfig = TalerBar Configuration
+TalerMerchantURL = Taler Merchant URL
+TalerPassword = Password
+TalerToken = Taler Access Token
+SyncDirection = Sync from
+SyncFrom = Sync from
+TalerConfigIsValid = Valid Taler Config Is Found
+Username = Username
+
