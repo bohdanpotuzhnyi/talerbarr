@@ -1,0 +1,234 @@
+<?php
+/* Copyright (C) 2025       Bohdan Potuzhnyi
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * \file        class/talercategorymap.class.php
+ * \ingroup     talerbarr
+ * \brief       CRUD class for mapping Taler categories to Dolibarr categories
+ */
+
+require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';
+require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
+// Optionally useful if you want helpers that resolve Dolibarr category objects
+// require_once DOL_DOCUMENT_ROOT.'/categories/class/categorie.class.php';
+
+class TalerCategoryMap extends CommonObject
+{
+	/** @var string */
+	public $module = 'talerbarr';
+
+	/** @var string */
+	public $element = 'talercategorymap';
+
+	/** @var string */
+	public $table_element = 'talerbarr_category_map';
+
+	/** @var string */
+	public $picto = 'category';
+
+	/** @var int */
+	public $isextrafieldmanaged = 0;
+
+	/** @var int|string */
+	public $ismultientitymanaged = 1; // we have an entity field
+
+	// ===== Fields definition (keep in sync with SQL) =====
+	public $fields = array(
+		'rowid'                => array('type'=>'integer',  'label'=>'TechnicalID',   'visible'=>0, 'notnull'=>1, 'index'=>1, 'position'=>1),
+		'entity'               => array('type'=>'integer',  'label'=>'Entity',        'visible'=>0, 'notnull'=>1, 'default'=>1, 'index'=>1, 'position'=>5),
+
+		'taler_instance'       => array('type'=>'varchar(64)',  'label'=>'TalerInstance',     'visible'=>1, 'notnull'=>1, 'index'=>1, 'position'=>10),
+		'taler_category_id'    => array('type'=>'integer',      'label'=>'TalerCategoryId',   'visible'=>1, 'notnull'=>1, 'index'=>1, 'position'=>11),
+		'taler_category_name'  => array('type'=>'varchar(255)', 'label'=>'TalerCategoryName', 'visible'=>1, 'notnull'=>0,                'position'=>12),
+
+		'fk_categorie'         => array('type'=>'integer:Categorie:categories/class/categorie.class.php', 'label'=>'DolibarrCategory', 'visible'=>1, 'notnull'=>1, 'index'=>1, 'position'=>20, 'picto'=>'category'),
+		'note'                 => array('type'=>'varchar(255)', 'label'=>'Note',               'visible'=>1, 'notnull'=>0,                'position'=>30),
+
+		'datec'                => array('type'=>'datetime',     'label'=>'DateCreation',       'visible'=>-2, 'notnull'=>0, 'position'=>500),
+		'tms'                  => array('type'=>'timestamp',    'label'=>'DateModification',   'visible'=>-2, 'notnull'=>1, 'position'=>501),
+	);
+
+	// Public properties for IDE hints
+	public $rowid, $entity, $taler_instance, $taler_category_id, $taler_category_name, $fk_categorie, $note, $datec, $tms;
+
+	public function __construct(DoliDB $db)
+	{
+		$this->db = $db;
+
+		// Hide technical id by default
+		if (!getDolGlobalInt('MAIN_SHOW_TECHNICAL_ID') && isset($this->fields['rowid'])) {
+			$this->fields['rowid']['visible'] = 0;
+		}
+
+		// Drop disabled fields (none here)
+		foreach ($this->fields as $k => $v) {
+			if (isset($v['enabled']) && empty($v['enabled'])) unset($this->fields[$k]);
+		}
+	}
+
+	/* ================== CRUD ================== */
+
+	public function create(User $user, $notrigger = 0)
+	{
+		if (empty($this->entity)) $this->entity = (int) getEntity($this->element, 1);
+		if (empty($this->datec))  $this->datec  = dol_now();
+		return $this->createCommon($user, $notrigger);
+	}
+
+	public function fetch($id, $ref = null, $noextrafields = 1, $nolines = 1)
+	{
+		return $this->fetchCommon($id, $ref, '', $noextrafields);
+	}
+
+	public function update(User $user, $notrigger = 0)
+	{
+		return $this->updateCommon($user, $notrigger);
+	}
+
+	public function delete(User $user, $notrigger = 0)
+	{
+		return $this->deleteCommon($user, $notrigger);
+	}
+
+	/* ================== Finders ================== */
+
+	/**
+	 * Fetch a mapping by Dolibarr category id (unique per entity).
+	 * @return int  >0 if loaded, 0 if not found, <0 on SQL error
+	 */
+	public function fetchByCategorie(int $fk_categorie): int
+	{
+		$sql  = "SELECT rowid FROM ".$this->db->prefix().$this->table_element;
+		$sql .= " WHERE entity IN (".getEntity($this->element).")";
+		$sql .= " AND fk_categorie = ".((int) $fk_categorie);
+		$sql .= " LIMIT 1";
+
+		$res = $this->db->query($sql);
+		if (!$res) { $this->error = $this->db->lasterror(); return -1; }
+		if ($this->db->num_rows($res) == 0) return 0;
+		$obj = $this->db->fetch_object($res);
+		return $this->fetch((int) $obj->rowid);
+	}
+
+	/**
+	 * Fetch a mapping by (taler_instance, taler_category_id) (unique per entity).
+	 * @return int  >0 if loaded, 0 if not found, <0 on SQL error
+	 */
+	public function fetchByInstanceCatId(string $instance, int $talerCategoryId): int
+	{
+		$sql  = "SELECT rowid FROM ".$this->db->prefix().$this->table_element;
+		$sql .= " WHERE entity IN (".getEntity($this->element).")";
+		$sql .= " AND taler_instance = '".$this->db->escape($instance)."'";
+		$sql .= " AND taler_category_id = ".((int) $talerCategoryId);
+		$sql .= " LIMIT 1";
+
+		$res = $this->db->query($sql);
+		if (!$res) { $this->error = $this->db->lasterror(); return -1; }
+		if ($this->db->num_rows($res) == 0) return 0;
+		$obj = $this->db->fetch_object($res);
+		return $this->fetch((int) $obj->rowid);
+	}
+
+	/**
+	 * Idempotent upsert helper respecting your unique keys.
+	 * - If (entity, fk_categorie) exists, update Taler side fields.
+	 * - Else if (entity, instance, taler_category_id) exists, update Dolibarr side fields.
+	 * - Else insert.
+	 *
+	 * @return int >0 row id on success, <0 on error
+	 */
+	public function upsert(User $user, string $instance, int $talerCatId, int $fkCategorie, ?string $talerCatName = null, ?string $note = null)
+	{
+		$this->db->begin();
+
+		// Try by Dolibarr category
+		$tmp = new self($this->db);
+		$load = $tmp->fetchByCategorie($fkCategorie);
+		if ($load < 0) { $this->db->rollback(); $this->error = $tmp->error; return -1; }
+
+		if ($load > 0) {
+			// Update existing row
+			$tmp->taler_instance      = $instance;
+			$tmp->taler_category_id   = $talerCatId;
+			if ($talerCatName !== null) $tmp->taler_category_name = $talerCatName;
+			if ($note !== null)         $tmp->note = $note;
+
+			$res = $tmp->update($user, 1);
+			if ($res <= 0) { $this->db->rollback(); $this->error = $tmp->error; return -1; }
+			$this->db->commit();
+			return (int) $tmp->id;
+		}
+
+		// Try by Taler composite key
+		$tmp2 = new self($this->db);
+		$load2 = $tmp2->fetchByInstanceCatId($instance, $talerCatId);
+		if ($load2 < 0) { $this->db->rollback(); $this->error = $tmp2->error; return -1; }
+
+		if ($load2 > 0) {
+			$tmp2->fk_categorie = $fkCategorie;
+			if ($talerCatName !== null) $tmp2->taler_category_name = $talerCatName;
+			if ($note !== null)         $tmp2->note = $note;
+
+			$res = $tmp2->update($user, 1);
+			if ($res <= 0) { $this->db->rollback(); $this->error = $tmp2->error; return -1; }
+			$this->db->commit();
+			return (int) $tmp2->id;
+		}
+
+		// Insert fresh
+		$this->entity              = (int) getEntity($this->element, 1);
+		$this->taler_instance      = $instance;
+		$this->taler_category_id   = $talerCatId;
+		$this->taler_category_name = $talerCatName;
+		$this->fk_categorie        = $fkCategorie;
+		$this->note                = $note;
+		$this->datec               = dol_now();
+
+		$res = $this->create($user, 1);
+		if ($res <= 0) { $this->db->rollback(); return -1; }
+
+		$this->db->commit();
+		return (int) $this->id;
+	}
+
+	/* ================== UI helpers ================== */
+
+	public function getNomUrl($withpicto = 0, $option = '', $notooltip = 0, $morecss = '', $save_lastsearch_value = -1)
+	{
+		$label = 'TalerCategoryMap';
+		$url = dol_buildpath('/talerbarr/talercategorymap_card.php', 1).'?id='.(int) $this->id;
+
+		$linkstart = ($option == 'nolink' || empty($url)) ? '<span>' : '<a href="'.$url.'">';
+		$linkend   = ($option == 'nolink' || empty($url)) ? '</span>' : '</a>';
+
+		$out = $linkstart;
+		if ($withpicto) $out .= img_object('', $this->picto, $withpicto != 2 ? 'class="paddingright"' : '');
+		if ($withpicto != 2) $out .= dol_escape_htmltag($this->getLabelForList());
+		$out .= $linkend;
+
+		return $out;
+	}
+
+	public function getLabelForList(): string
+	{
+		$ti  = $this->taler_instance ?: '?';
+		$tid = dol_strlen($this->taler_category_id) ? (string) $this->taler_category_id : '?';
+		$nm  = $this->taler_category_name ?: '';
+		$dol = $this->fk_categorie ? (' → #'.$this->fk_categorie) : '';
+		return trim("$ti/$tid ".($nm ? "($nm)" : '').$dol);
+	}
+}
