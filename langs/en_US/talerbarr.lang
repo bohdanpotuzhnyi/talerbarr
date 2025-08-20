@@ -44,7 +44,8 @@ MyWidgetDescription = My widget description
 #
 # Taler config page
 #
-TalerConfig = TalerBar Configuration
+TalerBarConfiguration = Configuration Status of TalerBarr
+TalerConfig = TalerBarr Configuration
 TalerMerchantURL = Taler Merchant URL
 TalerPassword = Password
 TalerToken = Taler Access Token
@@ -53,3 +54,12 @@ SyncFrom = Sync from
 TalerConfigIsValid = Valid Taler Config Is Found
 Username = Username
 
+
+#
+# Taler Inventory
+#
+TalerInventory = Taler Inventory
+TalerProductLinkList = Products
+TalerProductLinks = Taler Products
+TalerCategoryMapList = Categories
+TalerCategoryMaps = Taler Categories

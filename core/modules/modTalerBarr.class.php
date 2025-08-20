@@ -92,7 +92,7 @@ class modTalerBarr extends DolibarrModules
 		// Define some features supported by module (triggers, login, substitutions, menus, css, etc...)
 		$this->module_parts = array(
 			// Set this to 1 if module has its own trigger directory (core/triggers)
-			'triggers' => 0,
+			'triggers' => 1,
 			// Set this to 1 if module has its own login method file (core/login)
 			'login' => 0,
 			// Set this to 1 if module has its own substitution function file (core/substitutions)
@@ -336,6 +336,56 @@ class modTalerBarr extends DolibarrModules
 			'user' => 2, // 0=Menu for internal users, 1=external users, 2=both
 		);
 		/* END MODULEBUILDER TOPMENU */
+
+		$this->menu[$r++] = array(
+			'fk_menu'  => 'fk_mainmenu=talerbarr',
+			'type'     => 'left',
+			'titre'    => 'TalerInventory',
+			'prefix'   => img_picto('', 'product', 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'talerbarr',
+			'leftmenu' => 'talerinventory',
+			'url'      => '',
+			'langs'    => 'talerbarr@talerbarr',
+			'position' => 1000 + $r,
+			'enabled'  => 'isModEnabled("talerbarr")',
+			'perms'    => '1',
+			'target'   => '',
+			'user'     => 2,
+		);
+
+		/* Child 1: Product Links list */
+		$this->menu[$r++] = array(
+			'fk_menu'  => 'fk_mainmenu=talerbarr,fk_leftmenu=talerinventory',
+			'type'     => 'left',
+			'titre'    => 'TalerProductLinkList',
+			'prefix'   => img_picto('', $this->picto, 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'talerbarr',
+			'leftmenu' => 'talerproductlink_list',
+			'url'      => '/talerbarr/talerproductlink_list.php', // adjust if your filename differs
+			'langs'    => 'talerbarr@talerbarr',
+			'position' => 1000 + $r,
+			'enabled'  => 'isModEnabled("talerbarr")',
+			'perms'    => '1',
+			'target'   => '',
+			'user'     => 2,
+		);
+
+		/* Child 2: Category Map list */
+		$this->menu[$r++] = array(
+			'fk_menu'  => 'fk_mainmenu=talerbarr,fk_leftmenu=talerinventory',
+			'type'     => 'left',
+			'titre'    => 'TalerCategoryMapList',
+			'prefix'   => img_picto('', $this->picto, 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'talerbarr',
+			'leftmenu' => 'talercategorymap_list',
+			'url'      => '/talerbarr/talercategorymap_list.php', // adjust if your filename is talercategorymap.php
+			'langs'    => 'talerbarr@talerbarr',
+			'position' => 1000 + $r,
+			'enabled'  => 'isModEnabled("talerbarr")',
+			'perms'    => '1',
+			'target'   => '',
+			'user'     => 2,
+		);
 
 		/* BEGIN MODULEBUILDER LEFTMENU TALERCONFIG */
 		$this->menu[$r++] = array(
