@@ -14,14 +14,14 @@
 -- along with this program.  If not, see https://www.gnu.org/licenses/.
 
 
-CREATE TABLE llx_talerbarr_talerconfig(
+CREATE TABLE IF NOT EXISTS llx_talerbarr_talerconfig(
 	-- BEGIN MODULEBUILDER FIELDS
 	rowid integer AUTO_INCREMENT PRIMARY KEY NOT NULL, 
 	date_creation datetime NOT NULL, 
 	tms timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, 
 	fk_user_creat integer NOT NULL, 
-	fk_user_modif integer, 
-	status integer NOT NULL, 
+	fk_user_modif integer,
+	status integer NOT NULL,
 	talermerchanturl varchar(2048) NOT NULL, 
 	username varchar(128) NOT NULL, 
 	expiration timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL, 

@@ -320,6 +320,32 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 	}
 
 	/**
+	 * Resolve active Taler config (username + syncdirection).
+	 * Returns ['username'=>'', 'syncdirection'=>null] if none found.
+	 * We might want to change it to the fetchSingletonVerified from TalerConfig
+	 *
+	 * @return array
+	 */
+	private function getActiveTalerConfig(): array
+	{
+		$sql = "SELECT username, syncdirection
+              	  FROM ".$this->db->prefix()."talerbarr_talerconfig
+          		  ORDER BY rowid DESC
+                  LIMIT 1";
+
+		$res = $this->db->query($sql);
+		if ($res && ($row = $this->db->fetch_object($res))) {
+			return [
+				'username'      => (string) $row->username,
+				'syncdirection' => isset($row->syncdirection) ? (int) $row->syncdirection : null,
+			];
+		}
+
+		return ['username' => '', 'syncdirection' => null];
+	}
+
+
+	/**
 	 * Upsert or refresh a TalerProductLink row that corresponds to a Dolibarr
 	 * Product (create if missing, update snapshot otherwise).
 	 *
@@ -329,7 +355,17 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 	 */
 	private function upsertProduct(Product $prod, User $user)
 	{
+		$cfg = $this->getActiveTalerConfig();
+
+		// Ignore if no config or sync direction is Taler→Dolibarr
+		if (empty($cfg['username']) || (string)$cfg['syncdirection'] === '1') {
+			return 0;
+		}
+
+		$instance = $cfg['username'];
 		$link = new TalerProductLink($this->db);
+
+		// Upsert by fk_product
 		$load = $link->fetchByProductId((int) $prod->id);
 		if ($load < 0) {
 			// fatal SQL error during fetch → log & propagate
@@ -341,17 +377,22 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 				  'fk_product'    => $prod->id,
 				  'error_message' => $link->error ?: 'DB error while fetchByProductId'
 				],
-				$user);
+				$user
+			);
 			return -1;
 		}
 
-		$link->setDolibarrSnapshot($prod);
-
 		if ($load > 0) {
-			// Row exists → update snapshot
 			$res = $link->update($user, 1);
+			if ($res === 0 && $this->db->transaction_opened > 0) {
+				$this->db->commit();
+			}
 		} else {
-			// Fresh row → minimal defaults
+			// Compute proper ProductDetail and mirror into link
+			$detail = $link->talerDetailFromDolibarrProduct($prod, ['instance' => $instance]);
+			$link->prepareFromDolibarrAndTalerDetail($prod, $detail, ['instance' => $instance]);
+
+
 			$link->entity       = (int) getEntity($link->element, 1);
 			$link->sync_enabled = 1;
 			$res = $link->create($user, 1);
@@ -361,10 +402,11 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 			TalerErrorLog::recordArray(
 				$this->db,
 				[
-				  'context'       => 'product',
-				  'operation'     => $load ? 'update' : 'create',
-				  'fk_product'    => $prod->id,
-				  'error_message' => $link->error ?: 'DB error while save'
+					'context'       => 'product',
+					'operation'     => ($load > 0 ? 'update' : 'create'),
+					'fk_product'    => $prod->id,
+					'error_message' => $link->error ?: 'DB error while saving link',
+					'payload_json'  => json_encode(['detail'=>$detail], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE),
 				],
 				$user
 			);
@@ -382,11 +424,23 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 	 */
 	private function deleteProduct(Product $prod, User $user)
 	{
+		$cfg = $this->getActiveTalerConfig();
+
+		// Ignore if no config or sync direction is Taler→Dolibarr
+		if (empty($cfg['username']) || (string)$cfg['syncdirection'] === '1') {
+			return 0;
+		}
+
 		$link = new TalerProductLink($this->db);
 		$load = $link->fetchByProductId((int) $prod->id);
-		if ($load <= 0) return $load;           // nothing to do / propagate error
+		if ($load <= 0) return $load;
+
 
 		$res = $link->delete($user, 1);
+		if ($res === 0 && $this->db->transaction_opened > 0) {
+			$this->db->commit();
+		}
+
 		if ($res <= 0) {
 			TalerErrorLog::recordArray(
 				$this->db,
@@ -413,16 +467,24 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 	 */
 	private function touchProductFromMovement($mvmt, User $user)
 	{
-		if (empty($mvmt->fk_product)) return 0;           // nothing to do
+		$cfg = $this->getActiveTalerConfig();
+
+		// Ignore if no config or sync direction is Taler→Dolibarr
+		if (empty($cfg['username']) || (string)$cfg['syncdirection'] === '1') {
+			return 0;
+		}
+
+		if (empty($mvmt->fk_product)) return 0;
+
 		$prod = new Product($this->db);
 		if ($prod->fetch((int) $mvmt->fk_product) <= 0) {
 			TalerErrorLog::recordArray(
 				$this->db,
 				[
-				  'context'       => 'product',
-				  'operation'     => 'fetch',
-				  'fk_product'    => $mvmt->fk_product,
-				  'error_message' => $prod->error ?: 'Unable to fetch product from movement'
+					'context'       => 'product',
+					'operation'     => 'fetch',
+					'fk_product'    => $mvmt->fk_product,
+					'error_message' => $prod->error ?: 'Unable to fetch product from movement',
 				],
 				$user
 			);

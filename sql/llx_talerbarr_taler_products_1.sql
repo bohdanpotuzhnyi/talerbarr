@@ -2,7 +2,7 @@
 -- llx_talerbarr_products_1.sql
 -- #1 Batch of the creations, run when the user activates the plugin
 --
-CREATE TABLE llx_talerbarr_product_link (
+CREATE TABLE IF NOT EXISTS llx_talerbarr_product_link (
     rowid                INT AUTO_INCREMENT PRIMARY KEY,
     entity               INT NOT NULL DEFAULT 1,
 
@@ -24,7 +24,7 @@ CREATE TABLE llx_talerbarr_product_link (
 
     -- Units & stocks
     fk_unit              INT NULL,                 -- map to llx_c_units.rowid
-    taler_total_stock    BIGINT NULL,              -- -1 means infinite
+    taler_total_stock    BIGINT NULL DEFAULT -1,   -- -1 means infinite
     taler_total_sold     BIGINT NULL,
     taler_total_lost     BIGINT NULL,
 
@@ -61,7 +61,7 @@ CREATE TABLE llx_talerbarr_product_link (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
-CREATE TABLE llx_talerbarr_category_map (
+CREATE TABLE IF NOT EXISTS llx_talerbarr_category_map (
   rowid              INT AUTO_INCREMENT PRIMARY KEY,
   entity             INT NOT NULL DEFAULT 1,
   taler_instance     VARCHAR(64) NOT NULL,
@@ -79,7 +79,7 @@ CREATE TABLE llx_talerbarr_category_map (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
-CREATE TABLE llx_talerbarr_error_log (
+CREATE TABLE IF NOT EXISTS llx_talerbarr_error_log (
     rowid            INT AUTO_INCREMENT PRIMARY KEY,
     entity           INT NOT NULL DEFAULT 1,
 
@@ -108,7 +108,7 @@ CREATE TABLE llx_talerbarr_error_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
-CREATE TABLE llx_talerbarr_tax_map (
+CREATE TABLE IF NOT EXISTS llx_talerbarr_tax_map (
   rowid            INT AUTO_INCREMENT PRIMARY KEY,
   entity           INT NOT NULL DEFAULT 1,
   taler_instance   VARCHAR(64) NOT NULL,

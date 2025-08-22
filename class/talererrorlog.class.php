@@ -61,7 +61,7 @@ class TalerErrorLog extends CommonObject
 			)
 		),
 		'direction_is_push' => array('type'=>'integer', 'label'=>'DirectionPush', 'visible'=>1, 'notnull'=>0, 'position'=>12,
-			'arrayofkeyval'=>array('0'=>'PullTalerToDoli','1'=>'PushDoliToTaler')
+			'arrayofkeyval'=>array('1'=>'PullTalerToDoli','0'=>'PushDoliToTaler')
 		),
 
 		'fk_product_link'   => array('type'=>'integer', 'label'=>'FkProductLink', 'visible'=>1, 'notnull'=>0, 'index'=>1, 'position'=>20),
