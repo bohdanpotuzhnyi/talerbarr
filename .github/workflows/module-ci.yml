@@ -1,4 +1,4 @@
-name: Module CI • Dolibarr full tests (PHP 7.1 • MySQL 5.7)
+name: Module CI • Dolibarr full tests (PHP 7.1 • MySQL)
 
 on:
   pull_request:
@@ -27,36 +27,42 @@ jobs:
           - 32574:3306
 
     steps:
-      # Your module repo (this repo)
-      - name: Checkout module repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      # Clone Dolibarr core (we’ll run its workflow steps)
+      # 0) Dolibarr core
       - name: Clone Dolibarr core (develop)
         run: |
           git clone --depth=1 https://github.com/Dolibarr/dolibarr.git dolibarr
           ls -al dolibarr
 
+      # 1) Your module repo (this repo)
+      - name: Checkout module repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          path: dolibarr/htdocs/custom/talerbarr
+
       - name: Version PHP (runner default)
         run: php -i | head -
 
+      # 3) Install PHP 7.1 toolchain + composer tools (PHPUnit 7.5, etc.)
       - name: Install packages for PHP 7.1
         run: |
           sudo composer self-update 2.2.18
           sudo chmod -R a+rwx /home/runner
+
+          # Keep Dolibarr vendor tools under htdocs/includes (global composer config like upstream)
           (cd dolibarr && composer -n config -g vendor-dir htdocs/includes)
 
           sudo add-apt-repository -y ppa:ondrej/php
           sudo apt-get update
           sudo apt-get install -y pgloader memcached
-          sudo apt-get install -y apache2 php7.1 php7.1-cli php7.1-curl php7.1-mysql php7.1-pgsql php7.1-gd php7.1-imap php7.1-intl php7.1-ldap php7.1-xml php7.1-mbstring php7.1-zip libapache2-mod-php7.1
+          sudo apt-get install -y \
+            apache2 php7.1 php7.1-cli php7.1-curl php7.1-mysql php7.1-pgsql \
+            php7.1-gd php7.1-imap php7.1-intl php7.1-ldap php7.1-xml \
+            php7.1-mbstring php7.1-zip libapache2-mod-php7.1
           sudo update-alternatives --set php /usr/bin/php7.1
           php -i | head -
 
           cd dolibarr
-          ls
           composer -n require --ignore-platform-reqs \
             phpunit/phpunit ^7.5 \
             php-parallel-lint/php-parallel-lint ^1 \
@@ -65,12 +71,6 @@ jobs:
             squizlabs/php_codesniffer ^3
           # cleanup html coverage reporter dirs like upstream
           sudo rm -fr htdocs/includes/phpunit/php-code-coverage/src/Report/Html
-
-      - name: Adding path of composer-installed tools to PATH
-        run: |
-          export PATH="$GITHUB_WORKSPACE/dolibarr/htdocs/includes/bin:$PATH"
-          echo "$PATH"
-          ls "$GITHUB_WORKSPACE/dolibarr/htdocs/includes/bin"
 
       - name: Version information
         run: |
@@ -86,27 +86,21 @@ jobs:
           dolibarr/htdocs/includes/bin/phpunit --version | head -
           echo "Apache version"
           apache2 -v | head -
-          echo "Database version"
+          echo "MySQL client version"
           mysql --version | head -
 
-      - name: Create database (MySQL 5.7)
+      # 4) DB init (MySQL 5.7 like Dolibarr’s CI)
+      - name: Create database
         run: |
-          pwd
-          echo "GITHUB_WORKSPACE = $GITHUB_WORKSPACE"
           sudo apt-get install -y mysql-client
-          mysql --version | head -
           mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "SELECT VERSION();" | head -
-          mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "SHOW DATABASES"
-
-          echo "Drop and create database"
           mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e 'DROP DATABASE IF EXISTS travis;'
-          mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "CREATE DATABASE IF NOT EXISTS travis CHARACTER SET = 'utf8';"
+          mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "CREATE DATABASE IF NOT EXISTS travis CHARACTER SET 'utf8';"
           mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "CREATE USER IF NOT EXISTS 'travis'@'127.0.0.1' IDENTIFIED BY 'password';"
           mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "GRANT ALL PRIVILEGES ON travis.* TO travis@127.0.0.1; FLUSH PRIVILEGES;"
-
-          # Load the Dolibarr demo dump like upstream
+          # Load Dolibarr demo dump like upstream
           mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -D travis < dolibarr/dev/initdemo/mysqldump_dolibarr_3.5.0.sql
-          mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -D travis -e "UPDATE llx_const set value = '0666' WHERE name = 'MAIN_UMASK';"
+          mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -D travis -e "UPDATE llx_const SET value='0666' WHERE name='MAIN_UMASK';"
 
       # ----- Option A: wire Dolibarr into /var/www BEFORE writing conf.php
       - name: Wire Dolibarr into /var/www
@@ -119,7 +113,7 @@ jobs:
           sudo cp -r dolibarr/scripts/. /var/www/scripts
           sudo chown -R www-data:www-data /var/www/html
 
-      # Install *your* module into Dolibarr custom dir
+      # 5) Drop your module into Dolibarr /custom
       - name: Add our module into Dolibarr
         run: |
           sudo mkdir -p /var/www/html/custom
@@ -127,7 +121,8 @@ jobs:
           sudo chown -R www-data:www-data /var/www/html/custom/talerbarr
           ls -al /var/www/html/custom
 
-      - name: Generate Dolibarr conf.php (MySQL)
+      # 6) App configuration (MySQL)
+      - name: Generate Dolibarr conf.php
         run: |
           sudo install -d -m 0777 /var/www/html/conf
           sudo tee /var/www/html/conf/conf.php > /dev/null <<'PHP'
@@ -139,7 +134,7 @@ jobs:
           $dolibarr_main_db_name='travis';
           $dolibarr_main_db_user='root';
           $dolibarr_main_db_pass='password';
-          $dolibarr_main_instance_unique_id='travis-module';
+          $dolibarr_main_instance_unique_id='travis1234567890';
           $dolibarr_main_db_type='mysqli';
           $dolibarr_main_db_port='32574';
           $dolibarr_main_authentication='dolibarr';
@@ -164,16 +159,12 @@ jobs:
           $force_install_mainforcehttps=false;
           $force_install_main_data_root='/var/www/html';
           PHP
-          sudo cat /var/www/html/install/install.forced.php
 
-      - name: Setup Apache (PHP 7.1)
+      # 7) Web server like upstream
+      - name: Setup Apache
         run: |
-          a2query -s || true
-          a2query -m || true
-          ls /etc/apache2/sites-available
           sudo a2ensite 000-default
           sudo a2enmod php7.1
-          ls /etc/apache2/sites-enabled
           sudo adduser $(whoami) www-data
           sudo adduser $(whoami) root
           sudo adduser root www-data
@@ -186,15 +177,14 @@ jobs:
       - name: Check Apache availability
         run: |
           set +e
-          wget -O - --debug http://127.0.0.1 > $GITHUB_WORKSPACE/test.html 2>&1
+          wget -O - --debug http://127.0.0.1 > $GITHUB_WORKSPACE/test.html 2>&1 || true
           head -n 200 $GITHUB_WORKSPACE/test.html || true
           echo "Logs..."
           sudo cat /var/log/apache2/access.log || true
           sudo cat /var/log/apache2/error.log || true
           sudo cat /var/log/apache2/other_vhosts_access.log || true
-          set +e
 
-      # Perform the long upgrade chain, like Dolibarr CI (required before tests)
+      # 8) Perform Dolibarr upgrade chain (same as CI)
       - name: Upgrading Dolibarr (full chain)
         run: |
           set -e
@@ -285,7 +275,7 @@ jobs:
           echo "Show content of last file"
           cat "$(ls -rt $GITHUB_WORKSPACE/ | tail -n1)"
 
-      # Enable Dolibarr standard modules AND our module
+      # 9) Enable Dolibarr standard modules and your module
       - name: Enabling modules (including our module)
         run: |
           set -e
@@ -295,7 +285,8 @@ jobs:
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_RECEPTION,MAIN_MODULE_RECRUITMENT >> $GITHUB_WORKSPACE/enablemodule.log
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_KnowledgeManagement,MAIN_MODULE_EventOrganization,MAIN_MODULE_PARTNERSHIP >> $GITHUB_WORKSPACE/enablemodule.log
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_EmailCollector >> $GITHUB_WORKSPACE/enablemodule.log
-          #php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_TalerBarr >> $GITHUB_WORKSPACE/enablemodule.log
+          # Enable your module
+          php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_TalerBarr >> $GITHUB_WORKSPACE/enablemodule.log
           cd -
 
       - name: Result of enabling modules scripts
@@ -304,7 +295,16 @@ jobs:
           echo "Show content of enablemodule.log file"
           cat $GITHUB_WORKSPACE/enablemodule.log
 
-      # Run the FULL Dolibarr test suite (same as upstream)
+      # (Optional safety net) load any module SQL files if activation didn't do it
+      - name: Load module SQL migrations if present (best-effort)
+        run: |
+          set +e
+          for f in $(find /var/www/html/custom/talerbarr -type f -name '*.sql' 2>/dev/null); do
+            echo "Applying $f ..."
+            mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -D travis < "$f" || true
+          done
+
+      # 10) Run ALL Dolibarr tests (same as upstream)
       - name: Unit testing (all Dolibarr tests)
         run: |
           set -e
