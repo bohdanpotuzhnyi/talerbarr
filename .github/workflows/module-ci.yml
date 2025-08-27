@@ -299,8 +299,7 @@ jobs:
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_RECEPTION,MAIN_MODULE_RECRUITMENT >> $GITHUB_WORKSPACE/enablemodule.log
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_KnowledgeManagement,MAIN_MODULE_EventOrganization,MAIN_MODULE_PARTNERSHIP >> $GITHUB_WORKSPACE/enablemodule.log
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_EmailCollector >> $GITHUB_WORKSPACE/enablemodule.log
-          # ✅ Enable our module
-          php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_TalerBarr >> $GITHUB_WORKSPACE/enablemodule.log
+          #php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_TalerBarr >> $GITHUB_WORKSPACE/enablemodule.log
           cd -
 
       - name: Result of enabling modules scripts
