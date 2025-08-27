@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          path: dolibarr/htdocs/custom/talerbarr
+          path: dolibarr/htdocs/core/modules/talerbarr
 
       - name: Version PHP (runner default)
         run: php -i | head -
@@ -285,7 +285,6 @@ jobs:
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_RECEPTION,MAIN_MODULE_RECRUITMENT >> $GITHUB_WORKSPACE/enablemodule.log
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_KnowledgeManagement,MAIN_MODULE_EventOrganization,MAIN_MODULE_PARTNERSHIP >> $GITHUB_WORKSPACE/enablemodule.log
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_EmailCollector >> $GITHUB_WORKSPACE/enablemodule.log
-          # Enable your module
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_TalerBarr >> $GITHUB_WORKSPACE/enablemodule.log
           cd -
 
