@@ -28,6 +28,10 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/geturl.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
 
+require_once __DIR__.'/talerconfig.class.php';
+require_once __DIR__.'/talermerchantclient.class.php';
+require_once __DIR__.'/talererrorlog.class.php';
+
 class TalerProductLink extends CommonObject
 {
 	/** @var string */
@@ -737,5 +741,190 @@ class TalerProductLink extends CommonObject
 		$pid  = $this->taler_product_id ?: '?';
 		$ref  = $this->product_ref_snap ?: ($this->fk_product ? 'PID '.$this->fk_product : '');
 		return trim("$left$pid  ".$ref);
+	}
+
+	/**
+	 * Build a ready-to-use TalerMerchantClient for this link.
+	 *
+	 * @param TalerConfig|null $cfg  Receives the config row (on success)
+	 * @param string|null      $err  Receives error message (on failure)
+	 * @return TalerMerchantClient|null
+	 */
+	private function getMerchantClient(?TalerConfig &$cfg = null, ?string &$err = null): ?TalerMerchantClient
+	{
+		$cfg = TalerConfig::fetchSingletonVerified($this->db, $err);
+		if (!$cfg || !$cfg->verification_ok) {
+			if (!$err) $err = $cfg ? ($cfg->verification_error ?: 'Config not verified') : 'No valid TalerConfig';
+			return null;
+		}
+		if (strcasecmp($cfg->username, $this->taler_instance) !== 0) {
+			$err = 'Config username/instance mismatch ('.$cfg->username.' ≠ '.$this->taler_instance.')';
+			return null;
+		}
+		try {
+			return new TalerMerchantClient($cfg->talermerchanturl, $cfg->talertoken);
+		} catch (Throwable $e) {
+			$err = 'Could not create merchant client: '.$e->getMessage();
+			return null;
+		}
+	}
+
+	/**
+	 * Push (create or update) the linked Dolibarr product to the Taler inventory.
+	 *
+	 * @param User    $user
+	 * @param Product $prod   Dolibarr product to export (already loaded)
+	 * @return bool           true on success, false on failure (errors logged & set)
+	 */
+	public function pushToTaler(User $user, Product $prod): bool
+	{
+		$err = null;
+		$client = $this->getMerchantClient($cfg, $err);
+		if (!$client) {
+			$this->markSyncResult(true, 'error', 'config', $err);
+			return false;
+		}
+
+		// Build ProductAddDetail / ProductPatchDetail payload
+		$detail = $this->talerDetailFromDolibarrProduct($prod, ['instance'=>$this->taler_instance]);
+		$detail['product_id'] = $this->taler_product_id;
+
+		try {
+			// optimistic: try POST first
+			$client->addProduct($this->taler_instance, $detail);
+			$this->markSyncResult(true, 'ok');
+			return true;
+		} catch (Exception $e) {
+			// 409 means product exists – fall back to PATCH
+			if (str_contains($e->getMessage(), 'HTTP 409')) {
+				try {
+					unset($detail['product_id']);               // PATCH must NOT include product_id
+					$client->updateProduct($this->taler_instance, $this->taler_product_id, $detail);
+					$this->markSyncResult(true, 'ok');
+					return true;
+				} catch (Exception $e2) {
+					$err = $e2->getMessage();
+				}
+			} else {
+				$err = $e->getMessage();
+			}
+		}
+
+		$this->markSyncResult(true, 'error', 'push', $err);
+		$this->logTalerError('product', 'push', $err);
+		return false;
+	}
+
+	/**
+	 * Pull latest product data from Taler and (optionally) update Dolibarr.
+	 *
+	 * @param User  $user
+	 * @param bool  $writeDoli  true = update or create Dolibarr product when missing
+	 * @return bool             true on success, false on failure
+	 */
+	public function pullFromTaler(User $user, bool $writeDoli = true): bool
+	{
+		$err = null;
+		$client = $this->getMerchantClient($cfg, $err);
+		if (!$client) {
+			$this->markSyncResult(false, 'error', 'config', $err);
+			return false;
+		}
+
+		try {
+			$detail = $client->getProduct($this->taler_instance, $this->taler_product_id);
+		} catch (Exception $e) {
+			$this->markSyncResult(false, 'error', 'fetch', $e->getMessage());
+			$this->logTalerError('product', 'fetch', $e->getMessage());
+			return false;
+		}
+
+		// If we have a linked Dolibarr product – refresh price/stock snapshot only.
+		if ($this->fk_product && $writeDoli) {
+			$prod = new Product($this->db);
+			if ($prod->fetch($this->fk_product) > 0) {
+				// minimal update (price + stock); extend as needed
+				if (!empty($detail['price'])) {
+					$p = self::parseTalerAmount($detail['price']);
+					if ($p['value'] !== null) {
+						$prod->price_ttc = $p['value'] + $p['fraction']/100000000.0;
+						$prod->price     = $prod->price_ttc;   // keep TTC parity
+					}
+				}
+				if (isset($detail['total_stock'])) $prod->stock_reel = (int)$detail['total_stock'];
+				$prod->update($this->fk_user_modif ?: $user);
+				$this->setDolibarrSnapshot($prod);          // refresh cached ref + tms
+			}
+		} elseif (!$this->fk_product && $writeDoli) {
+			// No product yet – create it and link
+			$newProdId = $this->createDolibarrProductFromTalerDetail($detail, $user, [
+				'instance'        => $this->taler_instance,
+				'taler_product_id'=> $this->taler_product_id,
+				'create_link'     => false,                // we’ll reuse this link row
+			]);
+			if ($newProdId > 0) {
+				$this->fk_product = $newProdId;
+			}
+		}
+
+		// Mirror essential remote fields into link row
+		$this->taler_amount_str   = $detail['price'] ?? null;
+		$this->taler_total_stock  = $detail['total_stock']     ?? null;
+		$this->taler_total_sold   = $detail['total_sold']      ?? null;
+		$this->taler_total_lost   = $detail['total_lost']      ?? null;
+		$this->taler_categories_json = json_encode($detail['categories'] ?? []);
+		$this->fillPriceFromAmountStr();
+
+		$this->markSyncResult(false, 'ok');
+		return true;
+	}
+
+	/**
+	 * Delete the product on the Taler backend.
+	 *
+	 * @param User $user
+	 * @return bool  true on 204, false otherwise
+	 */
+	public function deleteOnTaler(User $user): bool
+	{
+		$err = null;
+		$client = $this->getMerchantClient($cfg, $err);
+		if (!$client) {
+			$this->markSyncResult(true, 'error', 'config', $err);
+			return false;
+		}
+		try {
+			$client->deleteProduct($this->taler_instance, $this->taler_product_id);
+			$this->markSyncResult(true, 'ok');
+			return true;
+		} catch (Exception $e) {
+			$this->markSyncResult(true, 'error', 'delete', $e->getMessage());
+			$this->logTalerError('product', 'delete', $e->getMessage());
+			return false;
+		}
+	}
+
+	/**
+	 * Lightweight wrapper to persist an error row (if the table/class exists).
+	 *
+	 * @param string $context    'product' | 'category' | ...
+	 * @param string $operation  'push' | 'fetch' | ...
+	 * @param string $message    human readable
+	 * @return void
+	 */
+	private function logTalerError(string $context, string $operation, string $message): void
+	{
+		if (!class_exists('TalerErrorLog')) return;
+		$err = new TalerErrorLog($this->db);
+		$err->context          = $context;
+		$err->operation        = $operation;
+		$err->direction_is_push = ($operation === 'push' ? 1 : 0);
+		$err->fk_product_link  = $this->id;
+		$err->fk_product       = $this->fk_product;
+		$err->taler_instance   = $this->taler_instance;
+		$err->taler_product_id = $this->taler_product_id;
+		$err->error_message    = dol_trunc($message, 65535);
+		$err->datec            = dol_now();
+		$err->create($GLOBALS['user'] ?? null, 1);   // no triggers
 	}
 }
