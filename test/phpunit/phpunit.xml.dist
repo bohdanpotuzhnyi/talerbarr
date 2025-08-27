@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="tests/bootstrap.php"
+         colors="true"
+         beStrictAboutOutputDuringTests="true"
+         verbose="true">
+    <testsuites>
+        <testsuite name="Taler tests">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+    <php>
+        <!-- Make the demo values available to tests -->
+        <const name="DEMO_BASE" value="https://backend.demo.taler.net/instances/sandbox/private/"/>
+        <const name="DEMO_TOKEN" value="sandbox"/>
+    </php>
+</phpunit>

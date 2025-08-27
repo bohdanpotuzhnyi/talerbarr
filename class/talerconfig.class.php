@@ -134,7 +134,7 @@ class TalerConfig extends CommonObject
 		"username" => array("type" => "varchar(128)", "label" => "Username", "enabled" => "1", 'position' => 0, 'notnull' => 1, "visible" => "1", "comment" => "Instance name"),
 		"expiration" => array("type" => "timestamp", "label" => "Expiration", "enabled" => "1", 'position' => 0, 'notnull' => 1, "visible" => "1", "comment" => "Epoch expiration of token"),
 		"talertoken" => array("type" => "varchar(128)", "label" => "TalerToken", "enabled" => "1", 'position' => 0, 'notnull' => 1, "visible" => "1", "comment" => "Token received from merchant"),
-		"syncdirection" => array("type" => "boolean", "label" => "SyncDirection", "enabled" => "1", 'position' => 0, 'notnull' => 0, "visible" => "1", "default" => "1", "comment" => "True to Taler, false to Dolibarr"),
+		"syncdirection" => array("type" => "boolean", "label" => "SyncDirection", "enabled" => "1", 'position' => 0, 'notnull' => 0, "visible" => "1", "default" => "1", "comment" => "True from Taler, false from Dolibarr"),
 	);
 	public $rowid;
 	public $date_creation;
@@ -149,6 +149,7 @@ class TalerConfig extends CommonObject
 	public $syncdirection;
 	// END MODULEBUILDER PROPERTIES
 
+	private string $talerMerchantInstanceUrl;
 
 	// If this object has a subtable with lines
 
@@ -184,6 +185,8 @@ class TalerConfig extends CommonObject
 	//  * @var TalerConfigLine[]     Array of subtable lines
 	//  */
 	// public $lines = array();
+
+
 
 
 
@@ -1307,6 +1310,8 @@ class TalerConfig extends CommonObject
 
 		// 3) Build instance base path
 		$instanceBase = self::buildInstanceBase($baseUrl, $username); // ends with slash
+
+		$this->talerMerchantInstanceUrl = $instanceBase;
 
 		// 4) categories endpoint with Authorization header
 		if (dol_strlen($token) === 0) {

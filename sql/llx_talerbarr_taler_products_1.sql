@@ -38,10 +38,10 @@ CREATE TABLE IF NOT EXISTS llx_talerbarr_product_link (
 
     -- Sync control (bool, matches your config)
     sync_enabled         TINYINT(1) NOT NULL DEFAULT 1,
-    syncdirection_override TINYINT(1) NULL,        -- NULL = use global config; 1 push; 0 pull
+    syncdirection_override TINYINT(1) NULL,        -- NULL = use global config; 1 pull; 0 push
 
     -- Last sync result
-    lastsync_is_push     TINYINT(1) NULL,          -- 1=push (Doli→Taler), 0=pull (Taler→Doli)
+    lastsync_is_push     TINYINT(1) NULL,          -- 1=pull (Taler→Doli), 0=push (Doli→Taler)
     last_sync_status     VARCHAR(16) NULL,         -- ok | error | conflict
     last_sync_at         DATETIME NULL,
     last_error_code      VARCHAR(64) NULL,

@@ -1,0 +1,140 @@
+name: Module CI (PHP 8.1 • MySQL)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - develop
+      - main
+      - '1.*'
+      - '2.*'
+  workflow_dispatch:
+
+jobs:
+  php81-mysql:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: password
+        ports:
+          - 32574:3306
+        options: >-
+          --health-cmd="mysqladmin ping -ppassword -h 127.0.0.1 --silent"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+
+    steps:
+      - name: Checkout module
+        uses: actions/checkout@v4
+
+      - name: Prepare system + PHP 8.1
+        run: |
+          sudo add-apt-repository -y ppa:ondrej/php
+          sudo apt-get update
+          sudo apt-get install -y apache2 php8.1 php8.1-cli php8.1-curl php8.1-mysql php8.1-gd php8.1-imap php8.1-intl php8.1-ldap php8.1-xml php8.1-mbstring php8.1-zip libapache2-mod-php8.1 unzip
+          sudo update-alternatives --set php /usr/bin/php8.1
+
+      - name: Clone Dolibarr core (develop)
+        run: |
+          git clone --depth=1 https://github.com/Dolibarr/dolibarr.git dolibarr
+          ls -l dolibarr/htdocs
+
+      - name: Composer tools (PHPUnit, linters)
+        working-directory: dolibarr
+        run: |
+          php -v
+          curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+          composer -n config -g vendor-dir htdocs/includes
+          composer -n require --ignore-platform-reqs \
+            phpunit/phpunit ^8 \
+            php-parallel-lint/php-parallel-lint ^1.2 \
+            squizlabs/php_codesniffer ^3
+          ls -l htdocs/includes/bin
+
+      - name: Create MySQL database
+        run: |
+          mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e 'DROP DATABASE IF EXISTS travis;'
+          mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "CREATE DATABASE travis CHARACTER SET 'utf8';"
+          mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "CREATE USER IF NOT EXISTS 'travis'@'127.0.0.1' IDENTIFIED BY 'password';"
+          mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "GRANT ALL PRIVILEGES ON travis.* TO 'travis'@'127.0.0.1'; FLUSH PRIVILEGES;"
+
+      - name: Wire Dolibarr into /var/www and add our module
+        run: |
+          sudo cp -r dolibarr/htdocs /var/www/html
+          sudo mkdir -p /var/www/html/custom
+          sudo cp -r ./ /var/www/html/custom/talerbarr
+          sudo chown -R www-data:www-data /var/www/html
+          ls -l /var/www/html/custom
+
+      - name: Generate Dolibarr conf.php
+        run: |
+          cat > /var/www/html/conf/conf.php <<'PHP'
+          <?php
+          $dolibarr_main_url_root='http://127.0.0.1';
+          $dolibarr_main_document_root='/var/www/html';
+          $dolibarr_main_data_root='/var/www/html/documents';
+          $dolibarr_main_db_host='127.0.0.1';
+          $dolibarr_main_db_name='travis';
+          $dolibarr_main_db_user='travis';
+          $dolibarr_main_db_pass='password';
+          $dolibarr_main_db_type='mysqli';
+          $dolibarr_main_db_port='32574';
+          $dolibarr_main_instance_unique_id='travis-module';
+          $dolibarr_main_authentication='dolibarr';
+          PHP
+          sudo mkdir -p /var/www/html/documents/admin/temp
+          sudo chmod -R a+rwx /var/www/html/documents
+
+      - name: Non-interactive install (fresh schema)
+        working-directory: /var/www/html/install
+        run: |
+          # Use forced install to bootstrap a clean DB (faster than 3.5 -> 18.0 upgrade chain)
+          cat > install.forced.php <<'PHP'
+          <?php
+          $force_install_noedit=2;
+          $force_install_type='mysqli';
+          $force_install_dbserver='127.0.0.1';
+          $force_install_port='32574';
+          $force_install_database='travis';
+          $force_install_databaselogin='travis';
+          $force_install_databasepass='password';
+          $force_install_prefix='llx_';
+          $force_install_createdatabase=false;
+          $force_install_createuser=false;
+          $force_install_mainforcehttps=false;
+          $force_install_main_data_root='/var/www/html/documents';
+          PHP
+          php ./index.php >/dev/null 2>&1 || true
+
+      - name: Enable our module
+        working-directory: /var/www/html/install
+        run: |
+          # Enable by setting the MAIN_MODULE_* constant; name must match mod{Name}.class.php -> TalerBarr
+          php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_TalerBarr
+          # Verify the constant is set
+          php -r "require __DIR__.'/../filefunc.inc.php'; require_once DOL_DOCUMENT_ROOT.'/core/class/conf.class.php'; \$db = getDoliDBInstance(); \$res=\$db->query(\"SELECT value FROM llx_const WHERE name='MAIN_MODULE_TalerBarr'\"); \$obj=\$db->fetch_object(\$res); var_dump('MODULE_ENABLED=',\$obj->value);"
+
+      - name: Quick lint (optional)
+        working-directory: dolibarr
+        run: |
+          htdocs/includes/bin/parallel-lint -e php ../ /var/www/html/custom/talerbarr --exclude htdocs/includes || true
+
+      - name: Run tests (PR = module only; push = add a small core smoke)
+        run: |
+          set -e
+          cd /var/www/html
+          # Always run our module tests if present
+          if [ -d "/var/www/html/custom/talerbarr/tests/phpunit" ]; then
+            ./includes/bin/phpunit -d memory_limit=-1 -c /var/www/test/phpunit/phpunittest.xml /var/www/html/custom/talerbarr/tests/phpunit
+          else
+            echo "No module tests found; running a minimal DB smoke test."
+            php -r "require __DIR__.'/filefunc.inc.php'; \$db=getDoliDBInstance(); exit(\$db->query('SELECT 1')?0:1);"
+          fi
+
+          # On branch pushes, also run a small, fast subset of Dolibarr core tests
+          if [ "${{ github.event_name }}" = "push" ]; then
+            ./includes/bin/phpunit -d memory_limit=-1 -c /var/www/test/phpunit/phpunittest.xml /var/www/test/phpunit/10.0* || true
+          fi
