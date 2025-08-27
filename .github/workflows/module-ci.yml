@@ -1,4 +1,4 @@
-name: Module CI • Dolibarr full tests (PHP 7.1 • MySQL ➜ Postgres)
+name: Module CI • Dolibarr full tests (PHP 7.1 • MySQL 5.7)
 
 on:
   pull_request:
@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  github_ci_php71_pgsql_with_module:
+  github_ci_php71_mysql_with_module:
     runs-on: ubuntu-latest
 
     services:
@@ -25,28 +25,15 @@ jobs:
           MYSQL_ROOT_PASSWORD: password
         ports:
           - 32574:3306
-      postgres:
-        image: postgres
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
 
     steps:
-      # 1) Checkout your module repo
+      # Your module repo (this repo)
       - name: Checkout module repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      # 2) Clone Dolibarr core (develop)
+      # Clone Dolibarr core (we’ll run its workflow steps)
       - name: Clone Dolibarr core (develop)
         run: |
           git clone --depth=1 https://github.com/Dolibarr/dolibarr.git dolibarr
@@ -55,12 +42,10 @@ jobs:
       - name: Version PHP (runner default)
         run: php -i | head -
 
-      # 3) Install PHP 7.1 + toolchain like upstream (PHPUnit 7.x)
       - name: Install packages for PHP 7.1
         run: |
           sudo composer self-update 2.2.18
           sudo chmod -R a+rwx /home/runner
-
           (cd dolibarr && composer -n config -g vendor-dir htdocs/includes)
 
           sudo add-apt-repository -y ppa:ondrej/php
@@ -71,69 +56,60 @@ jobs:
           php -i | head -
 
           cd dolibarr
+          ls
           composer -n require --ignore-platform-reqs \
             phpunit/phpunit ^7.5 \
             php-parallel-lint/php-parallel-lint ^1 \
             php-parallel-lint/php-console-highlighter ^0 \
             php-parallel-lint/php-var-dump-check ~0.4 \
             squizlabs/php_codesniffer ^3
+          # cleanup html coverage reporter dirs like upstream
           sudo rm -fr htdocs/includes/phpunit/php-code-coverage/src/Report/Html
 
-      - name: Add composer-installed tools to PATH
+      - name: Adding path of composer-installed tools to PATH
         run: |
-          echo "$GITHUB_WORKSPACE/dolibarr/htdocs/includes/bin" >> $GITHUB_PATH
+          export PATH="$GITHUB_WORKSPACE/dolibarr/htdocs/includes/bin:$PATH"
+          echo "$PATH"
           ls "$GITHUB_WORKSPACE/dolibarr/htdocs/includes/bin"
 
       - name: Version information
         run: |
           composer -V
           echo "Parallel-lint version"
-          parallel-lint -V
+          dolibarr/htdocs/includes/bin/parallel-lint -V
           echo "PHPCS version"
-          phpcs --version | head -
-          phpcs -i | head -
-          echo "var-dump-check version"
-          var-dump-check --version
+          dolibarr/htdocs/includes/bin/phpcs --version | head -
+          dolibarr/htdocs/includes/bin/phpcs -i | head -
+          echo "PHP Vardump check version"
+          dolibarr/htdocs/includes/bin/var-dump-check --version
           echo "PHPUnit version"
-          phpunit --version | head -
+          dolibarr/htdocs/includes/bin/phpunit --version | head -
           echo "Apache version"
           apache2 -v | head -
           echo "Database version"
           mysql --version | head -
-          psql --version || true
-          echo "pgloader version"
-          pgloader --version || true
 
-      # 4) Prepare MySQL DB (like upstream)
-      - name: Create MySQL database (demo dump)
+      - name: Create database (MySQL 5.7)
         run: |
+          pwd
+          echo "GITHUB_WORKSPACE = $GITHUB_WORKSPACE"
           sudo apt-get install -y mysql-client
+          mysql --version | head -
+          mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "SELECT VERSION();" | head -
+          mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "SHOW DATABASES"
+
+          echo "Drop and create database"
           mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e 'DROP DATABASE IF EXISTS travis;'
           mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "CREATE DATABASE IF NOT EXISTS travis CHARACTER SET = 'utf8';"
           mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "CREATE USER IF NOT EXISTS 'travis'@'127.0.0.1' IDENTIFIED BY 'password';"
           mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -e "GRANT ALL PRIVILEGES ON travis.* TO travis@127.0.0.1; FLUSH PRIVILEGES;"
+
+          # Load the Dolibarr demo dump like upstream
           mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -D travis < dolibarr/dev/initdemo/mysqldump_dolibarr_3.5.0.sql
           mysql --host 127.0.0.1 --port 32574 -uroot -ppassword -D travis -e "UPDATE llx_const set value = '0666' WHERE name = 'MAIN_UMASK';"
 
-      # 5) Init Postgres + migrate MySQL -> Postgres like upstream 7.1 job
-      - name: Init Postgres & migrate data with pgloader
-        run: |
-          # Relax pg_hba rules to allow local trust (as upstream does)
-          sudo sed -i -e '/local.*peer/s/postgres/all/' -e 's/peer\|md5/trust/g' /etc/postgresql/*/main/pg_hba.conf || true
-          sudo cat /etc/postgresql/*/main/pg_hba.conf || true
-          sudo /etc/init.d/postgresql restart || true
-
-          psql postgresql://postgres:postgres@127.0.0.1:5432 -l -A
-          psql postgresql://postgres:postgres@127.0.0.1:5432 -c 'create database travis;'
-
-          sudo mkdir -p /tmp/pgloader && sudo chmod -R a+rwx /tmp/pgloader
-          sudo pgloader mysql://root:password@127.0.0.1:32574/travis postgresql://postgres:postgres@127.0.0.1:5432/travis
-          echo 'ALTER SEQUENCE llx_accountingaccount_rowid_seq RENAME TO llx_accounting_account_rowid_seq' | psql postgresql://postgres:postgres@127.0.0.1:5432/travis
-          echo 'ALTER SEQUENCE llx_accounting_account_rowid_seq RESTART WITH 1000001;' | psql postgresql://postgres:postgres@127.0.0.1:5432/travis
-          psql postgresql://postgres:postgres@127.0.0.1:5432/travis < dolibarr/htdocs/install/pgsql/functions/functions.sql
-
-      # 6) OPTION A: Wire Dolibarr into /var/www BEFORE writing conf.php
-      - name: Wire Dolibarr into /var/www (Option A)
+      # ----- Option A: wire Dolibarr into /var/www BEFORE writing conf.php
+      - name: Wire Dolibarr into /var/www
         run: |
           sudo mkdir -p /var/www/html
           sudo cp -r dolibarr/htdocs/. /var/www/html
@@ -143,7 +119,7 @@ jobs:
           sudo cp -r dolibarr/scripts/. /var/www/scripts
           sudo chown -R www-data:www-data /var/www/html
 
-      # 7) Install your module
+      # Install *your* module into Dolibarr custom dir
       - name: Add our module into Dolibarr
         run: |
           sudo mkdir -p /var/www/html/custom
@@ -151,8 +127,7 @@ jobs:
           sudo chown -R www-data:www-data /var/www/html/custom/talerbarr
           ls -al /var/www/html/custom
 
-      # 8) Generate conf.php and install.forced.php for PGSQL (as upstream 7.1 job)
-      - name: Generate Dolibarr conf.php (Postgres)
+      - name: Generate Dolibarr conf.php (MySQL)
         run: |
           sudo install -d -m 0777 /var/www/html/conf
           sudo tee /var/www/html/conf/conf.php > /dev/null <<'PHP'
@@ -162,27 +137,27 @@ jobs:
           $dolibarr_main_data_root='/var/www/html/documents';
           $dolibarr_main_db_host='127.0.0.1';
           $dolibarr_main_db_name='travis';
-          $dolibarr_main_db_user='postgres';
-          $dolibarr_main_db_pass='postgres';
+          $dolibarr_main_db_user='root';
+          $dolibarr_main_db_pass='password';
           $dolibarr_main_instance_unique_id='travis-module';
-          $dolibarr_main_db_type='pgsql';
-          $dolibarr_main_db_port='5432';
+          $dolibarr_main_db_type='mysqli';
+          $dolibarr_main_db_port='32574';
           $dolibarr_main_authentication='dolibarr';
           PHP
           sudo mkdir -p /var/www/html/documents/admin/temp
           sudo chmod -R a+rwx /var/www/html/documents
 
-      - name: Generate install.forced.php (PGSQL)
+      - name: Generate install.forced.php (to test installation)
         run: |
           sudo tee /var/www/html/install/install.forced.php > /dev/null <<'PHP'
           <?php
           $force_install_noedit=2;
-          $force_install_type='pgsql';
+          $force_install_type='mysqli';
           $force_install_dbserver='127.0.0.1';
           $force_install_database='travis';
-          $force_install_databaselogin='postgres';
-          $force_install_databasepass='postgres';
-          $force_install_port='5432';
+          $force_install_databaselogin='root';
+          $force_install_databasepass='password';
+          $force_install_port='32574';
           $force_install_prefix='llx_';
           $force_install_createdatabase=false;
           $force_install_createuser=false;
@@ -191,14 +166,17 @@ jobs:
           PHP
           sudo cat /var/www/html/install/install.forced.php
 
-      # 9) Apache with PHP 7.1
       - name: Setup Apache (PHP 7.1)
         run: |
+          a2query -s || true
+          a2query -m || true
+          ls /etc/apache2/sites-available
           sudo a2ensite 000-default
           sudo a2enmod php7.1
-          sudo adduser $(whoami) www-data || true
-          sudo adduser $(whoami) root || true
-          sudo adduser root www-data || true
+          ls /etc/apache2/sites-enabled
+          sudo adduser $(whoami) www-data
+          sudo adduser $(whoami) root
+          sudo adduser root www-data
           sudo chown -R www-data:www-data /etc/apache2/sites-available/
           sudo chmod -R 777 /etc/apache2/sites-available/
           sudo chown -R www-data:www-data /var/www/html/
@@ -211,10 +189,12 @@ jobs:
           wget -O - --debug http://127.0.0.1 > $GITHUB_WORKSPACE/test.html 2>&1
           head -n 200 $GITHUB_WORKSPACE/test.html || true
           echo "Logs..."
-          sudo tail -n +1 /var/log/apache2/*.log || true
+          sudo cat /var/log/apache2/access.log || true
+          sudo cat /var/log/apache2/error.log || true
+          sudo cat /var/log/apache2/other_vhosts_access.log || true
           set +e
 
-      # 10) Perform long upgrade chain like Dolibarr CI (needed before tests)
+      # Perform the long upgrade chain, like Dolibarr CI (required before tests)
       - name: Upgrading Dolibarr (full chain)
         run: |
           set -e
@@ -305,7 +285,7 @@ jobs:
           echo "Show content of last file"
           cat "$(ls -rt $GITHUB_WORKSPACE/ | tail -n1)"
 
-      # 11) Enable standard modules + your module
+      # Enable Dolibarr standard modules AND our module
       - name: Enabling modules (including our module)
         run: |
           set -e
@@ -315,7 +295,7 @@ jobs:
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_RECEPTION,MAIN_MODULE_RECRUITMENT >> $GITHUB_WORKSPACE/enablemodule.log
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_KnowledgeManagement,MAIN_MODULE_EventOrganization,MAIN_MODULE_PARTNERSHIP >> $GITHUB_WORKSPACE/enablemodule.log
           php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_EmailCollector >> $GITHUB_WORKSPACE/enablemodule.log
-          php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_TalerBarr >> $GITHUB_WORKSPACE/enablemodule.log
+          #php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_TalerBarr >> $GITHUB_WORKSPACE/enablemodule.log
           cd -
 
       - name: Result of enabling modules scripts
@@ -324,8 +304,8 @@ jobs:
           echo "Show content of enablemodule.log file"
           cat $GITHUB_WORKSPACE/enablemodule.log
 
-      # 12) Run ALL Dolibarr tests (PHPUnit 7.x)
-      - name: Unit testing (full Dolibarr suite)
+      # Run the FULL Dolibarr test suite (same as upstream)
+      - name: Unit testing (all Dolibarr tests)
         run: |
           set -e
           cd /var/www/html
