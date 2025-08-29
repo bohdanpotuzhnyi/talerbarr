@@ -25,10 +25,29 @@ jobs:
       TRAVIS_PHP_VERSION: "7.1"
 
     steps:
-      - name: Checkout
+      - name: Checkout Dolibarr
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          repository: Dolibarr/dolibarr
+          fetch-depth: 0
+          path: dolibarr
+
+      - name: Switch Dolibarr to latest 22.x
+        run: |
+          git fetch --tags
+          latest22=$(git tag -l '22.*' | sort -V | tail -n1)
+          if [ -n "$latest22" ]; then
+            echo "Checking out Dolibarr tag: $latest22"
+            git checkout "$latest22"
+          else
+            echo "No 22.x tag found; staying on current ref."
+          fi
+          git status --short --branch
+
+      - name: Checkout current repo into dolibarr/htdocs/custom
+        uses: actions/checkout@v4
+        with:
+          path: dolibarr/htdocs/custom/${{ github.event.repository.name }}
 
       - name: Cache ~/.cache
         uses: actions/cache@v4
@@ -367,8 +386,30 @@ jobs:
       TRAVIS_PHP_VERSION: "8.4"
 
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 1 }
+      - name: Checkout Dolibarr
+        uses: actions/checkout@v4
+        with:
+          repository: Dolibarr/dolibarr
+          fetch-depth: 0
+          path: dolibarr
+
+      - name: Switch Dolibarr to latest 22.x
+        run: |
+          git fetch --tags
+          latest22=$(git tag -l '22.*' | sort -V | tail -n1)
+          if [ -n "$latest22" ]; then
+            echo "Checking out Dolibarr tag: $latest22"
+            git checkout "$latest22"
+          else
+            echo "No 22.x tag found; staying on current ref."
+          fi
+          git status --short --branch
+
+      - name: Checkout current repo into dolibarr/htdocs/custom
+        uses: actions/checkout@v4
+        with:
+          path: dolibarr/htdocs/custom/${{ github.event.repository.name }}
+
 
       - uses: actions/cache@v4
         with:
@@ -646,8 +687,29 @@ jobs:
       TRAVIS_PHP_VERSION: "latest"
 
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 1 }
+      - name: Checkout Dolibarr
+        uses: actions/checkout@v4
+        with:
+          repository: Dolibarr/dolibarr
+          fetch-depth: 0
+          path: dolibarr
+
+      - name: Switch Dolibarr to latest 22.x
+        run: |
+          git fetch --tags
+          latest22=$(git tag -l '22.*' | sort -V | tail -n1)
+          if [ -n "$latest22" ]; then
+            echo "Checking out Dolibarr tag: $latest22"
+            git checkout "$latest22"
+          else
+            echo "No 22.x tag found; staying on current ref."
+          fi
+          git status --short --branch
+
+      - name: Checkout current repo into dolibarr/htdocs/custom
+        uses: actions/checkout@v4
+        with:
+          path: dolibarr/htdocs/custom/${{ github.event.repository.name }}
 
       - uses: actions/cache@v4
         with:
