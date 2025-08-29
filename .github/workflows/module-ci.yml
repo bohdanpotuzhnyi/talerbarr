@@ -17,21 +17,29 @@ jobs:
     if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
     runs-on: ubuntu-22.04
 
+    # Run all shell steps from inside the Dolibarr tree
+    defaults:
+      run:
+        working-directory: dolibarr
+
     env:
       DB: mysql
       TRAVIS_PHP_VERSION: "8.4"
+      # Point TRAVIS_BUILD_DIR at the Dolibarr checkout (not repo root)
+      TRAVIS_BUILD_DIR: ${{ github.workspace }}/dolibarr
 
     steps:
+      # 1) Checkout Dolibarr v22.x (branch 22.0).
       - uses: actions/checkout@v4
         with:
-            repository: Dolibarr/dolibarr
-            ref: 22.0
-            fetch-depth: 0
-            path: dolibarr
+          repository: Dolibarr/dolibarr
+          ref: "22.0"            # or use the exact tag e.g. "refs/tags/22.0.0"
+          fetch-depth: 0
+          path: dolibarr
 
       - uses: actions/checkout@v4
         with:
-            path: dolibarr/htdocs/custom/${{ github.event.repository.name }}
+          path: dolibarr/htdocs/custom/${{ github.event.repository.name }}
 
       - uses: actions/cache@v4
         with:
@@ -64,8 +72,8 @@ jobs:
           sudo update-alternatives --set php /usr/bin/php8.4
           php -i | head -
           curl -sS https://getcomposer.org/installer -o /tmp/composer-setup.php
-          HASH=`curl -sS https://composer.github.io/installer.sig`
-          php -r "if (hash_file('SHA384', '/tmp/composer-setup.php') === '$HASH') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;"
+          HASH=$(curl -sS https://composer.github.io/installer.sig)
+          php -r "if (hash_file('SHA384', '/tmp/composer-setup.php') === '$HASH') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('/tmp/composer-setup.php'); } echo PHP_EOL;"
           sudo php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
           sudo chmod -R a+rwx /usr/local/bin/composer
           composer -V
@@ -74,12 +82,13 @@ jobs:
 
           sudo composer self-update 2.4.4
           composer -n require --ignore-platform-reqs phpunit/phpunit ^8 \
-                                                 php-parallel-lint/php-parallel-lint ^1.2 \
-                                                 php-parallel-lint/php-console-highlighter ^0 \
-                                                 php-parallel-lint/php-var-dump-check ~0.4 \
-                                                 squizlabs/php_codesniffer ^3
+                                                     php-parallel-lint/php-parallel-lint ^1.2 \
+                                                     php-parallel-lint/php-console-highlighter ^0 \
+                                                     php-parallel-lint/php-var-dump-check ~0.4 \
+                                                     squizlabs/php_codesniffer ^3
 
-          echo "$GITHUB_WORKSPACE/htdocs/includes/bin" >> $GITHUB_PATH
+          # Add Dolibarr composer bin dir to PATH
+          echo "${TRAVIS_BUILD_DIR}/htdocs/includes/bin" >> "$GITHUB_PATH"
 
       - name: before_script — env + versions
         run: |
@@ -134,7 +143,7 @@ jobs:
           echo "***** First line of dolibarr.log" > "$TRAVIS_BUILD_DIR/documents/dolibarr.log"
           sudo sed -i -e "s,www-data,$USER,g" /etc/apache2/envvars || true
           sudo cp -f dev/build/travis-ci/apache.conf /etc/apache2/sites-available/000-default.conf
-          sudo sed -e "s?%TRAVIS_BUILD_DIR%?$(pwd)?g" --in-place /etc/apache2/sites-available/000-default.conf
+          sudo sed -e "s?%TRAVIS_BUILD_DIR%?${TRAVIS_BUILD_DIR}?g" --in-place /etc/apache2/sites-available/000-default.conf
           sudo cat /etc/apache2/sites-available/000-default.conf
           sudo service apache2 restart || true
 
@@ -143,7 +152,8 @@ jobs:
           set +e
           wget -O - --debug http://127.0.0.1 > test.html || true
           head -n 200 test.html || true
-          sudo cat /var/log/apache2/travis_error_log || true
+          # prefer custom travis_error_log, fall back to default error.log
+          sudo cat /var/log/apache2/travis_error_log || sudo tail -n 200 /var/log/apache2/error.log || true
 
       - name: Lint (8.4)
         run: |
@@ -290,8 +300,8 @@ jobs:
         if: ${{ always() }}
         run: |
           echo "After script - Output last lines of dolibarr.log"
-          ls $TRAVIS_BUILD_DIR/documents || true
-          sudo tail -n 50 $TRAVIS_BUILD_DIR/documents/dolibarr.log || true
+          ls "$TRAVIS_BUILD_DIR/documents" || true
+          sudo tail -n 50 "$TRAVIS_BUILD_DIR/documents/dolibarr.log" || true
           echo "After script - Output last lines of apache error.log"
           sudo ls /var/log/apache2 || true
-          sudo tail -n 200 /var/log/apache2/travis_error_log || true
+          sudo tail -n 200 /var/log/apache2/travis_error_log || sudo tail -n 200 /var/log/apache2/error.log || true
