@@ -691,20 +691,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Dolibarr/dolibarr
+          ref: 22.0
           fetch-depth: 0
           path: dolibarr
-
-      - name: Switch Dolibarr to latest 22.x
-        run: |
-          git fetch --tags
-          latest22=$(git tag -l '22.*' | sort -V | tail -n1)
-          if [ -n "$latest22" ]; then
-            echo "Checking out Dolibarr tag: $latest22"
-            git checkout "$latest22"
-          else
-            echo "No 22.x tag found; staying on current ref."
-          fi
-          git status --short --branch
 
       - name: Checkout current repo into dolibarr/htdocs/custom
         uses: actions/checkout@v4
