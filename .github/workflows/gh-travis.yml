@@ -38,7 +38,7 @@ jobs:
       - name: Fetch Dolibarr core into workspace root
         run: |
           rm -rf ./* ./.git || true
-          git clone --depth 1 https://github.com/Dolibarr/dolibarr.git .
+          git clone --branch 22.0.0 --depth 1 https://github.com/Dolibarr/dolibarr.git .
           git rev-parse --short HEAD
 
       # 2) Make sure the custom dir exists and checkout THIS module into htdocs/custom/talerbarr
