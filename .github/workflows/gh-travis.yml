@@ -63,7 +63,7 @@ jobs:
         uses: ktomk/run-travis-yml@v1
         with:
           file: .travis.yml
-          run-job: include.1
+          run-job: include.3
           allow-failure: false
           # file: .travis.yml
           # steps: |  # Default: setup, before_install, install, before_script, script, after_script, before_deploy
