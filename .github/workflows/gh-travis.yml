@@ -57,7 +57,6 @@ jobs:
           cp -f htdocs/custom/talerbarr/.travis.yml .travis.yml
           echo "Using .travis.yml from module:"
           head -n 5 .travis.yml || true
-          sudo useradd -m travis || true
 
       - name: Run .travis.yml build script
         uses: ktomk/run-travis-yml@v1
