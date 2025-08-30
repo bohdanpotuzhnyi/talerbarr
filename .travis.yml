@@ -104,14 +104,13 @@ before_install:
       echo "Check pgloader version"
       pgloader --version
       #ps fauxww | grep postgres
-      ls /etc/postgresql/13/main/
 
       # Detect installed PostgreSQL major version (e.g., 13/14/15) and use it
       PGVER=$(psql --version | awk '{print $3}' | cut -d. -f1)
       echo "Detected PostgreSQL major version: $PGVER"
       ls /etc/postgresql/${PGVER}/main/ || true
 
-      sudo sed -i -e '/local.*peer/s/postgres/all/' -e 's/peer\|md5/trust/g' /etc/postgresql/${PGVER}/main/pg_hba.conf
+      sudo sed -i -e '/local.*peer/s/postgres/all/' -e 's/(peer|md5|scram-sha-256)/trust/g' /etc/postgresql/${PGVER}/main/pg_hba.conf
       sudo cat /etc/postgresql/${PGVER}/main/pg_hba.conf
 
       sudo service postgresql restart
