@@ -1,0 +1,71 @@
+---
+# This runs a travis script inside a github runner
+name: Travis
+# Controls when the workflow will run
+on:
+  # workflow called by the parent workflow ci.yml
+  workflow_call:
+    inputs:
+      gh_event:
+        required: true
+        type: string
+  # can run job manually
+  workflow_dispatch:
+
+concurrency:
+  group: travis-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref
+    }}
+  cancel-in-progress: true
+env:
+  gh_event: ${{ inputs.gh_event || github.event_name }}
+  GITHUB_JSON: ${{ toJSON(github) }}  # Helps in debugging Github Action
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job
+  gh-travis:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # matrix:
+      #   php-version:
+      #  # PHPStan requires PHP >= 7.2.
+      #    #- "7.2"
+      #    - "8.2"
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # 1) Clone Dolibarr into the workspace root (pure Dolibarr at /github/workspace)
+      - name: Fetch Dolibarr core into workspace root
+        run: |
+          rm -rf ./* ./.git || true
+          git clone --depth 1 https://github.com/Dolibarr/dolibarr.git .
+          git rev-parse --short HEAD
+
+      # 2) Make sure the custom dir exists and checkout THIS module into htdocs/custom/talerbarr
+      - name: Prepare custom dir
+        run: mkdir -p htdocs/custom/talerbarr
+
+      - name: Checkout module into htdocs/custom/talerbarr
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          path: htdocs/custom/talerbarr
+
+      # 3) Overwrite root .travis.yml with the one from the module
+      - name: Use module’s .travis.yml at repo root
+        run: |
+          cp -f htdocs/custom/talerbarr/.travis.yml .travis.yml
+          echo "Using .travis.yml from module:"
+          head -n 5 .travis.yml || true
+
+      - name: Run .travis.yml build script
+        uses: ktomk/run-travis-yml@v1
+        with:
+          file: .travis.yml
+          allow-failure: false
+          # file: .travis.yml
+          # steps: |  # Default: setup, before_install, install, before_script, script, after_script, before_deploy
+          #  install
+          #  script
+        # env:
+        #  TRAVIS_PHP_VERSION: ${{ matrix.php-version }}
