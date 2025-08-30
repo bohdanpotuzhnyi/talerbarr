@@ -66,6 +66,9 @@ notifications:
 
 before_install:
   - |
+    echo "TalerBarr .travis.yml"
+
+  - |
     echo "Remove awful phpenv and install packages"
     sudo rm -fr ~/.phpenv
     sudo rm -fr /root/.phpenv
