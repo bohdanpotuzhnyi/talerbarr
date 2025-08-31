@@ -172,10 +172,10 @@ install:
     sudo php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
     sudo chmod -R a+rwx /usr/local/bin/composer
 
-    export COMPOSER_HOME="$HOME/.config/composer"
-    mkdir -p "$COMPOSER_HOME"
-    ls -al
-    composer -n config -g vendor-dir htdocs/includes
+    #sudo apt install composer
+    composer -V
+    sudo composer -n config -g vendor-dir htdocs/includes
+    sudo chmod -R a+rwx /home/travis/.config/composer
     echo
 
     #sudo apt install composer
