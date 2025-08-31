@@ -80,7 +80,7 @@ before_install:
     cp -a "$MODULE_DIR"/. tmp/talerbarr/
 
     echo "Cloning Dolibarr core $DOLIBARR_BRANCH..."
-    git clone --branch "$DOLIBARR_BRANCH" --depth 1 https://github.com/Dolibarr/dolibarr.git
+    git clone --branch "$DOLIBARR_BRANCH" --depth 1 https://github.com/Dolibarr/dolibarr.git .
 
     echo "Placing module into htdocs/custom/talerbarr..."
     mkdir -p htdocs/custom/talerbarr
