@@ -75,17 +75,20 @@ before_install:
     export MODULE_DIR="$PWD"
 
     # Stage the module in tmp/talerbarr (clean it first to avoid leftovers)
-    rm -rf tmp/talerbarr
-    mkdir -p tmp/talerbarr
-    cp -a "$MODULE_DIR"/. tmp/talerbarr/
+    rm -rf /tmp/talerbarr
+    mkdir -p /tmp/talerbarr
+    cp -a "$MODULE_DIR"/. /tmp/talerbarr/
+    cd ..
+    rm -rf talerbarr
 
     echo "Cloning Dolibarr core $DOLIBARR_BRANCH..."
-    git clone --branch "$DOLIBARR_BRANCH" --depth 1 https://github.com/Dolibarr/dolibarr.git .
+    git clone --branch "$DOLIBARR_BRANCH" --depth 1 https://github.com/Dolibarr/dolibarr.git talerbarr
+    cd talerbarr
 
     echo "Placing module into htdocs/custom/talerbarr..."
     mkdir -p htdocs/custom/talerbarr
     rm -rf htdocs/custom/talerbarr/*
-    cp -a tmp/talerbarr/. htdocs/custom/talerbarr/
+    cp -a /tmp/talerbarr/. htdocs/custom/talerbarr/
 
   - |
     echo "Remove awful phpenv and install packages"
