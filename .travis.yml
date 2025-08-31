@@ -173,6 +173,7 @@ install:
 
     export COMPOSER_HOME="$HOME/.config/composer"
     mkdir -p "$COMPOSER_HOME"
+    ls -al
     composer -n config -g vendor-dir htdocs/includes
     echo
 
