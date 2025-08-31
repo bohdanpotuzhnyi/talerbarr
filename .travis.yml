@@ -79,17 +79,14 @@ before_install:
     # Remember the module checkout (current repo)
     export MODULE_DIR="$PWD"
 
+    rsync -a --delete --exclude ".git" "$MODULE_DIR"/ /tmp/talerbarr/
+
     echo "Cloning Dolibarr core $DOLIBARR_BRANCH..."
-    git clone --branch "$DOLIBARR_BRANCH" --depth 1 https://github.com/Dolibarr/dolibarr.git /tmp/dolibarr
+    git clone --branch "$DOLIBARR_BRANCH" --depth 1 https://github.com/Dolibarr/dolibarr.git
 
     echo "Placing module into htdocs/custom/talerbarr..."
-    mkdir -p /tmp/dolibarr/htdocs/custom/talerbarr
-    rsync -a --delete --exclude ".git" "$MODULE_DIR"/ /tmp/dolibarr/htdocs/custom/talerbarr/
-
-    # From here on, run the rest of the script against the Dolibarr tree
-    cd /tmp/dolibarr
-    export TRAVIS_BUILD_DIR="$PWD"
-    echo "TRAVIS_BUILD_DIR is now $TRAVIS_BUILD_DIR"
+    mkdir -p /htdocs/custom/talerbarr
+    rsync -a --delete --exclude ".git" /tml/talerbarr/ /htdocs/custom/talerbarr/
 
   - |
     echo "Remove awful phpenv and install packages"
