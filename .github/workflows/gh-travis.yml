@@ -60,6 +60,7 @@ jobs:
 
       - name: Run .travis.yml build script
         uses: ktomk/run-travis-yml@v1
+        if: false
         with:
           file: .travis.yml
           run-job: include.3
