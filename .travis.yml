@@ -28,6 +28,7 @@ env:
   global:
     # Set to true for very verbose output
     - DEBUG=true
+    - COMPOSER_ALLOW_SUPERUSER=1
 
 cache:
   directories:
