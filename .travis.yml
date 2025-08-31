@@ -73,12 +73,23 @@ before_install:
     export DOLIBARR_BRANCH=${DOLIBARR_BRANCH:-22.0.0}
     sudo apt-get install -y rsync
     export MODULE_DIR="$PWD"
-    rsync -a --delete --exclude ".git" "$MODULE_DIR"/ /tmp/talerbarr/
+
+    echo "Staging module (copy everything except CI/meta files)..."
+    mkdir -p tmp/talerbarr
+    # Use cp (not rsync) and leave .travis.yml in the repo root.
+    # Also exclude VCS/CI dirs and our staging tmp dir to avoid recursion.
+    find "$MODULE_DIR" -mindepth 1 -maxdepth 1 \
+      ! -name '.travis.yml' \
+      ! -name '.git' \
+      ! -name '.github' \
+      ! -name 'tmp' \
+      -exec cp -a {} tmp/talerbarr/ \;
+
     echo "Cloning Dolibarr core $DOLIBARR_BRANCH..."
     git clone --branch "$DOLIBARR_BRANCH" --depth 1 https://github.com/Dolibarr/dolibarr.git
     echo "Placing module into htdocs/custom/talerbarr..."
     mkdir -p dolibarr/htdocs/custom/talerbarr
-    rsync -a --delete --exclude ".git" /tmp/talerbarr/ dolibarr/htdocs/custom/talerbarr/
+    rsync -a --delete --exclude ".git" tmp/talerbarr/ dolibarr/htdocs/custom/talerbarr/
 
   - |
     echo "Remove awful phpenv and install packages"
