@@ -40,7 +40,7 @@ Add your screenshots to `img/` and remove comment markers.
 ### 1 · Prerequisites
 
 * A working **Dolibarr ERP & CRM** installation (v20 or newer).
-* A reachable **GNU Taler Merchant backend** v20+
+* A reachable **GNU Taler Merchant backend** v1.0.0+.
 
 ### 2 · Get the module
 
@@ -58,10 +58,10 @@ Add your screenshots to `img/` and remove comment markers.
 
 ```bash
 cd $DOLIBARR_HOME/htdocs/custom
-git clone https://github.com/YourOrg/talerbarr.git
+git clone https://github.com/bohdanpotuzhnyi/talerbarr.git
 ```
 
-Create a symbolic link or zip if you want a clean Dolibarr tree.
+If you want a clean Dolibarr tree, create a symbolic link or zip.
 
 </details>
 
