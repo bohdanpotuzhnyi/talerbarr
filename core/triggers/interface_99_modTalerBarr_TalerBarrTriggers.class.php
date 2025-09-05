@@ -355,64 +355,7 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 	 */
 	private function upsertProduct(Product $prod, User $user)
 	{
-		$cfg = $this->getActiveTalerConfig();
-
-		// Ignore if no config or sync direction is Taler→Dolibarr
-		if (empty($cfg['username']) || (string)$cfg['syncdirection'] === '1') {
-			return 0;
-		}
-
-		$instance = $cfg['username'];
-		$link = new TalerProductLink($this->db);
-
-		// Upsert by fk_product
-		$load = $link->fetchByProductId((int) $prod->id);
-		if ($load < 0) {
-			// fatal SQL error during fetch → log & propagate
-			TalerErrorLog::recordArray(
-				$this->db,
-				[
-				  'context'       => 'product',
-				  'operation'     => 'fetch',
-				  'fk_product'    => $prod->id,
-				  'error_message' => $link->error ?: 'DB error while fetchByProductId'
-				],
-				$user
-			);
-			return -1;
-		}
-
-		if ($load > 0) {
-			$res = $link->update($user, 1);
-			if ($res === 0 && $this->db->transaction_opened > 0) {
-				$this->db->commit();
-			}
-		} else {
-			// Compute proper ProductDetail and mirror into link
-			$detail = $link->talerDetailFromDolibarrProduct($prod, ['instance' => $instance]);
-			$link->prepareFromDolibarrAndTalerDetail($prod, $detail, ['instance' => $instance]);
-
-
-			$link->entity       = (int) getEntity($link->element, 1);
-			$link->sync_enabled = 1;
-			$res = $link->create($user, 1);
-		}
-
-		if ($res <= 0) {
-			TalerErrorLog::recordArray(
-				$this->db,
-				[
-					'context'       => 'product',
-					'operation'     => ($load > 0 ? 'update' : 'create'),
-					'fk_product'    => $prod->id,
-					'error_message' => $link->error ?: 'DB error while saving link',
-					'payload_json'  => json_encode(['detail'=>$detail], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE),
-				],
-				$user
-			);
-			return -1;
-		}
-		return 1;
+		return TalerProductLink::upsertFromDolibarr($this->db, $prod, $user);
 	}
 
 	/**

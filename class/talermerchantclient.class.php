@@ -117,7 +117,7 @@ class TalerMerchantClient
 	 */
 	public function patch(string $path, array $json, ?array $query = null): array
 	{
-		return $this->request('PATCH', $path, $json, $query);
+		return $this->request('PATCHALREADYFORMATED', $path, $json, $query);
 	}
 
 	/**
@@ -218,13 +218,12 @@ class TalerMerchantClient
 	 *
 	 * Required permission: categories-read
 	 *
-	 * @param string $instance Instance name.
 	 * @return array{categories: array<int, array{category_id:int,name:string,product_count:int,name_i18n?:array<string,string>}>}
 	 * @throws Exception On HTTP/JSON errors.
 	 */
-	public function listCategories(string $instance): array
+	public function listCategories(): array
 	{
-		$path = "/instances/{$instance}/private/categories";
+		$path = "categories";
 		return $this->get($path);
 	}
 
@@ -233,14 +232,13 @@ class TalerMerchantClient
 	 *
 	 * Required permission: categories-read
 	 *
-	 * @param string $instance   Instance name.
 	 * @param int    $categoryId Category identifier.
 	 * @return array{name:string,products:array<int,array{product_id:string}>,name_i18n?:array<string,string>}
 	 * @throws Exception On HTTP/JSON errors.
 	 */
-	public function getCategory(string $instance, int $categoryId): array
+	public function getCategory(int $categoryId): array
 	{
-		$path = "/instances/{$instance}/private/categories/{$categoryId}";
+		$path = "categories/{$categoryId}";
 		return $this->get($path);
 	}
 
@@ -249,15 +247,14 @@ class TalerMerchantClient
 	 *
 	 * Required permission: categories-write
 	 *
-	 * @param string               $instance Instance name.
 	 * @param string               $name     Category name.
 	 * @param array<string,string> $nameI18n Optional translations (lang_tag => name).
 	 * @return int The newly created category_id.
 	 * @throws Exception On HTTP/JSON errors.
 	 */
-	public function createCategory(string $instance, string $name, array $nameI18n = []): int
+	public function createCategory(string $name, array $nameI18n = []): int
 	{
-		$path   = "/instances/{$instance}/private/categories";
+		$path   = "categories";
 		$body   = ['name' => $name];
 		if (!empty($nameI18n)) {
 			$body['name_i18n'] = $nameI18n;
@@ -272,16 +269,15 @@ class TalerMerchantClient
 	 * Required permission: categories-write
 	 * Returns 204 No Content on success.
 	 *
-	 * @param string               $instance   Instance name.
 	 * @param int                  $categoryId Category identifier.
 	 * @param string               $name       New name.
 	 * @param array<string,string> $nameI18n   Optional translations (lang_tag => name).
 	 * @return void
 	 * @throws Exception On HTTP errors.
 	 */
-	public function updateCategory(string $instance, int $categoryId, string $name, array $nameI18n = []): void
+	public function updateCategory(int $categoryId, string $name, array $nameI18n = []): void
 	{
-		$path = "/instances/{$instance}/private/categories/{$categoryId}";
+		$path = "categories/{$categoryId}";
 		$body = ['name' => $name];
 		if (!empty($nameI18n)) {
 			$body['name_i18n'] = $nameI18n;
@@ -295,14 +291,13 @@ class TalerMerchantClient
 	 * Required permission: categories-write
 	 * Returns 204 No Content on success.
 	 *
-	 * @param string $instance   Instance name.
 	 * @param int    $categoryId Category identifier.
 	 * @return void
 	 * @throws Exception On HTTP errors (404 if unknown).
 	 */
-	public function deleteCategory(string $instance, int $categoryId): void
+	public function deleteCategory(int $categoryId): void
 	{
-		$path = "/instances/{$instance}/private/categories/{$categoryId}";
+		$path = "categories/{$categoryId}";
 		$this->delete($path);
 	}
 
@@ -317,7 +312,6 @@ class TalerMerchantClient
 	 * Required permission: products-write
 	 * Returns 204 No Content on success.
 	 *
-	 * @param string $instance Instance name.
 	 * @param array  $product  ProductAddDetail structure:
 	 *                         [
 	 *                           'product_id'   => string (required),
@@ -337,9 +331,9 @@ class TalerMerchantClient
 	 * @return void
 	 * @throws Exception On HTTP errors (409 if product ID exists with different details).
 	 */
-	public function addProduct(string $instance, array $product): void
+	public function addProduct(array $product): void
 	{
-		$path = "/instances/{$instance}/private/products";
+		$path = "products";
 		$this->post($path, $product);
 	}
 
@@ -349,7 +343,6 @@ class TalerMerchantClient
 	 * Required permission: products-write
 	 * Returns 204 No Content on success.
 	 *
-	 * @param string $instance  Instance name.
 	 * @param string $productId Product identifier.
 	 * @param array  $patch     ProductPatchDetail structure (all fields optional but validated by backend):
 	 *                          [
@@ -370,9 +363,9 @@ class TalerMerchantClient
 	 * @return void
 	 * @throws Exception On HTTP errors (404 unknown product, 409 conflict).
 	 */
-	public function updateProduct(string $instance, string $productId, array $patch): void
+	public function updateProduct(string $productId, array $patch): void
 	{
-		$path = "/instances/{$instance}/private/products/".rawurlencode($productId);
+		$path = "products/".rawurlencode($productId);
 		$this->patch($path, $patch);
 	}
 
@@ -381,15 +374,14 @@ class TalerMerchantClient
 	 *
 	 * Required permission: products-read
 	 *
-	 * @param string   $instance Instance name.
 	 * @param int      $limit    Optional limit. Negative => descending by row ID, positive => ascending. Default 20.
 	 * @param int|null $offset   Optional starting product_serial_id for iteration.
 	 * @return array{products: array<int, array{product_id:string,product_serial:int}>}
 	 * @throws Exception On HTTP/JSON errors.
 	 */
-	public function listProducts(string $instance, int $limit = 20, ?int $offset = null): array
+	public function listProducts(int $limit = 20, ?int $offset = null): array
 	{
-		$path  = "/instances/{$instance}/private/products";
+		$path  = "products";
 		$query = ['limit' => $limit];
 		if ($offset !== null) {
 			$query['offset'] = $offset;
@@ -402,14 +394,13 @@ class TalerMerchantClient
 	 *
 	 * Required permission: products-read
 	 *
-	 * @param string $instance  Instance name.
 	 * @param string $productId Product identifier.
 	 * @return array ProductDetail structure per API (description, categories, price, stocks, etc.).
 	 * @throws Exception On HTTP/JSON errors (404 if unknown).
 	 */
-	public function getProduct(string $instance, string $productId): array
+	public function getProduct(string $productId): array
 	{
-		$path = "/instances/{$instance}/private/products/".rawurlencode($productId);
+		$path = "products/".rawurlencode($productId);
 		return $this->get($path);
 	}
 
@@ -419,14 +410,13 @@ class TalerMerchantClient
 	 * Required permission: products-write
 	 * Returns 204 No Content on success.
 	 *
-	 * @param string $instance  Instance name.
 	 * @param string $productId Product identifier.
 	 * @return void
 	 * @throws Exception On HTTP errors (404 unknown, 409 locked).
 	 */
-	public function deleteProduct(string $instance, string $productId): void
+	public function deleteProduct(string $productId): void
 	{
-		$path = "/instances/{$instance}/private/products/".rawurlencode($productId);
+		$path = "products/".rawurlencode($productId);
 		$this->delete($path);
 	}
 }
