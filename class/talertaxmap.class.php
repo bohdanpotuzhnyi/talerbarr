@@ -203,6 +203,69 @@ class TalerTaxMap extends CommonObject
 		return (int)$this->id;
 	}
 
+	/* =============== High-level upsert helpers === */
+	/**
+	 * Sync one Dolibarr VAT line into the mapping table.
+	 *
+	 * @param DoliDB $db
+	 * @param User   $user
+	 * @param int    $fkCTva        Rowid in c_tva
+	 * @param string $instance      Taler instance
+	 * @param string|null $amountHint Optional “CUR:amount” (rarely needed)
+	 * @return int  >0 rowid of talerbarr_tax_map, 0 ignored, <0 error
+	 */
+	public static function upsertFromDolibarr(
+		DoliDB $db,
+		User   $user,
+		int    $fkCTva,
+		string $instance,
+		?string $amountHint = null
+	): int
+	{
+		if ($fkCTva <= 0) return 0;
+
+		// ── grab the VAT line ───────────────────────────────────────────────
+		$sql = "SELECT taux, note FROM ".$db->prefix()."c_tva WHERE rowid=".((int)$fkCTva);
+		$res = $db->query($sql);
+		if (!$res || !($row = $db->fetch_object($res))) return -1;
+
+		$rate = (float) $row->taux;
+		$map  = new self($db);
+
+		// Build a **deterministic name** to keep a 1-to-1 mapping
+		global $langs;
+		$taxName = $langs->transnoentitiesnoconv("VAT").' '.rtrim(rtrim(sprintf('%.3f',$rate),'0'),'.').'%';
+
+		return $map->upsert($user, $instance, $taxName, $amountHint, $rate, $fkCTva);
+	}
+
+	/**
+	 * Sync one Tax object coming from Taler into the mapping table.
+	 *
+	 * @param DoliDB $db
+	 * @param User   $user
+	 * @param string $instance Taler instance
+	 * @param array|object $tax  One element of the “taxes” array from Taler
+	 * @return int  >0 rowid, 0 ignored, <0 error
+	 */
+	public static function upsertFromTaler(
+		DoliDB $db,
+		User   $user,
+		string $instance,
+			   $tax
+	): int
+	{
+		$arr = is_object($tax) ? (array)$tax : (array)$tax;
+		$name = trim((string)($arr['name'] ?? ''));
+		if ($name === '') return 0;
+
+		$rate = self::guessVatRateFromName($name);
+		$amountHint = isset($arr['tax']) ? (string)$arr['tax'] : null;
+
+		$tmp = new self($db);
+		return $tmp->upsert($user, $instance, $name, $amountHint, $rate, null);
+	}
+
 	/* ================== Helpers ================== */
 
 	/**

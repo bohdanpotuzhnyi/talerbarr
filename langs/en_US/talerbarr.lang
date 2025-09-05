@@ -30,6 +30,17 @@ TalerBarrAbout = About TalerBarr
 TalerBarrAboutPage = TalerBarr about page
 
 #
+# Main page
+#
+TalerBarrSyncStatus=Last synchronisation
+NoSyncYet=No synchronisation run yet
+RunSyncNow=Run sync now
+SyncStartedInBackground=Synchronisation started in background
+Phase=Phase
+Direction=Direction
+Date=Date
+
+#
 # Sample page
 #
 TalerBarrArea = Home TalerBarr

@@ -28,6 +28,7 @@ require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/geturl.lib.php';
 //require_once DOL_DOCUMENT_ROOT . '/societe/class/societe.class.php';
 //require_once DOL_DOCUMENT_ROOT . '/product/class/product.class.php';
+dol_include_once('/talerbarr/lib/talersync.lib.php');
 
 /**
  * Class for TalerConfig
@@ -244,6 +245,10 @@ class TalerConfig extends CommonObject
 	{
 		$result = $this->createCommon($user, $notrigger);
 
+		if ($result > 0)
+		{
+			TalerSyncUtil::launchBackgroundSync(true);
+		}
 		// uncomment lines below if you want to validate object after creation
 		// if ($result > 0) {
 		// $this->fetch($this->id); // needed to retrieve some fields (ie date_creation for masked ref)
@@ -476,7 +481,13 @@ class TalerConfig extends CommonObject
 	 */
 	public function update(User $user, $notrigger = 0)
 	{
-		return $this->updateCommon($user, $notrigger);
+		$result = $this->updateCommon($user, $notrigger);
+
+		if ($result > 0) {
+			TalerSyncUtil::launchBackgroundSync(true);
+		}
+
+		return $result;
 	}
 
 	/**
@@ -1409,7 +1420,6 @@ class TalerConfig extends CommonObject
 
 		return ($httpcode > 0); // true if we got an HTTP code back
 	}
-
 }
 
 

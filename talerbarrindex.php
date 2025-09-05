@@ -107,7 +107,16 @@ if (!empty($user->socid) && $user->socid > 0) {
  * Actions
  */
 
-// None
+include_once DOL_DOCUMENT_ROOT.'/core/lib/functions.lib.php';
+dol_include_once('/core/lib/security2.lib.php');
+
+if ($action === 'runsync' && $user->admin && GETPOST('token') === $_SESSION['newtoken']) {
+	dol_include_once('/talerbarr/lib/talersync.lib.php');
+	TalerSyncUtil::launchBackgroundSync($path_to_core = __DIR__.'/core');
+	setEventMessages($langs->trans('SyncStartedInBackground'), null);
+	header('Location: '.$_SERVER['PHP_SELF']);
+	exit;
+}
 
 
 /*
@@ -201,6 +210,64 @@ if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->ver
 	print '</table>';
 	print '</div>';
 }
+
+$statusFile = DOL_DATA_ROOT.'/talerbarr/sync.status.json';
+$status     = file_exists($statusFile) ? json_decode(@file_get_contents($statusFile), true) : null;
+
+print '<div class="div-table-responsive-no-min">';
+print '<table class="noborder centpercent">';
+print '<tr class="liste_titre">';
+print '<th colspan="3">'.$langs->trans("TalerBarrSyncStatus").'</th>';
+print '</tr><tr class="oddeven">';
+
+// --- Left column: icon ---
+print '<td class="center" style="width:40px;">';
+if (!$status) {
+	print img_picto('', 'object_calendar');          // grey calendar
+} elseif ($status['phase'] === 'done') {
+	print img_picto('', 'tick');                     // green tick
+} elseif ($status['phase'] === 'abort') {
+	print img_picto('', 'warning');                  // red warning
+} else {
+	print img_picto('', 'refresh');                  // blue spinner
+}
+print '</td>';
+
+// --- Middle column: message ---
+print '<td>';
+if (!$status) {
+	print $langs->trans("NoSyncYet");
+} else {
+	$ts        = dol_print_date($db->jdate($status['ts']), 'dayhour');
+	$direction = $status['direction'] ?? '?';
+	$phase     = $status['phase'];
+
+	$progress  = '';
+	if (!empty($status['total'])) {
+		$progress = ' &nbsp;('.((int) $status['processed']).'/'.((int) $status['total']).')';
+	}
+	print '<div><strong>'.$langs->trans("Phase").':</strong> '.dol_escape_htmltag($phase).'</div>';
+	print '<div><strong>'.$langs->trans("Direction").':</strong> '.dol_escape_htmltag($direction).$progress.'</div>';
+	print '<div><strong>'.$langs->trans("Date").':</strong> '.$ts.'</div>';
+
+	if (!empty($status['error'])) {
+		print '<div class="error">'.dol_escape_htmltag($status['error']).'</div>';
+	}
+}
+print '</td>';
+
+// --- Right column: Run-sync button ---
+print '<td class="right" style="width:140px;">';
+if ($user->admin) {
+	print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'">';
+	print '<input type="hidden" name="token"  value="'.newToken().'">';
+	print '<input type="hidden" name="action" value="runsync">';
+	print '<input type="submit" class="butAction" value="'.$langs->trans("RunSyncNow").'">';
+	print '</form>';
+}
+print '</td>';
+
+print '</tr></table></div><br>';
 
 /* BEGIN MODULEBUILDER DRAFT MYOBJECT
 // Draft MyObject

@@ -12,8 +12,10 @@ CREATE TABLE IF NOT EXISTS llx_talerbarr_product_link (
     product_tms_snap     DATETIME NULL,
 
     -- Taler side identity
-    taler_instance       VARCHAR(64) NOT NULL,     -- your instance key/id
+    taler_instance       VARCHAR(64) NOT NULL,     -- talerconfig key/id
     taler_product_id     VARCHAR(128) NOT NULL,
+    taler_product_name   VARCHAR(128) NOT NULL,    -- Human-readable prod_name
+    taler_description    VARCHAR(2048) NOT NULL,   -- || product description
 
     -- Price (keep both exact string and parsed numeric)
     taler_amount_str     VARCHAR(64) NULL,         -- e.g. "EUR:12.34"
