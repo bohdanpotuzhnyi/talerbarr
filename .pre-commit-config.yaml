@@ -8,18 +8,19 @@ repos:
           - "--ignore-words=devtools/spell/.codespell-ignore"
           - "--skip=*.po,*.lock,vendor,bin,build,devtools"
         types: [file, text]
+        stages: [pre-commit]
 
 #  - repo: local
 #    hooks:
 #      - id: cspell
-#        name: cspell (staged files + commit msg)
+#        name: cspell (scommit msg)
 #        # keep it one long string, but quote it
 #        entry: >
 #          bash -c 'git diff --cached --name-only |
 #          xargs -r npx --no-install cspell --no-progress --no-summary
 #          --config devtools/spell/cspell.config.yaml'
 #        language: system
-#        stages: [pre-commit, commit-msg]
+#        stages: [commit-msg]
 #        pass_filenames: false
 
   # ---------- PHP CODE STYLE ----------
@@ -32,6 +33,7 @@ repos:
           - "--standard=devtools/phpcs/ruleset.xml"
         language: system
         types: [php]
+        stages: [pre-commit]
 
       - id: php-cbf
         name: PHP-CBF
@@ -43,6 +45,7 @@ repos:
           - "--no-colors"
         language: system
         types: [php]
+        stages: [pre-commit]
 
   # ---------- PHPDOC ----------
   - repo: local
