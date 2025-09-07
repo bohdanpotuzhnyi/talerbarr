@@ -29,6 +29,7 @@ class TalerSyncUtil
 	 * @param ?string $path_to_core If your module has an unusual layout you
 	 *                              can inject the absolute path to its
 	 *                              “…/core” directory here.
+	 * @return void
 	 */
 	public static function launchBackgroundSync(bool $force = false, string $path_to_core = null): void
 	{

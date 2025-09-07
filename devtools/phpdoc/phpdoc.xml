@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpdocumentor
+	configVersion="3"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:noNamespaceSchemaLocation="https://www.phpdoc.org/phpDocumentor.xsd">
+
+	<!-- Global paths -->
+	<paths>
+		<output>build/docs</output>
+		<cache>build/cache/phpdoc</cache>
+	</paths>
+
+	<settings>
+		<template>
+			<name>default</name>
+		</template>
+		<setting name="graphs.enabled" value="true"/>
+	</settings>
+
+	<!-- v3 expects 'versions' container -->
+	<versions>
+		<version number="main">
+			<api>
+				<!-- project root; adjust paths as needed -->
+				<source dsn=".">
+					<path>.</path>
+				</source>
+
+				<!-- Ignore patterns live under <api> in v3 -->
+				<ignore hidden="true" symlinks="true">
+					<path>vendor</path>
+					<path>bin</path>
+					<path>build</path>
+					<path>devtools</path>
+					<path>*.blade.php</path>
+					<path>*.phar</path>
+				</ignore>
+			</api>
+		</version>
+	</versions>
+</phpdocumentor>

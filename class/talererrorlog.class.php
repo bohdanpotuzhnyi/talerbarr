@@ -25,6 +25,12 @@ require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
 // require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
 
+/**
+ * Class TalerErrorLog
+ *
+ * Stores synchronization / integration errors for the TalerBarr module.
+ * Extends Dolibarr's CommonObject for standard CRUD behavior.
+ */
 class TalerErrorLog extends CommonObject
 {
 	/** @var string */
@@ -85,6 +91,11 @@ class TalerErrorLog extends CommonObject
 	public $http_status, $error_code, $error_message, $payload_json;
 	public $datec, $tms;
 
+	/**
+	 * Constructor.
+	 *
+	 * @param DoliDB $db Database handler.
+	 */
 	public function __construct(DoliDB $db)
 	{
 		$this->db = $db;
@@ -98,7 +109,13 @@ class TalerErrorLog extends CommonObject
 	}
 
 	/* ================== CRUD ================== */
-
+	/**
+	 * Create record.
+	 *
+	 * @param User $user       User performing the creation (used by triggers/audit).
+	 * @param int  $notrigger  Set to 1 to disable triggers.
+	 * @return int             >0 on success, <0 on error.
+	 */
 	public function create(User $user, $notrigger = 1)
 	{
 		if (empty($this->entity)) $this->entity = (int) getEntity($this->element, 1);
@@ -106,29 +123,66 @@ class TalerErrorLog extends CommonObject
 		return $this->createCommon($user, $notrigger);
 	}
 
+	/**
+	 * Fetch a record by id/ref.
+	 *
+	 * @param int|string $id             Row ID (preferred) or technical ref.
+	 * @param string|null $ref           Optional ref if you need to fetch by ref.
+	 * @param int $noextrafields         1 to skip extrafields fetch for performance.
+	 * @param int $nolines               Unused here (compat with CommonObject).
+	 * @return int                       >0 if OK, <0 on error, 0 if not found.
+	 */
 	public function fetch($id, $ref = null, $noextrafields = 1, $nolines = 1)
 	{
 		return $this->fetchCommon($id, $ref, '', $noextrafields);
 	}
 
+	/**
+	 * Update record.
+	 *
+	 * @param User $user       User performing the update.
+	 * @param int  $notrigger  Set to 1 to disable triggers.
+	 * @return int             >0 on success, <0 on error, 0 if no change.
+	 */
 	public function update(User $user, $notrigger = 1)
 	{
 		// Normally you do not update logs; still provided for completeness.
 		return $this->updateCommon($user, $notrigger);
 	}
 
+	/**
+	 * Delete record.
+	 *
+	 * @param User $user       User performing the deletion.
+	 * @param int  $notrigger  Set to 1 to disable triggers.
+	 * @return int             >0 on success, <0 on error.
+	 */
 	public function delete(User $user, $notrigger = 1)
 	{
 		return $this->deleteCommon($user, $notrigger);
 	}
 
-	/* ================== Helpers ================== */
+	// ================== Helpers ==================
 
 	/**
 	 * Quick factory to record an error log (transaction-less).
 	 * Provide only what you have; nulls are accepted for optional fields.
 	 *
-	 * @return int >0 row id on success, <0 on error
+	 * @param DoliDB      $db              Database handler.
+	 * @param User|null   $user            User performing the action (or null for system).
+	 * @param string      $context         Logical context: product, category, order, tax, image, auth, other.
+	 * @param string|null $operation       Operation name: create, update, delete, relink, sync, fetch.
+	 * @param bool|null   $directionIsPush True if push Doli→Taler, false if pull Taler→Doli, null if n/a.
+	 * @param int|null    $fkProductLink   FK to talerproductlink row if known.
+	 * @param int|null    $fkProduct       FK to Dolibarr product if known.
+	 * @param string|null $talerInstance   Taler instance identifier (string key).
+	 * @param string|null $talerProductId  Taler-side product ID.
+	 * @param string|null $externalRef     Any other external reference.
+	 * @param int|null    $httpStatus      HTTP status code if from an HTTP call.
+	 * @param string|null $errorCode       Optional module/provider error code.
+	 * @param string      $errorMessage    Human-readable error message (required).
+	 * @param string|null $payloadJson     Raw JSON payload that caused/illustrates error.
+	 * @return int                         >0 row id on success, <0 on error.
 	 */
 	public static function record(
 		DoliDB $db,
@@ -170,6 +224,11 @@ class TalerErrorLog extends CommonObject
 	 * Convenience wrapper that accepts an associative array.
 	 * Keys: context, operation, direction_is_push(bool|null), fk_product_link, fk_product,
 	 * taler_instance, taler_product_id, external_ref, http_status, error_code, error_message, payload_json
+	 *
+	 * @param DoliDB    $db    Database handler.
+	 * @param array     $data  Input data (see keys above).
+	 * @param User|null $user  User performing the action (or null for system).
+	 * @return int             >0 row id on success, <0 on error.
 	 */
 	public static function recordArray(DoliDB $db, array $data, User $user = null): int
 	{
@@ -194,12 +253,12 @@ class TalerErrorLog extends CommonObject
 	/**
 	 * Fetch last N logs, optionally filtered.
 	 *
-	 * @param int         $limit              Number of rows (default 50)
-	 * @param string|null $context            Filter by context
-	 * @param int|null    $fkProductLink      Filter by product link
-	 * @param int|null    $fkProduct          Filter by product
-	 * @param string|null $talerInstance      Filter by instance
-	 * @return array<int,self>|int            Array of TalerErrorLog or <0 on SQL error
+	 * @param int         $limit         Number of rows to return (default 50).
+	 * @param string|null $context       Filter by context or null for all.
+	 * @param int|null    $fkProductLink Filter by product link FK or null.
+	 * @param int|null    $fkProduct     Filter by product FK or null.
+	 * @param string|null $talerInstance Filter by Taler instance or null.
+	 * @return array<int,self>|int       Array of TalerErrorLog indexed by id, or <0 on SQL error.
 	 */
 	public function fetchRecent(int $limit = 50, ?string $context = null, ?int $fkProductLink = null, ?int $fkProduct = null, ?string $talerInstance = null)
 	{
@@ -210,12 +269,12 @@ class TalerErrorLog extends CommonObject
 		$sql .= " WHERE t.entity IN (".getEntity($this->element).")";
 
 		if ($context !== null)       $sql .= " AND t.context = '".$this->db->escape($context)."'";
-		if ($fkProductLink !== null) $sql .= " AND t.fk_product_link = ".((int)$fkProductLink);
-		if ($fkProduct !== null)     $sql .= " AND t.fk_product = ".((int)$fkProduct);
+		if ($fkProductLink !== null) $sql .= " AND t.fk_product_link = ".((int) $fkProductLink);
+		if ($fkProduct !== null)     $sql .= " AND t.fk_product = ".((int) $fkProduct);
 		if ($talerInstance !== null) $sql .= " AND t.taler_instance = '".$this->db->escape($talerInstance)."'";
 
 		$sql .= " ORDER BY t.datec DESC, t.rowid DESC";
-		$sql .= $this->db->plimit(max(1,$limit), 0);
+		$sql .= $this->db->plimit(max(1, $limit), 0);
 
 		$res = $this->db->query($sql);
 		if (!$res) { $this->error = $this->db->lasterror(); return -1; }
@@ -232,37 +291,55 @@ class TalerErrorLog extends CommonObject
 
 	/**
 	 * Purge logs older than a given timestamp.
-	 * @param int $olderThanTs UNIX timestamp
-	 * @return int >=0 number of deleted rows, <0 on error
+	 *
+	 * @param int $olderThanTs UNIX timestamp; delete rows with datec older than this.
+	 * @return int             >=0 number of deleted rows, <0 on error.
 	 */
 	public function purgeOlderThan(int $olderThanTs)
 	{
 		$sql = "DELETE FROM ".$this->db->prefix().$this->table_element.
-			" WHERE entity IN (".getEntity($this->element).")".
-			" AND datec < '".$this->db->idate($olderThanTs)."'";
+			" WHERE entity IN (".getEntity($this->element).") AND datec < '".$this->db->idate($olderThanTs)."'";
 		$res = $this->db->query($sql);
 		if (!$res) { $this->error = $this->db->lasterror(); return -1; }
 		return (int) $this->db->affected_rows($res);
 	}
 
 	/* ================== UI helpers ================== */
-
+	/**
+	 * Build object link for lists and cards.
+	 *
+	 * @param int    $withpicto            0 = no picto, 1 = picto + label, 2 = picto only.
+	 * @param string $option               'nolink' to disable anchor; anything else enables link.
+	 * @param int    $notooltip            1 to disable tooltip (kept for API compatibility).
+	 * @param string $morecss              Extra CSS classes to add to the link.
+	 * @param int    $save_lastsearch_value Keep -1 to use default behavior.
+	 * @return string                      HTML for object link.
+	 */
 	public function getNomUrl($withpicto = 0, $option = '', $notooltip = 0, $morecss = '', $save_lastsearch_value = -1)
 	{
 		$label = 'TalerErrorLog';
-		$url = dol_buildpath('/talerbarr/talererrorlog_card.php', 1).'?id='.(int)$this->id;
+		$url = dol_buildpath('/talerbarr/talererrorlog_card.php', 1).'?id='.(int) $this->id;
 
 		$linkstart = ($option == 'nolink' || empty($url)) ? '<span>' : '<a href="'.$url.'">';
 		$linkend   = ($option == 'nolink' || empty($url)) ? '</span>' : '</a>';
 
 		$out = $linkstart;
-		if ($withpicto) $out .= img_object('', $this->picto, $withpicto != 2 ? 'class="paddingright"' : '');
-		if ($withpicto != 2) $out .= dol_escape_htmltag($this->getLabelForList());
+		if ($withpicto) {
+			$out .= img_object('', $this->picto, $withpicto != 2 ? 'class="paddingright"' : '');
+		}
+		if ($withpicto != 2) {
+			$out .= dol_escape_htmltag($this->getLabelForList());
+		}
 		$out .= $linkend;
 
 		return $out;
 	}
 
+	/**
+	 * Human-friendly label for list rows.
+	 *
+	 * @return string Readable label including id, context/operation and error metadata.
+	 */
 	public function getLabelForList(): string
 	{
 		$ctx  = $this->context ?: 'other';

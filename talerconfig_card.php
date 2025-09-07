@@ -178,55 +178,55 @@ $error = 0;
  * Preload config
  */
 if ($action === 'view' && (empty($object->id))) {
-    $errmsg = null;
-    try {
-        $singleton = TalerConfig::fetchSingletonVerified($db, $errmsg);
-    } catch (Throwable $t) {
-        echo '<hr>'; // And this one also
-        $message = __FILE__ . ': fetchSingletonVerified exception: ' . $t->getMessage();
-        dol_syslog($message, LOG_ERR);
-        echo '<pre>' . htmlspecialchars($message) . '</pre>';
-        setEventMessages('Internal error while loading configuration', null, 'errors');
-        // Fall back to create to avoid a white page
-        if (!headers_sent()) header('Location: '.$_SERVER['PHP_SELF'].'?action=create', true, 302);
-        exit;
-    }
-    if (!$singleton) {
-        // No config in DB: go to create
-        if ($errmsg) setEventMessages($errmsg, null, 'errors');
-        header('Location: '.$_SERVER['PHP_SELF'].'?action=create');
-        exit;
-    }
+	$errmsg = null;
+	try {
+		$singleton = TalerConfig::fetchSingletonVerified($db, $errmsg);
+	} catch (Throwable $t) {
+		echo '<hr>'; // And this one also
+		$message = __FILE__ . ': fetchSingletonVerified exception: ' . $t->getMessage();
+		dol_syslog($message, LOG_ERR);
+		echo '<pre>' . htmlspecialchars($message) . '</pre>';
+		setEventMessages('Internal error while loading configuration', null, 'errors');
+		// Fall back to create to avoid a white page
+		if (!headers_sent()) header('Location: '.$_SERVER['PHP_SELF'].'?action=create', true, 302);
+		exit;
+	}
+	if (!$singleton) {
+		// No config in DB: go to create
+		if ($errmsg) setEventMessages($errmsg, null, 'errors');
+		header('Location: '.$_SERVER['PHP_SELF'].'?action=create');
+		exit;
+	}
 
-    // If invalid, stash values to prefill the create form, then redirect there
-    if (property_exists($singleton, 'verification_ok') && !$singleton->verification_ok) {
-        if (!empty($singleton->verification_error)) {
-            setEventMessages($singleton->verification_error, null, 'errors');
-        } elseif ($errmsg) {
-            setEventMessages($errmsg, null, 'errors');
-        }
+	// If invalid, stash values to prefill the create form, then redirect there
+	if (property_exists($singleton, 'verification_ok') && !$singleton->verification_ok) {
+		if (!empty($singleton->verification_error)) {
+			setEventMessages($singleton->verification_error, null, 'errors');
+		} elseif ($errmsg) {
+			setEventMessages($errmsg, null, 'errors');
+		}
 
-        // Prefill values for the create screen
-        $_SESSION['talerconfig_prefill'] = array(
-            // adjust keys to your actual field names
-            'talermerchanturl' => isset($singleton->talermerchanturl) ? $singleton->talermerchanturl : '',
-            'username'         => isset($singleton->username) ? $singleton->username : '',
-            'talertoken'       => isset($singleton->talertoken) ? $singleton->talertoken : (isset($singleton->taler_token) ? $singleton->taler_token : ''),
-        );
+		// Prefill values for the create screen
+		$_SESSION['talerconfig_prefill'] = array(
+			// adjust keys to your actual field names
+			'talermerchanturl' => isset($singleton->talermerchanturl) ? $singleton->talermerchanturl : '',
+			'username'         => isset($singleton->username) ? $singleton->username : '',
+			'talertoken'       => isset($singleton->talertoken) ? $singleton->talertoken : (isset($singleton->taler_token) ? $singleton->taler_token : ''),
+		);
 
-        header('Location: '.$_SERVER['PHP_SELF'].'?action=create');
-        exit;
-    }
+		header('Location: '.$_SERVER['PHP_SELF'].'?action=create');
+		exit;
+	}
 
-    if (!empty($singleton->id)) {
-        setEventMessages($langs->trans('TalerConfigIsValid'), null, 'mesgs');
-        header('Location: '.$_SERVER['PHP_SELF'].'?id='.(int) $singleton->id);
-        exit;
-    }
+	if (!empty($singleton->id)) {
+		setEventMessages($langs->trans('TalerConfigIsValid'), null, 'mesgs');
+		header('Location: '.$_SERVER['PHP_SELF'].'?id='.(int) $singleton->id);
+		exit;
+	}
 
-    // Valid: use it and inform user
-    $object = $singleton;
-    setEventMessages($langs->trans('TalerConfigIsValid'), null, 'mesgs');
+	// Valid: use it and inform user
+	$object = $singleton;
+	setEventMessages($langs->trans('TalerConfigIsValid'), null, 'mesgs');
 }
 
 
@@ -507,20 +507,20 @@ if ($action == 'create') {
 
 	print '<table class="border centpercent tableforfieldcreate">'."\n";
 
-    // Not including unwanted(output fields)
-    unset($object->fields['status']);
+	// Not including unwanted(output fields)
+	unset($object->fields['status']);
 	unset($object->fields['syncdirection']);
 	print '<style>.field_expiration{display:none !important;}</style>';
-    print '<style>.field_talertoken{display:none !important;}</style>';
+	print '<style>.field_talertoken{display:none !important;}</style>';
 
-    // Common attributes
-    include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_add.tpl.php';
+	// Common attributes
+	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_add.tpl.php';
 
-    // - transient password field -
-    print '<tr>';
-    print '  <td class="fieldrequired">'.$langs->trans("TalerPassword").'</td>';
-    print '  <td><input type="password" class="flat" name="taler_password" /></td>';
-    print '</tr>';
+	// - transient password field -
+	print '<tr>';
+	print '  <td class="fieldrequired">'.$langs->trans("TalerPassword").'</td>';
+	print '  <td><input type="password" class="flat" name="taler_password" /></td>';
+	print '</tr>';
 
 	// --- custom toggle ---
 	print '<tr class="field_syncdirection">';
@@ -534,7 +534,7 @@ if ($action == 'create') {
 	print '  </td>';
 	print '</tr>';
 
-// style for the switch
+	// style for the switch
 	print '<style>
 .switch{position:relative;display:inline-block;width:46px;height:24px;vertical-align:middle}
 .switch input{opacity:0;width:0;height:0}
@@ -557,7 +557,7 @@ jQuery(function($){
   }
 
   // init from object
-  apply('.((!empty($object->syncdirection) && (int)$object->syncdirection === 1) ? 'true' : 'false').');
+  apply('.((!empty($object->syncdirection) && (int) $object->syncdirection === 1) ? 'true' : 'false').');
 
   $t.on("change", function(){ apply($(this).is(":checked")); });
 });
@@ -602,8 +602,8 @@ if (($id || $ref) && $action == 'edit') {
 	print '<style>.field_expiration{display:none !important;}</style>';
 	print '<style>.field_talertoken{display:none !important;}</style>';
 
-    // Common attributes
-    include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_edit.tpl.php';
+	// Common attributes
+	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_edit.tpl.php';
 
 	// — transient password field —
 	print '<tr>';
@@ -623,7 +623,7 @@ if (($id || $ref) && $action == 'edit') {
 	print '  </td>';
 	print '</tr>';
 
-// style for the switch
+	// style for the switch
 	print '<style>
 .switch{position:relative;display:inline-block;width:46px;height:24px;vertical-align:middle}
 .switch input{opacity:0;width:0;height:0}
@@ -646,14 +646,14 @@ jQuery(function($){
   }
 
   // init from object
-  apply('.((!empty($object->syncdirection) && (int)$object->syncdirection === 1) ? 'true' : 'false').');
+  apply('.((!empty($object->syncdirection) && (int) $object->syncdirection === 1) ? 'true' : 'false').');
 
   $t.on("change", function(){ apply($(this).is(":checked")); });
 });
 </script>';
 
-    // Other attributes
-    include DOL_DOCUMENT_ROOT.'/core/tpl/extrafields_edit.tpl.php';
+	// Other attributes
+	include DOL_DOCUMENT_ROOT.'/core/tpl/extrafields_edit.tpl.php';
 
 	print '</table>';
 

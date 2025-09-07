@@ -1,0 +1,40 @@
+name: CI-Pre-Commit
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    name: Run Pre-Commit Hooks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+          coverage: none
+          extensions: mbstring, xml
+
+      - name: Cache Composer deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.composer/cache
+            vendor
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Install pre-commit
+        run: pipx install pre-commit
+
+      - name: Run pre-commit on all files
+        run: pre-commit run --all-files

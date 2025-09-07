@@ -349,8 +349,8 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 	 * Upsert or refresh a TalerProductLink row that corresponds to a Dolibarr
 	 * Product (create if missing, update snapshot otherwise).
 	 *
-	 * @param Product $prod
-	 * @param User    $user
+	 * @param Product $prod  Dolibarr product
+	 * @param User    $user User performing the action
 	 * @return int               1 OK, 0 nothing done, <0 SQL / functional error
 	 */
 	private function upsertProduct(Product $prod, User $user)
@@ -361,8 +361,8 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 	/**
 	 * Delete the mapping row when a Dolibarr product is deleted.
 	 *
-	 * @param Product $prod
-	 * @param User    $user
+	 * @param Product $prod Dolibarr product
+	 * @param User    $user User performing the action
 	 * @return int               1 OK, 0 not found, <0 error
 	 */
 	private function deleteProduct(Product $prod, User $user)
@@ -370,7 +370,7 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 		$cfg = $this->getActiveTalerConfig();
 
 		// Ignore if no config or sync direction is Taler→Dolibarr
-		if (empty($cfg['username']) || (string)$cfg['syncdirection'] === '1') {
+		if (empty($cfg['username']) || (string) $cfg['syncdirection'] === '1') {
 			return 0;
 		}
 
@@ -404,8 +404,8 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 	 * When a stock movement occurs we refresh the product snapshot so that the
 	 * quantity cached in TalerProductLink stays coherent (optional but handy).
 	 *
-	 * @param MouvementStock $mvmt
-	 * @param User           $user
+	 * @param MouvementStock $mvmt Movement of stock from Dolibarr
+	 * @param User           $user User performing the action
 	 * @return int                       same semantics as upsertProduct()
 	 */
 	private function touchProductFromMovement($mvmt, User $user)
@@ -413,7 +413,7 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 		$cfg = $this->getActiveTalerConfig();
 
 		// Ignore if no config or sync direction is Taler→Dolibarr
-		if (empty($cfg['username']) || (string)$cfg['syncdirection'] === '1') {
+		if (empty($cfg['username']) || (string) $cfg['syncdirection'] === '1') {
 			return 0;
 		}
 

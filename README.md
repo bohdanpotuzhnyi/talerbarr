@@ -18,7 +18,7 @@ Compatible with **Dolibarr 20 → 22** and **Taler v1.0.0+ (v20+ of API) +*
 
 ## Features
 
-Syncronisation of the inventories
+Synchronisation of the inventories
 <!--
 ![Screenshot talerbarr](img/screenshot_talerbarr.png?raw=true "TalerBarr"){imgmd}
 -->

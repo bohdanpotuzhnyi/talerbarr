@@ -93,8 +93,8 @@ $search = array();
 foreach ($object->fields as $key => $val) {
 	if (GETPOST('search_'.$key, 'alpha') !== '') $search[$key] = GETPOST('search_'.$key, 'alpha');
 	if (preg_match('/^(date|timestamp|datetime)/', $val['type'])) {
-		$search[$key.'_dtstart'] = dol_mktime(0,0,0, GETPOSTINT('search_'.$key.'_dtstartmonth'), GETPOSTINT('search_'.$key.'_dtstartday'), GETPOSTINT('search_'.$key.'_dtstartyear'));
-		$search[$key.'_dtend']   = dol_mktime(23,59,59, GETPOSTINT('search_'.$key.'_dtendmonth'), GETPOSTINT('search_'.$key.'_dtendday'), GETPOSTINT('search_'.$key.'_dtendyear'));
+		$search[$key.'_dtstart'] = dol_mktime(0, 0, 0, GETPOSTINT('search_'.$key.'_dtstartmonth'), GETPOSTINT('search_'.$key.'_dtstartday'), GETPOSTINT('search_'.$key.'_dtstartyear'));
+		$search[$key.'_dtend']   = dol_mktime(23, 59, 59, GETPOSTINT('search_'.$key.'_dtendmonth'), GETPOSTINT('search_'.$key.'_dtendday'), GETPOSTINT('search_'.$key.'_dtendyear'));
 	}
 }
 
@@ -204,10 +204,10 @@ $parameters = array();
 $reshook = $hookmanager->executeHooks('printFieldListFrom', $parameters, $object, $action);
 $sql .= $hookmanager->resPrint;
 
-if (!empty($object->ismultientitymanaged) && (int)$object->ismultientitymanaged == 1) {
+if (!empty($object->ismultientitymanaged) && (int) $object->ismultientitymanaged == 1) {
 	$sql .= " WHERE t.entity IN (".getEntity($object->element, (GETPOSTINT('search_current_entity') ? 0 : 1)).")";
-} elseif (preg_match('/^\w+@\w+$/', (string)$object->ismultientitymanaged)) {
-	$tmparray = explode('@', (string)$object->ismultientitymanaged);
+} elseif (preg_match('/^\w+@\w+$/', (string) $object->ismultientitymanaged)) {
+	$tmparray = explode('@', (string) $object->ismultientitymanaged);
 	$sql .= " LEFT JOIN ".$object->db->prefix().$tmparray[1]." as pt ON t.".$db->sanitize($tmparray[0])." = pt.rowid";
 	$sql .= " WHERE pt.entity IN (".getEntity($object->element, (GETPOSTINT('search_current_entity') ? 0 : 1)).")";
 } else {
@@ -259,7 +259,7 @@ $sql .= $hookmanager->resPrint;
 // Count
 $nbtotalofrecords = '';
 if (!getDolGlobalInt('MAIN_DISABLE_FULL_SCANLIST')) {
-	$sqlforcount = preg_replace('/^'.preg_quote($sqlfields,'/').'/', 'SELECT COUNT(*) as nbtotalofrecords', $sql);
+	$sqlforcount = preg_replace('/^'.preg_quote($sqlfields, '/').'/', 'SELECT COUNT(*) as nbtotalofrecords', $sql);
 	$sqlforcount = preg_replace('/GROUP BY .*$/', '', $sqlforcount);
 	$rescount = $db->query($sqlforcount);
 	if ($rescount) {
@@ -267,7 +267,7 @@ if (!getDolGlobalInt('MAIN_DISABLE_FULL_SCANLIST')) {
 		$nbtotalofrecords = $objforcount->nbtotalofrecords;
 		$db->free($rescount);
 	}
-	if (($page * $limit) > (int)$nbtotalofrecords) { $page = 0; $offset = 0; }
+	if (($page * $limit) > (int) $nbtotalofrecords) { $page = 0; $offset = 0; }
 }
 
 // Finalize
@@ -282,7 +282,7 @@ $num = $db->num_rows($resql);
 if ($num == 1 && getDolGlobalInt('MAIN_SEARCH_DIRECT_OPEN_IF_ONLY_ONE') && $search_all && !$page) {
 	$obj = $db->fetch_object($resql);
 	$id = $obj->rowid;
-	header("Location: ".dol_buildpath('/talerbarr/talercategorymap_card.php', 1).'?id='.(int)$id);
+	header("Location: ".dol_buildpath('/talerbarr/talercategorymap_card.php', 1).'?id='.(int) $id);
 	exit;
 }
 
@@ -295,7 +295,7 @@ $arrayofselected = is_array($toselect) ? $toselect : array();
 $param = '';
 if (!empty($mode)) $param .= '&mode='.urlencode($mode);
 if (!empty($contextpage) && $contextpage != $_SERVER["PHP_SELF"]) $param .= '&contextpage='.urlencode($contextpage);
-if ($limit > 0 && $limit != $conf->liste_limit) $param .= '&limit='.(int)$limit;
+if ($limit > 0 && $limit != $conf->liste_limit) $param .= '&limit='.(int) $limit;
 if ($optioncss != '') $param .= '&optioncss='.urlencode($optioncss);
 if ($groupby != '') $param .= '&groupby='.urlencode($groupby);
 foreach ($search as $key => $val) {
@@ -316,7 +316,7 @@ $param .= $hookmanager->resPrint;
 
 // Mass actions
 $arrayofmassactions = array();
-if (!empty($permissiontodelete)) $arrayofmassactions['predelete'] = img_picto('', 'delete','class="pictofixedwidth"').$langs->trans("Delete");
+if (!empty($permissiontodelete)) $arrayofmassactions['predelete'] = img_picto('', 'delete', 'class="pictofixedwidth"').$langs->trans("Delete");
 if (GETPOSTINT('nomassaction') || in_array($massaction, array('presend','predelete'))) $arrayofmassactions = array();
 $massactionbutton = $form->selectMassAction('', $arrayofmassactions);
 
@@ -384,8 +384,8 @@ foreach ($object->fields as $key => $val) {
 		} elseif ((strpos($val['type'], 'integer:') === 0) || (strpos($val['type'], 'sellist:') === 0)) {
 			print $object->showInputField($val, $key, ($search[$key] ?? ''), '', '', 'search_', $cssforfield.' maxwidth250', 1);
 		} elseif (preg_match('/^(date|timestamp|datetime)/', $val['type'])) {
-			print '<div class="nowrap">'.$form->selectDate(($search[$key.'_dtstart'] ?? ''), "search_".$key."_dtstart", 0,0,1,'',1,0,0,'','','','',1,'', $langs->trans('From')).'</div>';
-			print '<div class="nowrap">'.$form->selectDate(($search[$key.'_dtend'] ?? ''),   "search_".$key."_dtend",   0,0,1,'',1,0,0,'','','','',1,'', $langs->trans('to')).'</div>';
+			print '<div class="nowrap">'.$form->selectDate(($search[$key.'_dtstart'] ?? ''), "search_".$key."_dtstart", 0, 0, 1, '', 1, 0, 0, '', '', '', '', 1, '', $langs->trans('From')).'</div>';
+			print '<div class="nowrap">'.$form->selectDate(($search[$key.'_dtend'] ?? ''),   "search_".$key."_dtend",   0, 0, 1, '', 1, 0, 0, '', '', '', '', 1, '', $langs->trans('to')).'</div>';
 		} elseif ($val['type'] === 'boolean') {
 			print $form->selectyesno('search_'.$key, $search[$key] ?? '', 1, false, 1);
 		} else {
@@ -446,7 +446,7 @@ while ($i < $imaxinloop) {
 
 	if ($mode == 'kanban' || $mode == 'kanbangroupby') {
 		if ($i == 0) print '<tr class="trkanban"><td colspan="'.$savnbfield.'"><div class="box-flex-container kanban">';
-		$selected = ($massactionbutton || $massaction) ? (in_array($object->id, (array)$toselect) ? 1 : 0) : -1;
+		$selected = ($massactionbutton || $massaction) ? (in_array($object->id, (array) $toselect) ? 1 : 0) : -1;
 		print $object->getKanbanView('', array('selected'=>$selected));
 		if ($i == ($imaxinloop - 1)) { print '</div></td></tr>'; }
 	} else {
@@ -455,7 +455,7 @@ while ($i < $imaxinloop) {
 		if ($conf->main_checkbox_left_column) {
 			print '<td class="nowrap center">';
 			if ($massactionbutton || $massaction) {
-				$selected = in_array($object->id, (array)$toselect) ? 1 : 0;
+				$selected = in_array($object->id, (array) $toselect) ? 1 : 0;
 				print '<input id="cb'.$object->id.'" class="flat checkforselect" type="checkbox" name="toselect[]" value="'.$object->id.'"'.($selected ? ' checked="checked"' : '').'>';
 			}
 			print '</td>';
@@ -473,10 +473,10 @@ while ($i < $imaxinloop) {
 				if ($key == 'status') {
 					print $object->getLibStatut(5);
 				} elseif ($key == 'rowid') {
-					print $object->showOutputField($val, $key, (string)$object->id, '');
+					print $object->showOutputField($val, $key, (string) $object->id, '');
 				} else {
 					if ($val['type'] == 'html') print '<div class="small lineheightsmall twolinesmax-normallineheight">';
-					print $object->showOutputField($val, $key, (string)$object->$key, '');
+					print $object->showOutputField($val, $key, (string) $object->$key, '');
 					if ($val['type'] == 'html') print '</div>';
 				}
 				print '</td>';
@@ -499,7 +499,7 @@ while ($i < $imaxinloop) {
 		if (empty($conf->main_checkbox_left_column)) {
 			print '<td class="nowrap center">';
 			if ($massactionbutton || $massaction) {
-				$selected = in_array($object->id, (array)$toselect) ? 1 : 0;
+				$selected = in_array($object->id, (array) $toselect) ? 1 : 0;
 				print '<input id="cb'.$object->id.'" class="flat checkforselect" type="checkbox" name="toselect[]" value="'.$object->id.'"'.($selected ? ' checked="checked"' : '').'>';
 			}
 			print '</td>';

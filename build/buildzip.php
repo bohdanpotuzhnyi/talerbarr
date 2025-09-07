@@ -38,6 +38,7 @@ $listOfModuleContent = [
 	'class',
 	'css',
 	'COPYING',
+	'LICENSE',
 	'core',
 	'img',
 	'js',

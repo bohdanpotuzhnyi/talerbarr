@@ -1,22 +1,74 @@
-# Generated binaries
+# ------------------------------
+# OS / Editors
+# ------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ------------------------------
+# Composer / PHP
+# ------------------------------
+/vendor/
+composer.phar
+composer.lock
+package-lock.json
+
+# PHPUnit & coverage
+.phpunit.result.cache
+.phpunit.cache
+/coverage/
+
+# ------------------------------
+# Node
+# ------------------------------
+/node_modules/
+
+# ------------------------------
+# Build artifacts (packages, zips, temp)
+# ------------------------------
+/bin/
+#/bin/*.zip              # (covered by /bin/ above)
 /build/*.zip
-/bin/*.zip
-/bin
-# Doxygen generated documentation
-/build/doxygen/doxygen_warnings.log
-/doc/code/doxygen
-# Composer managed dependencies
-/vendor
-/dev/bin
-# PHPdocumentor generated files
+/build/docs/
+/build/cache/
+/build/doxygen/
 /build/phpdoc
+
+# Keep build scripts/configs tracked
+!/build/makepack-talerbarr.conf
+!/build/buildzip.php
+
+# ------------------------------
+# phpDocumentor (v3 layout in devtools)
+# ------------------------------
+/devtools/phpdoc/build/
+!/devtools/phpdoc/phpdoc.xml
+
+# legacy phpdoc outputs (if present)
 /doc/code/phpdoc
-# Sphinx generated files
+
+# ------------------------------
+# Doxygen
+# ------------------------------
+/docs/doxygen/
+/doxygen/
+
+# ------------------------------
+# Sphinx (if used)
+# ------------------------------
 /doc/user/build
+
+# ------------------------------
+# IDE / Misc
+# ------------------------------
 /.settings/
 /.buildpath
 /.project
-# Other
-*.back
 /.editorconfig
 /.gitattributes
+
+# ------------------------------
+# Backup files
+# ------------------------------
+*.back

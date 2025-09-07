@@ -24,9 +24,10 @@
 /**
  * Background synchroniser for the Taler-Barr module.
  *
- *  · Runs from CLI or by an async `exec()` call.
- *  · Refuses to start when another run is in progress (flock lock).
- *  · Writes human-readable progress into   DOL_DATA_ROOT.'/talerbarr/sync.status.json'
+ *  Runs from CLI or by an async `exec()` call.
+ *  Refuses to start when another run is in progress (flock lock).
+ *  Writes human-readable progress into   DOL_DATA_ROOT.'/talerbarr/sync.status.json'.
+ *  Normally you are not supposed to call it directly, only through the lib TalerSyncUtil class.
  *
  * Usage examples
  *   php talerbarrsync.php              – normal run, auto-detect direction
@@ -53,11 +54,13 @@ if (file_exists($lockFile) && file_exists($statusFile)) {
 	if ($age > $maxAgeSeconds) {
 		dol_syslog("TalerBarrSync: stale lock detected (age={$age}s), recovering", LOG_WARNING);
 		@unlink($lockFile);
-		file_put_contents($statusFile, json_encode([
+		file_put_contents($statusFile,
+			json_encode([
 			'phase' => 'stale-recovery',
 			'ts'    => time(),
 			'note'  => "Lock file was older than {$maxAgeSeconds} sec. Recovered.",
-		], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+		],
+			JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 	}
 }
 
@@ -74,6 +77,13 @@ register_shutdown_function(function () use ($lockHdl, $lockFile) {
 	@unlink($lockFile);
 });
 
+/**
+ * Persist a human-readable sync status JSON file.
+ *
+ * @param array $s  Arbitrary status payload to serialize; function adds an RFC date in "ts".
+ *
+ * @return void
+ */
 function writeStatus(array $s)
 {
 	global $statusFile;
@@ -96,15 +106,14 @@ if (!$cfg || empty($cfg->verification_ok)) {
 	exit(1);
 }
 
-$direction = ((string)$cfg->syncdirection === '1') ? 'pull' : 'push';
+$direction = ((string) $cfg->syncdirection === '1') ? 'pull' : 'push';
 writeStatus(['phase'=>'start', 'direction'=>$direction]);
 dol_syslog("TalerBarrSync: sync direction is ".$direction, LOG_INFO);
 
-// Choose an internal user to attribute the updates to.
 $user = new User($GLOBALS['db']);
 $user->fetch($cfg->fk_user_modif ?: $cfg->fk_user_creat ?: 0);
 if (empty($user->id)) {
-	// Fallback: super-admin (rowid 1) or anonymous
+	dol_syslog("TalerBarrSync: user not found", LOG_ERR);
 	$user->fetch(1);
 }
 
@@ -120,17 +129,12 @@ if ($direction === 'push') {
 
 	while ($obj = $GLOBALS['db']->fetch_object($res)) {
 		$prod = new Product($GLOBALS['db']);
-		if ($prod->fetch((int)$obj->rowid) <= 0) continue;
+		if ($prod->fetch((int) $obj->rowid) <= 0) continue;
 
 		// 1. mirror / create link row
 		$r = TalerProductLink::upsertFromDolibarr($GLOBALS['db'], $prod, $user, $cfg);
 		if ($r<0) { $done++; continue; }
 
-		// 2. do the actual push
-		$link = new TalerProductLink($GLOBALS['db']);
-		if ($link->fetchByProductId($prod->id) > 0) {
-			$link->pushToTaler($user, $prod);      // result already logged inside
-		}
 		$done++;
 		if ($done % 25 === 0) writeStatus(['phase'=>'push','processed'=>$done,'total'=>$total]);
 	}
@@ -143,23 +147,72 @@ if ($direction === 'push') {
  * 2) PULL  (Taler → Dolibarr)
  * ---------------------------------------------------------- */
 try {
-	$client = new TalerMerchantClient($cfg->talermerchanturl, $cfg->talertoken);
-	$batch  = $client->listProducts($cfg->username, 1_000, 0);
-	$remote = $batch['products'] ?? [];
+	$client = new TalerMerchantClient(
+		$cfg->talermerchanturl,
+		$cfg->talertoken,
+		$cfg->username
+	);
 } catch (Throwable $e) {
-	writeStatus(['phase'=>'abort','direction'=>'pull','error'=>$e->getMessage()]);
-	fwrite(STDERR, "API error: ".$e->getMessage()."\n");
+	writeStatus([
+		'phase'=>'abort',
+		'direction'=>'pull',
+		'error'=>$e->getMessage()
+	]);
+	fwrite(
+		STDERR,
+		"API error: ".$e->getMessage()."\n"
+	);
 	exit(2);
 }
 
-$total = count($remote);
-$done  = 0;
-foreach ($remote as $detail) {
-	TalerProductLink::upsertFromTaler($GLOBALS['db'], $detail, $user,
-		['instance'=>$cfg->username, 'write_dolibarr'=>true]);
-	$done++;
-	if ($done % 25 === 0) writeStatus(['phase'=>'pull','processed'=>$done,'total'=>$total]);
-}
+$limit  = 1_000;
+$offset = 0;
+$done   = 0;
+$total  = 0;
+
+do {
+	try {
+		$page   = $client->listProducts($limit, $offset);
+		$items  = $page['products'] ?? [];
+	} catch (Throwable $e) {
+		writeStatus(['phase'=>'abort','direction'=>'pull','error'=>$e->getMessage()]);
+		fwrite(STDERR, "API error: ".$e->getMessage()."\n");
+		exit(2);
+	}
+
+	$count = count($items);
+	if ($count === 0) break;
+
+	foreach ($items as $summary) {
+		try {
+			// fetch the full ProductDetail *now*
+			$detail = $client->getProduct($summary['product_id']);
+			TalerProductLink::upsertFromTaler(
+				$GLOBALS['db'],
+				$detail,
+				$user,
+				['instance' => $cfg->username, 'write_dolibarr' => true]
+			);
+		} catch (Throwable $e) {
+			writeStatus([
+				'phase'     => 'abort',
+				'direction' => 'pull',
+				'error'     => $e->getMessage() . "\nProduct info:\n" . print_r($summary, true)
+			]);
+			fwrite(STDERR, "API error: ".$e->getMessage()."\n");
+			exit(2);
+		}
+
+		$done++;
+		if ($done % 25 === 0) {
+			writeStatus(['phase'=>'pull','processed'=>$done,'total'=>null]);
+		}
+	}
+
+	$total += $count;
+	$last   = end($items);
+	$offset = ((int) $last['product_serial']) + 1;
+} while ($count === $limit);
 
 writeStatus(['phase'=>'done','direction'=>'pull','processed'=>$done,'total'=>$total]);
 dol_syslog("TalerBarrSync: finished {$direction} with $done items", LOG_NOTICE);

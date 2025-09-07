@@ -1,0 +1,55 @@
+version: '0.2'
+
+# Languages and encoding
+language: en
+encoding: utf-8
+
+# What files to include
+files:
+  - '**/*.php'
+  - '**/*.md'
+  - '**/*.yml'
+  - '**/*.yaml'
+  - '**/*.json'
+
+# What to ignore
+ignorePaths:
+  - "**/composer.json**"
+  - "**/.pre-commit-config.yaml**"
+  - "**/Doxyfile**"
+  - "**/vendor/**"
+  - "**/bin/**"
+  - "**/build/**"
+  - "**/devtools/**"
+  - "**/node_modules/**"
+  - "**/scripts/**"
+  - "**/sql/**"
+  - "**/devtools/phpcs/**"
+  - "**/devtools/spell/**"
+
+# Extra project-specific words that are not spelling errors
+words:
+  - Taler
+  - Dolibarr
+  - doli
+  - talerbarr
+  - talerconfig
+  - webhook
+  - extrafields
+  - param
+  - upsert
+  - precommit
+  - config
+  - libhook
+  - phpcs
+  - phpcbf
+  - phpstan
+  - squizlabs
+
+# Consider compound words (camelCase, snake_case, etc.)
+allowCompoundWords: true
+
+# Allow typical PHP-style variable names
+ignoreRegExpList:
+  - '/\$[a-zA-Z_][a-zA-Z0-9_]*/'
+  - '/::[a-zA-Z_][a-zA-Z0-9_]*/'

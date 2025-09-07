@@ -32,8 +32,8 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/geturl.lib.php';
  * - All methods throw \Exception on HTTP errors (non-2xx) or JSON encoding/decoding errors.
  * - Uses Dolibarr's getURL() under the hood (curl mode).
  *
- * @author  Bohdan Potuzhnyi
- * @license AGPL-3.0-or-later
+ * @author  Bohdan Potuzhnyi <bohdan.potuzhnyi@gmail.com>
+ * @license https://www.gnu.org/licenses/  GNU Affero General Public License v3 or later
  */
 class TalerMerchantClient
 {
@@ -45,9 +45,9 @@ class TalerMerchantClient
 	/**
 	 * Constructor.
 	 *
-	 * @param string $baseUrl  Merchant root **or** “…/private/” URL (trailing slash optional)
-	 * @param string $baseUrl Base URL of the Taler Merchant backend; trailing slash optional.
-	 * @param string $token   OAuth2 Bearer token.
+	 * @param string $baseUrl  Base URL of the Taler Merchant backend; trailing slash optional.
+	 * @param string $token    OAuth2 Bearer token.
+	 * @param string $instance Instance name for the $token and $baseUrl
 	 */
 	public function __construct(string $baseUrl, string $token, string $instance = 'admin')
 	{
@@ -186,13 +186,13 @@ class TalerMerchantClient
 			$timeoutSeconds               // overall timeout (seconds)
 		);
 
-		$http = isset($res['http_code']) ? (int)$res['http_code'] : 0;
+		$http = isset($res['http_code']) ? (int) $res['http_code'] : 0;
 		if ($http < 200 || $http >= 300) {
 			$netErr = '';
 			if (!empty($res['curl_error_no'])) {
 				$netErr = ' cURL#'.$res['curl_error_no'].(!empty($res['curl_error_msg']) ? ' '.$res['curl_error_msg'] : '');
 			}
-			$bodyTxt = isset($res['content']) ? (string)$res['content'] : '';
+			$bodyTxt = isset($res['content']) ? (string) $res['content'] : '';
 			throw new Exception("HTTP {$http} for {$verb} {$url}: ".($bodyTxt !== '' ? $bodyTxt : 'Transport/HTTP error'.$netErr));
 		}
 
@@ -260,7 +260,7 @@ class TalerMerchantClient
 			$body['name_i18n'] = $nameI18n;
 		}
 		$result = $this->post($path, $body);
-		return (int)($result['category_id'] ?? 0);
+		return (int) ($result['category_id'] ?? 0);
 	}
 
 	/**
@@ -314,19 +314,19 @@ class TalerMerchantClient
 	 *
 	 * @param array  $product  ProductAddDetail structure:
 	 *                         [
-	 *                           'product_id'   => string (required),
-	 *                           'product_name' => string,           // v20+, should be treated as required going forward
-	 *                           'description'  => string,
-	 *                           'description_i18n' => array<string,string>,
-	 *                           'categories'   => int[],            // v16+
-	 *                           'unit'         => string,
-	 *                           'price'        => array,            // Amount {currency:string, value:string} or backend-specific
-	 *                           'image'        => string,           // data URL
-	 *                           'taxes'        => array,            // Tax[]
-	 *                           'total_stock'  => int,              // -1 for infinite
-	 *                           'address'      => array,            // Location
-	 *                           'next_restock' => int,              // Timestamp
-	 *                           'minimum_age'  => int,
+	 *                         'product_id'   => string (required),
+	 *                         'product_name' => string,           // v20+, should be treated as required going forward
+	 *                         'description'  => string,
+	 *                         'description_i18n' => array<string,string>,
+	 *                         'categories'   => int[],            // v16+
+	 *                         'unit'         => string,
+	 *                         'price'        => array,            // Amount {currency:string, value:string} or backend-specific
+	 *                         'image'        => string,           // data URL
+	 *                         'taxes'        => array,            // Tax[]
+	 *                         'total_stock'  => int,              // -1 for infinite
+	 *                         'address'      => array,            // Location
+	 *                         'next_restock' => int,              // Timestamp
+	 *                         'minimum_age'  => int,
 	 *                         ]
 	 * @return void
 	 * @throws Exception On HTTP errors (409 if product ID exists with different details).
@@ -346,19 +346,19 @@ class TalerMerchantClient
 	 * @param string $productId Product identifier.
 	 * @param array  $patch     ProductPatchDetail structure (all fields optional but validated by backend):
 	 *                          [
-	 *                            'product_name' => string,
-	 *                            'description'  => string,
-	 *                            'description_i18n' => array<string,string>,
-	 *                            'unit'         => string,
-	 *                            'categories'   => int[],
-	 *                            'price'        => array,           // Amount
-	 *                            'image'        => string,          // data URL
-	 *                            'taxes'        => array,           // Tax[]
-	 *                            'total_stock'  => int,
-	 *                            'total_lost'   => int,
-	 *                            'address'      => array,           // Location
-	 *                            'next_restock' => int,             // Timestamp (use special values per API)
-	 *                            'minimum_age'  => int,
+	 *                          'product_name' => string,
+	 *                          'description'  => string,
+	 *                          'description_i18n' => array<string,string>,
+	 *                          'unit'         => string,
+	 *                          'categories'   => int[],
+	 *                          'price'        => array,           // Amount
+	 *                          'image'        => string,          // data URL
+	 *                          'taxes'        => array,           // Tax[]
+	 *                          'total_stock'  => int,
+	 *                          'total_lost'   => int,
+	 *                          'address'      => array,           // Location
+	 *                          'next_restock' => int,             // Timestamp (use special values per API)
+	 *                          'minimum_age'  => int,
 	 *                          ]
 	 * @return void
 	 * @throws Exception On HTTP errors (404 unknown product, 409 conflict).
