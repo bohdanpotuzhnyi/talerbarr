@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        This is a template to help you report good issues. You may use [Github Markdown](https://help.github.com/articles/getting-started-with-writing-and-formatting-on-github/) syntax to format your issue report.
+        This is a template to help you report bugs. You may use [Github Markdown](https://help.github.com/articles/getting-started-with-writing-and-formatting-on-github/) syntax to format your issue report.
 
   - type: textarea
     id: bug
@@ -28,7 +28,7 @@ body:
     attributes:
       label: Taler Merchant Version
       description: Affected Taler version(s)
-        placeholder: 1.0.0, master, ...
+      placeholder: 1.0.0, master, ...
 
   - type: input
     id: environment-php
