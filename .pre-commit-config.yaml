@@ -1,0 +1,55 @@
+repos:
+  # ---------- SPELLING ----------
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.3.0
+    hooks:
+      - id: codespell
+        args:
+          - "--ignore-words=devtools/spell/.codespell-ignore"
+          - "--skip=*.po,*.lock,vendor,bin,build,devtools"
+        types: [file, text]
+
+#  - repo: local
+#    hooks:
+#      - id: cspell
+#        name: cspell (staged files + commit msg)
+#        # keep it one long string, but quote it
+#        entry: >
+#          bash -c 'git diff --cached --name-only |
+#          xargs -r npx --no-install cspell --no-progress --no-summary
+#          --config devtools/spell/cspell.config.yaml'
+#        language: system
+#        stages: [pre-commit, commit-msg]
+#        pass_filenames: false
+
+  # ---------- PHP CODE STYLE ----------
+  - repo: local
+    hooks:
+      - id: phpcs
+        name: PHP_CodeSniffer
+        entry: vendor/bin/phpcs
+        args:
+          - "--standard=devtools/phpcs/ruleset.xml"
+        language: system
+        types: [php]
+
+      - id: php-cbf
+        name: PHP-CBF
+        entry: vendor/bin/phpcbf
+        args:
+          - "--standard=devtools/phpcs/ruleset.xml"
+          - "--report=emacs"
+          - "--severity=5"
+          - "--no-colors"
+        language: system
+        types: [php]
+
+  # ---------- PHPDOC ----------
+  - repo: local
+    hooks:
+      - id: phpdoc-build
+        name: phpDocumentor (build docs)
+        entry: bash -lc 'composer docs'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

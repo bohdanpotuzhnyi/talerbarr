@@ -1,0 +1,27 @@
+{
+  "name": "talerbarr",
+  "version": "1.0.0",
+  "description": "> **Bridge your Dolibarr catalogue with the free‑software payment ecosystem powered by [GNU Taler](https://taler.net)**",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bohdanpotuzhnyi/talerbarr.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/bohdanpotuzhnyi/talerbarr/issues"
+  },
+  "homepage": "https://github.com/bohdanpotuzhnyi/talerbarr#readme",
+  "devDependencies": {
+    "cspell": "^9.2.1"
+  }
+}

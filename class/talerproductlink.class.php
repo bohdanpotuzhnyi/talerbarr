@@ -32,6 +32,17 @@ require_once __DIR__.'/talerconfig.class.php';
 require_once __DIR__.'/talermerchantclient.class.php';
 require_once __DIR__.'/talererrorlog.class.php';
 
+
+/**
+ * Class TalerProductLink
+ *
+ * Link table object between a Dolibarr Product and its representation
+ * in the Taler Merchant Backend. Holds mapping keys, last sync info,
+ * cached prices/stock and a few denormalized attributes.
+ *
+ * @package    TalerBarr
+ * @license    https://www.gnu.org/licenses/  GNU Affero General Public License v3 or later
+ */
 class TalerProductLink extends CommonObject
 {
 	/** @var string */
@@ -195,7 +206,7 @@ class TalerProductLink extends CommonObject
 	public function fetchByProductId(int $fk_product): int
 	{
 		$sql  = "SELECT rowid FROM ".$this->db->prefix().$this->table_element;
-		$sql .= " WHERE entity IN (".getEntity($this->element).") AND fk_product = ".((int)$fk_product)." LIMIT 1";
+		$sql .= " WHERE entity IN (".getEntity($this->element).") AND fk_product = ".((int) $fk_product)." LIMIT 1";
 		$res = $this->db->query($sql);
 		if (!$res) { $this->error = $this->db->lasterror(); return -1; }
 		if ($this->db->num_rows($res) == 0) return 0;
@@ -230,9 +241,9 @@ class TalerProductLink extends CommonObject
 	/**
 	 * Idempotent upsert driven by a *Dolibarr* product.
 	 *
-	 * @param DoliDB           $db
-	 * @param Product          $prod
-	 * @param User             $user
+	 * @param DoliDB           $db db handler
+	 * @param Product          $prod Product from dolibarr
+	 * @param User             $user User performing the action
 	 * @param ?TalerConfig     $cfg   (optional) pre-loaded config
 	 *
 	 * @return int  1 = OK, 0 = ignored (no active cfg / pull-only),
@@ -243,11 +254,10 @@ class TalerProductLink extends CommonObject
 		Product       $prod,
 		User          $user,
 		?TalerConfig  $cfg = null
-	): int
-	{
+	): int {
 		/* ---------------------------------------------------------
-     	 * 1) Resolve / verify config
-     	 * ------------------------------------------------------ */
+		  * 1) Resolve / verify config
+		  * ------------------------------------------------------ */
 		if ($cfg === null) {                                // legacy path
 			$cfgErr = null;
 			$cfg    = TalerConfig::fetchSingletonVerified($db, $cfgErr);
@@ -266,25 +276,27 @@ class TalerProductLink extends CommonObject
 
 
 		/*  syncdirection semantics:
-     	 *    1 = pull-only (Taler → Dolibarr)  → ignore this push
-     	 */
-		if ((string)$cfg->syncdirection === '1') {
+		  *    1 = pull-only (Taler → Dolibarr)  → ignore this push
+		  */
+		if ((string) $cfg->syncdirection === '1') {
 			return 0;                                       // pull-only
 		}
-		$instance = (string)$cfg->username;
+		$instance = (string) $cfg->username;
 
 		/* ---------------------------------------------------------
-     	 * 2) Load or create the link row
-     	 * ------------------------------------------------------ */
+		  * 2) Load or create the link row
+		  * ------------------------------------------------------ */
 		$link = new self($db);
-		$load = $link->fetchByProductId((int)$prod->id);
+		$load = $link->fetchByProductId((int) $prod->id);
 		if ($load < 0) {
-			TalerErrorLog::recordArray($db, [
+			TalerErrorLog::recordArray($db,
+				[
 				'context'       => 'product',
 				'operation'     => 'fetch',
 				'fk_product'    => $prod->id,
 				'error_message' => $link->error ?: 'DB error while fetchByProductId',
-			], $user);
+			],
+				$user);
 			return -1;
 		}
 
@@ -295,8 +307,8 @@ class TalerProductLink extends CommonObject
 		$link->prepareFromDolibarrAndTalerDetail($prod, $detail, ['instance'=>$instance]);
 
 		/* ---------------------------------------------------------
-     	 * 4) Persist link
-     	 * ------------------------------------------------------ */
+		  * 4) Persist link
+		  * ------------------------------------------------------ */
 		$res = ($load > 0) ? $link->update($user, 1)
 			: (function () use ($link, $user) {
 				$link->entity       = (int) getEntity($link->element, 1);
@@ -305,20 +317,22 @@ class TalerProductLink extends CommonObject
 			})();
 
 		if ($res <= 0) {
-			TalerErrorLog::recordArray($db, [
+			TalerErrorLog::recordArray($db,
+				[
 				'context' => 'product',
 				'operation' => ($load > 0 ? 'update' : 'create'),
 				'fk_product' => $prod->id,
 				'error_message' => $link->error ?: 'DB error while saving link',
 				'payload_json' => json_encode(['detail'=>$detail],
 					JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE),
-			], $user);
+			],
+				$user);
 			return -1;
 		}
 
 		/* ---------------------------------------------------------
-     	 * 5) Push the product to the Taler Merchant Backend
-     	 * ------------------------------------------------------ */
+		  * 5) Push the product to the Taler Merchant Backend
+		  * ------------------------------------------------------ */
 		$newDHash = self::_checksumDoli($prod);
 
 		$unchanged = ($load > 0)
@@ -331,8 +345,8 @@ class TalerProductLink extends CommonObject
 		$link->checksum_d_hex = $newDHash;
 		$link->update($user, 1);
 
-		if ($link->syncdirection_override !== null && (string)$link->syncdirection_override === '1')
-		  	return 1; // sync disabled for this product, treat as success(skip)
+		if ($link->syncdirection_override !== null && (string) $link->syncdirection_override === '1')
+			return 1; // sync disabled for this product, treat as success(skip)
 
 		$pushOk = $link->pushToTaler($user, $prod);
 
@@ -342,18 +356,19 @@ class TalerProductLink extends CommonObject
 	/**
 	 * Idempotent upsert driven by a *Taler* ProductDetail array/object.
 	 *
-	 * @param array|object $detail  – full JSON object returned by the backend
-	 * @param array        $opts    – ['instance'=>string] REQUIRED, plus
-	 *                                optional ['write_dolibarr'=>bool]
-	 * @return int same semantics as above
+	 * @param DoliDB 	   $db      - db handler
+	 * @param object|array $detail  - full JSON object returned by the backend
+	 * @param User 		   $user    - User performing the action
+	 * @param array        $opts    - ['instance'=>string] REQUIRED, plus
+	 *                              optional ['write_dolibarr'=>bool]
+	 * @return int 1=OK, 0=ignored, -1=error
 	 */
 	public static function upsertFromTaler(
-		DoliDB $db,
-			   $detail,
-		User   $user,
-		array  $opts = []
-	): int
-	{
+		DoliDB       $db,
+		object|array $detail,
+		User         $user,
+		array        $opts = []
+	): int {
 		$instance = (string) ($opts['instance'] ?? '');
 		if ($instance === '') return -1;
 
@@ -364,11 +379,13 @@ class TalerProductLink extends CommonObject
 		$link = new self($db);
 		$load = $link->fetchByInstancePid($instance, $pid);
 		if ($load < 0) {
-			TalerErrorLog::recordArray($db, [
+			TalerErrorLog::recordArray($db,
+				[
 				'context' => 'product', 'operation' => 'fetch',
 				'taler_instance' => $instance, 'taler_product_id' => $pid,
 				'error_message' => $link->error ?: 'DB error while fetchByInstancePid',
-			], $user);
+			],
+				$user);
 			return -1;
 		}
 
@@ -390,7 +407,9 @@ class TalerProductLink extends CommonObject
 				}
 			} else {
 				$link->fk_product = $link
-					->createDolibarrProductFromTalerDetail($detail, $user, [
+					->createDolibarrProductFromTalerDetail($detail,
+						$user,
+						[
 						'instance'=>$instance,
 						'taler_product_id'=>$pid,
 						'create_link'=>false,
@@ -401,10 +420,13 @@ class TalerProductLink extends CommonObject
 		// 3. Mirror remote state → link
 		$link->taler_instance     = $instance;
 		$link->taler_product_id   = $pid;
-		$link->taler_product_name = isset($detail['product_name']) ? substr($detail['product_name'],0,128) : null;
-		$link->taler_description  = array_key_exists('description',$detail)
-			? substr((string)$detail['description'],0,2048)
-			: null;
+		$link->taler_product_name = dol_trunc(
+			(string) ($detail['product_name'] ?? $pid),
+			128
+		);
+		$link->taler_description  = array_key_exists('description', $detail)
+			? substr((string) $detail['description'], 0, 2048)
+			: '';
 		$link->taler_amount_str   = $detail['price']        ?? null;
 		$link->taler_total_stock  = $detail['total_stock']  ?? null;
 		$link->taler_categories_json = json_encode($detail['categories'] ?? []);
@@ -419,12 +441,14 @@ class TalerProductLink extends CommonObject
 
 		$res = ($load > 0) ? $link->update($user, 1) : $link->create($user, 1);
 		if ($res <= 0) {
-			TalerErrorLog::recordArray($db, [
+			TalerErrorLog::recordArray($db,
+				[
 				'context'=>'product',
 				'operation'=> ($load>0?'update':'create'),
 				'taler_instance'=>$instance, 'taler_product_id'=>$pid,
 				'error_message'=>$link->error ?: 'DB error while saving link',
-			], $user);
+			],
+				$user);
 			return -1;
 		}
 		return 1;
@@ -542,15 +566,15 @@ class TalerProductLink extends CommonObject
 		$instance = '';
 		if (class_exists('TalerConfig')) {
 			// Prefer a fetchSingleton-like helper when available
-			if (method_exists('TalerConfig','fetchSingletonVerified')) {
+			if (method_exists('TalerConfig', 'fetchSingletonVerified')) {
 				$err = null;
 				$cfg = TalerConfig::fetchSingletonVerified($this->db, $err);
-				if ($cfg && !empty($cfg->username)) $instance = (string)$cfg->username;
+				if ($cfg && !empty($cfg->username)) $instance = (string) $cfg->username;
 			} else {
 				// Fallback: try to load the first active config row (best-effort)
-				$sql = "SELECT username FROM ".$this->db->prefix()."talerbarr_talerconfig WHERE entity IN (".getEntity('talerconfig',1).") ORDER BY rowid DESC";
+				$sql = "SELECT username FROM ".$this->db->prefix()."talerbarr_talerconfig WHERE entity IN (".getEntity('talerconfig', 1).") ORDER BY rowid DESC";
 				$res = $this->db->query($sql);
-				if ($res && ($obj = $this->db->fetch_object($res))) $instance = (string)$obj->username;
+				if ($res && ($obj = $this->db->fetch_object($res))) $instance = (string) $obj->username;
 			}
 		}
 		return $instance;
@@ -584,8 +608,8 @@ class TalerProductLink extends CommonObject
 	/**
 	 * Build Taler amount string from float
 	 *
-	 * @param float  $price
-	 * @param string $currency
+	 * @param float  $price Price as number
+	 * @param string $currency Currency (e.g. EUR)
 	 * @return string
 	 */
 	public static function talerAmountFromFloat(float $price, string $currency): string
@@ -596,31 +620,31 @@ class TalerProductLink extends CommonObject
 	/**
 	 * Get unit code from fk_unit
 	 *
-	 * @param int|null $fk_unit
+	 * @param int|null $fk_unit Foreign key of the unit
 	 * @return string
 	 */
 	private function resolveUnitCodeById(?int $fk_unit): string
 	{
 		if (empty($fk_unit)) return '';
-		$sql = "SELECT code FROM ".$this->db->prefix()."c_units WHERE rowid=".(int)$fk_unit." AND active=1";
+		$sql = "SELECT code FROM ".$this->db->prefix()."c_units WHERE rowid=".(int) $fk_unit." AND active=1";
 		$res = $this->db->query($sql);
-		if ($res && ($o = $this->db->fetch_object($res))) return (string)$o->code;
+		if ($res && ($o = $this->db->fetch_object($res))) return (string) $o->code;
 		return '';
 	}
 
 	/**
 	 * Get unit id from code
 	 *
-	 * @param string|null $code
+	 * @param string|null $code code
 	 * @return int|null
 	 */
 	private function resolveUnitIdByCode(?string $code): ?int
 	{
-		$code = trim((string)$code);
+		$code = trim((string) $code);
 		if ($code === '') return null;
 		$sql = "SELECT rowid FROM ".$this->db->prefix()."c_units WHERE code='".$this->db->escape($code)."' AND active=1";
 		$res = $this->db->query($sql);
-		if ($res && ($o = $this->db->fetch_object($res))) return (int)$o->rowid;
+		if ($res && ($o = $this->db->fetch_object($res))) return (int) $o->rowid;
 		return null;
 	}
 
@@ -628,7 +652,7 @@ class TalerProductLink extends CommonObject
 	 * Build a Taler ProductDetail array from a Dolibarr Product.
 	 * Price is exported as TTC Amount (as required by Taler).
 	 *
-	 * @param Product         $prod
+	 * @param Product         $prod Product from dolibarr
 	 * @param array           $opts ['instance'=>string]  // optional, not embedded in ProductDetail but used for category mapping
 	 * @return array ProductDetail
 	 */
@@ -638,32 +662,32 @@ class TalerProductLink extends CommonObject
 
 		$currency = !empty($conf->currency) ? strtoupper($conf->currency) : 'EUR';
 		// Prefer price_ttc; if zero, fall back to HT (and treat as TTC if no VAT info)
-		$priceTtc = isset($prod->price_ttc) ? (float)$prod->price_ttc : 0.0;
-		$price    = ($priceTtc > 0) ? $priceTtc : (isset($prod->price) ? (float)$prod->price : 0.0);
+		$priceTtc = isset($prod->price_ttc) ? (float) $prod->price_ttc : 0.0;
+		$price    = ($priceTtc > 0) ? $priceTtc : (isset($prod->price) ? (float) $prod->price : 0.0);
 
-		$unitCode = $this->resolveUnitCodeById(property_exists($prod,'fk_unit') ? (int)$prod->fk_unit : null);
+		$unitCode = $this->resolveUnitCodeById(property_exists($prod, 'fk_unit') ? (int) $prod->fk_unit : null);
 
 		// Categories: best effort via mapping table, else empty
 		$talerCats = [];
-		$instance  = isset($opts['instance']) && $opts['instance'] !== '' ? (string)$opts['instance'] : $this->resolveInstanceFromConfig();
+		$instance  = isset($opts['instance']) && $opts['instance'] !== '' ? (string) $opts['instance'] : $this->resolveInstanceFromConfig();
 		if ($instance && class_exists('TalerCategoryMap')) {
 			// Get local categories for this product
 			$sql = "SELECT c.rowid as fk_categorie
 				FROM ".$this->db->prefix()."categorie_product cp
 				JOIN ".$this->db->prefix()."categorie c ON c.rowid=cp.fk_categorie
-				WHERE cp.fk_product=".(int)$prod->id;
+				WHERE cp.fk_product=".(int) $prod->id;
 			$res = $this->db->query($sql);
 			if ($res) {
 				while ($o = $this->db->fetch_object($res)) {
 					$map = new TalerCategoryMap($this->db);
 					// Try a reasonable API; ignore failures
-					if (method_exists($map,'fetchByDoliCatAndInstance')) {
-						if ($map->fetchByDoliCatAndInstance((int)$o->fk_categorie, $instance) > 0 && !empty($map->taler_category_id)) {
-							$talerCats[] = (int)$map->taler_category_id;
+					if (method_exists($map, 'fetchByDoliCatAndInstance')) {
+						if ($map->fetchByDoliCatAndInstance((int) $o->fk_categorie, $instance) > 0 && !empty($map->taler_category_id)) {
+							$talerCats[] = (int) $map->taler_category_id;
 						}
-					} elseif (method_exists($map,'fetchByDoliCatId')) {
-						if ($map->fetchByDoliCatId((int)$o->fk_categorie, $instance) > 0 && !empty($map->taler_category_id)) {
-							$talerCats[] = (int)$map->taler_category_id;
+					} elseif (method_exists($map, 'fetchByDoliCatId')) {
+						if ($map->fetchByDoliCatId((int) $o->fk_categorie, $instance) > 0 && !empty($map->taler_category_id)) {
+							$talerCats[] = (int) $map->taler_category_id;
 						}
 					}
 				}
@@ -673,13 +697,13 @@ class TalerProductLink extends CommonObject
 		$detail = [
 			'product_name'      => (string) (!empty($prod->label) ? $prod->label : $prod->ref),
 			'description'       => (string) ($prod->description ?? ''),
-			'description_i18n'  => (object)[], // left empty; multilingual handled elsewhere
+			'description_i18n'  => (object) [], // left empty; multilingual handled elsewhere
 			'unit'              => $unitCode,
 			'categories'        => array_values(array_unique($talerCats)),
-			'price'             => self::talerAmountFromFloat(max(0.0,$price), $currency), // TTC as required
+			'price'             => self::talerAmountFromFloat(max(0.0, $price), $currency), // TTC as required
 			'image'             => null,        // not exported by default
 			'taxes'             => $this->buildTaxesForDolibarrProduct($prod, $currency, $instance) ?: null,
-			'total_stock'       => property_exists($prod,'stock_reel') ? (int)$prod->stock_reel : 0,
+			'total_stock'       => property_exists($prod, 'stock_reel') ? (int) $prod->stock_reel : 0,
 			'total_sold'        => 0,
 			'total_lost'        => 0,
 			'address'           => null,
@@ -700,24 +724,24 @@ class TalerProductLink extends CommonObject
 	 */
 	public static function dolibarrArrayFromTalerDetail($detail, ?float $vatRate = null): array
 	{
-		$src = is_object($detail) ? (array)$detail : (array)$detail;
+		$src = is_object($detail) ? (array) $detail : (array) $detail;
 
-		$name   = isset($src['product_name']) ? (string)$src['product_name'] : '';
-		$desc   = isset($src['description']) ? (string)$src['description'] : '';
-		$priceS = isset($src['price']) ? (string)$src['price'] : ''; // Taler Amount as string "CUR:12.34"
+		$name   = isset($src['product_name']) ? (string) $src['product_name'] : '';
+		$desc   = isset($src['description']) ? (string) $src['description'] : '';
+		$priceS = isset($src['price']) ? (string) $src['price'] : ''; // Taler Amount as string "CUR:12.34"
 		$parsed = self::parseTalerAmount($priceS);
 
 		// VAT: try to derive from taxes[] if present and looks like a %; else use provided $vatRate; else null
 		if ($vatRate === null && !empty($src['taxes']) && is_array($src['taxes'])) {
 			// Heuristic: first tax that has 'percent' or 'rate' field
 			$tax0 = (array) $src['taxes'][0];
-			if (isset($tax0['percent'])) $vatRate = (float)$tax0['percent'];
-			elseif (isset($tax0['rate'])) $vatRate = (float)$tax0['rate'];
+			if (isset($tax0['percent'])) $vatRate = (float) $tax0['percent'];
+			elseif (isset($tax0['rate'])) $vatRate = (float) $tax0['rate'];
 		}
 
 		$price_ttc = null; $price_ht = null;
 		if ($parsed['value'] !== null) {
-			$price_ttc = (float)$parsed['value'] + ((float)($parsed['fraction'] ?? 0))/100000000.0;
+			$price_ttc = (float) $parsed['value'] + ((float) ($parsed['fraction'] ?? 0))/100000000.0;
 			if ($vatRate !== null && $vatRate > 0) {
 				$price_ht = $price_ttc / (1.0 + $vatRate/100.0);
 			} else {
@@ -725,14 +749,14 @@ class TalerProductLink extends CommonObject
 			}
 		}
 
-		$unitCode = isset($src['unit']) ? (string)$src['unit'] : '';
+		$unitCode = isset($src['unit']) ? (string) $src['unit'] : '';
 
 		return [
-			'ref'             => dol_string_nospecial(trim($name)) ?: dol_string_nospecial(substr(sha1($name.microtime(true)),0,8)),
+			'ref'             => dol_string_nospecial(trim($name)) ?: dol_string_nospecial(substr(sha1($name.microtime(true)), 0, 8)),
 			'label'           => $name,
 			'description'     => $desc,
-			'price'           => ($price_ht   !== null ? price2num($price_ht,'MT')   : null),
-			'price_ttc'       => ($price_ttc  !== null ? price2num($price_ttc,'MT')  : null),
+			'price'           => ($price_ht   !== null ? price2num($price_ht, 'MT')   : null),
+			'price_ttc'       => ($price_ttc  !== null ? price2num($price_ttc, 'MT')  : null),
 			'price_base_type' => 'TTC',          // Taler price is TTC
 			'tva_tx'          => ($vatRate !== null ? $vatRate : null),
 			'type'            => defined('Product::TYPE_PRODUCT') ? Product::TYPE_PRODUCT : 0,
@@ -743,7 +767,7 @@ class TalerProductLink extends CommonObject
 				'price_amount_str' => $priceS,
 				'address'          => isset($src['address']) ? $src['address'] : null,
 				'next_restock'     => isset($src['next_restock']) ? $src['next_restock'] : null,
-				'minimum_age'      => isset($src['minimum_age']) ? (int)$src['minimum_age'] : null,
+				'minimum_age'      => isset($src['minimum_age']) ? (int) $src['minimum_age'] : null,
 				'taxes'            => isset($src['taxes']) ? $src['taxes'] : null,
 			],
 		];
@@ -754,7 +778,7 @@ class TalerProductLink extends CommonObject
 	 * If no config/instance is available, the product is still created and we skip creating the link.
 	 *
 	 * @param array|object $detail   ProductDetail
-	 * @param User         $user
+	 * @param User         $user User performing the action
 	 * @param array        $opts     ['instance'=>string, 'taler_product_id'=>string, 'create_link'=>bool (true)]
 	 * @return int                   Product ID (>0) or -1 on error
 	 */
@@ -767,7 +791,7 @@ class TalerProductLink extends CommonObject
 			$prod = new Product($this->db);
 
 			foreach (['ref','label','description','price','price_ttc','price_base_type','tva_tx','type'] as $k) {
-				if (array_key_exists($k,$fields) && $fields[$k] !== null) $prod->$k = $fields[$k];
+				if (array_key_exists($k, $fields) && $fields[$k] !== null) $prod->$k = $fields[$k];
 			}
 
 			// Resolve fk_unit by unit code if present
@@ -784,19 +808,19 @@ class TalerProductLink extends CommonObject
 			}
 
 			// Assign local categories if we can map back from Taler categories
-			$instance = isset($opts['instance']) && $opts['instance'] !== '' ? (string)$opts['instance'] : $this->resolveInstanceFromConfig();
+			$instance = isset($opts['instance']) && $opts['instance'] !== '' ? (string) $opts['instance'] : $this->resolveInstanceFromConfig();
 			if ($instance && !empty($fields['_categories']) && class_exists('TalerCategoryMap')) {
 				foreach ($fields['_categories'] as $talCatId) {
-					$talCatId = (int)$talCatId;
+					$talCatId = (int) $talCatId;
 					if ($talCatId <= 0) continue;
 
 					$map = new TalerCategoryMap($this->db);
 					// Try both likely APIs
 					$dolicat = null;
-					if (method_exists($map,'fetchByInstanceCatId') && $map->fetchByInstanceCatId($instance, $talCatId) > 0 && !empty($map->fk_categorie)) {
-						$dolicat = (int)$map->fk_categorie;
-					} elseif (method_exists($map,'fetchByTalerCatId') && $map->fetchByTalerCatId($talCatId, $instance) > 0 && !empty($map->fk_categorie)) {
-						$dolicat = (int)$map->fk_categorie;
+					if (method_exists($map, 'fetchByInstanceCatId') && $map->fetchByInstanceCatId($instance, $talCatId) > 0 && !empty($map->fk_categorie)) {
+						$dolicat = (int) $map->fk_categorie;
+					} elseif (method_exists($map, 'fetchByTalerCatId') && $map->fetchByTalerCatId($talCatId, $instance) > 0 && !empty($map->fk_categorie)) {
+						$dolicat = (int) $map->fk_categorie;
 					}
 					if ($dolicat) {
 						$cat = new Categorie($this->db);
@@ -806,16 +830,16 @@ class TalerProductLink extends CommonObject
 			}
 
 			// Optionally create the link row
-			$createLink = array_key_exists('create_link',$opts) ? (bool)$opts['create_link'] : true;
+			$createLink = array_key_exists('create_link', $opts) ? (bool) $opts['create_link'] : true;
 			if ($createLink && $instance !== '') {
-				$this->fk_product = (int)$pid;
+				$this->fk_product = (int) $pid;
 				$this->setDolibarrSnapshot($prod);
 
 				$this->taler_instance     = $instance;
-				$this->taler_product_id   = isset($fields['product_id']) ? (string)$fields['product_id'] : ''; // may be empty if unknown at creation time
+				$this->taler_product_id   = isset($fields['product_id']) ? (string) $fields['product_id'] : ''; // may be empty if unknown at creation time
 				$this->taler_product_name = substr($fields['product'], 0, 128);
-				$this->taler_description  = substr((string)$fields['description'], 0, 2048);
-				$this->taler_amount_str   = isset($fields['_extras']['price_amount_str']) ? (string)$fields['_extras']['price_amount_str'] : null;
+				$this->taler_description  = substr((string) $fields['description'], 0, 2048);
+				$this->taler_amount_str   = isset($fields['_extras']['price_amount_str']) ? (string) $fields['_extras']['price_amount_str'] : null;
 				$this->price_is_ttc       = 1; // ProductDetail.price is TTC
 				$this->fillPriceFromAmountStr();
 
@@ -830,10 +854,10 @@ class TalerProductLink extends CommonObject
 					$this->taler_address_json = json_encode($fields['_extras']['address']);
 				}
 				if (isset($fields['_extras']['minimum_age']) && $fields['_extras']['minimum_age'] !== null) {
-					$this->taler_minimum_age = (int)$fields['_extras']['minimum_age'];
+					$this->taler_minimum_age = (int) $fields['_extras']['minimum_age'];
 				}
 				if (!empty($fields['_extras']['next_restock'])) {
-					$ts = is_numeric($fields['_extras']['next_restock']) ? (int)$fields['_extras']['next_restock'] : dol_stringtotime($fields['_extras']['next_restock']);
+					$ts = is_numeric($fields['_extras']['next_restock']) ? (int) $fields['_extras']['next_restock'] : dol_stringtotime($fields['_extras']['next_restock']);
 					if ($ts) $this->taler_next_restock = $this->db->idate($ts);
 				}
 
@@ -847,7 +871,7 @@ class TalerProductLink extends CommonObject
 			}
 
 			$this->db->commit();
-			return (int)$pid;
+			return (int) $pid;
 		} catch (Throwable $e) {
 			$this->db->rollback();
 			$this->error = $e->getMessage();
@@ -859,9 +883,10 @@ class TalerProductLink extends CommonObject
 	 * Prepare this link row from a Dolibarr product AND a Taler ProductDetail (partial or full).
 	 * Useful if you have both objects and want to mirror extra fields (taxes, address, etc.).
 	 *
-	 * @param Product $prod
+	 * @param Product $prod Product from dolibarr
 	 * @param array|object|null $detail  ProductDetail
 	 * @param array $opts ['instance'=>string]
+	 *
 	 * @return $this
 	 */
 	public function prepareFromDolibarrAndTalerDetail(Product $prod, $detail = null, array $opts = [])
@@ -869,7 +894,7 @@ class TalerProductLink extends CommonObject
 		global $conf;
 
 		$this->setDolibarrSnapshot($prod);
-		$this->taler_instance = isset($opts['instance']) && $opts['instance'] !== '' ? (string)$opts['instance'] : $this->resolveInstanceFromConfig();
+		$this->taler_instance = isset($opts['instance']) && $opts['instance'] !== '' ? (string) $opts['instance'] : $this->resolveInstanceFromConfig();
 		$this->taler_product_name = dol_trunc($prod->label ?: $prod->ref, 128);
 		$this->taler_description  = dol_trunc((string) ($prod->description ?? ''), 2048);
 
@@ -890,22 +915,22 @@ class TalerProductLink extends CommonObject
 		}
 
 		$currency = !empty($conf->currency) ? strtoupper($conf->currency) : 'EUR';
-		$priceTtc = isset($prod->price_ttc) ? (float)$prod->price_ttc : 0.0;
-		$this->taler_amount_str = self::talerAmountFromFloat(max(0.0,$priceTtc), $currency);
+		$priceTtc = isset($prod->price_ttc) ? (float) $prod->price_ttc : 0.0;
+		$this->taler_amount_str = self::talerAmountFromFloat(max(0.0, $priceTtc), $currency);
 		$this->price_is_ttc = 1;
 		$this->fillPriceFromAmountStr();
 
 		if ($detail) {
-			$src = is_object($detail) ? (array)$detail : (array)$detail;
+			$src = is_object($detail) ? (array) $detail : (array) $detail;
 			if (!empty($src['product_name'])) $this->taler_product_name = substr($src['product_name'], 0, 128);
 			if (array_key_exists('description', $src))
-				$this->taler_description = substr((string)$src['description'], 0, 2048);
+				$this->taler_description = substr((string) $src['description'], 0, 2048);
 			if (isset($src['categories']) && is_array($src['categories'])) $this->taler_categories_json = json_encode(array_values($src['categories']));
 			if (isset($src['taxes'])) $this->taler_taxes_json = json_encode($src['taxes']);
 			if (isset($src['address'])) $this->taler_address_json = json_encode($src['address']);
-			if (isset($src['minimum_age'])) $this->taler_minimum_age = (int)$src['minimum_age'];
+			if (isset($src['minimum_age'])) $this->taler_minimum_age = (int) $src['minimum_age'];
 			if (!empty($src['next_restock'])) {
-				$ts = is_numeric($src['next_restock']) ? (int)$src['next_restock'] : dol_stringtotime($src['next_restock']);
+				$ts = is_numeric($src['next_restock']) ? (int) $src['next_restock'] : dol_stringtotime($src['next_restock']);
 				if ($ts) $this->taler_next_restock = $this->db->idate($ts);
 			}
 		}
@@ -916,9 +941,9 @@ class TalerProductLink extends CommonObject
 	/**
 	 * Backward-compatible payload wrapper
 	 *
-	 * @param Product      $prod
-	 * @param TalerConfig|null $cfg
-	 * @param array        $opts
+	 * @param Product      $prod Product from dolibarr
+	 * @param TalerConfig|null $cfg Taler config
+	 * @param array        $opts Options array
 	 * @return array
 	 */
 	public static function talerPayloadFromDolibarr(Product $prod, ?TalerConfig $cfg = null, array $opts = []): array
@@ -929,6 +954,12 @@ class TalerProductLink extends CommonObject
 
 	/**
 	 * Build a spec-compliant Tax[] array from a Dolibarr product line.
+	 *
+	 * @param Product $prod     Source Dolibarr product
+	 * @param string  $currency ISO-4217 currency code (e.g. "EUR")
+	 * @param string  $instance Taler instance name (used for mapping side effects)
+	 *
+	 * @return array Array of Tax objects suitable for Taler ProductDetail
 	 */
 	private function buildTaxesForDolibarrProduct(Product $prod, string $currency, string $instance): array
 	{
@@ -944,7 +975,7 @@ class TalerProductLink extends CommonObject
 		$taxValue = $priceTtc - $priceHt;
 
 		if (class_exists('TalerTaxMap') && !empty($prod->tva_tx_id)) {
-			TalerTaxMap::upsertFromDolibarr($this->db, $GLOBALS['user'], (int)$prod->tva_tx_id, $instance);
+			TalerTaxMap::upsertFromDolibarr($this->db, $GLOBALS['user'], (int) $prod->tva_tx_id, $instance);
 		}
 
 
@@ -954,22 +985,34 @@ class TalerProductLink extends CommonObject
 		]];
 	}
 
+	/**
+	 * Deterministic JSON encoding for hash calculation.
+	 *
+	 * @param array $a Input array
+	 * @return string Canonical JSON
+	 */
 	private static function _canon(array $a): string
 	{
 		ksort($a);
 		return json_encode($a, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
 	}
 
-	/* Compute SHA-256 on a subset of Dolibarr product fields */
+	/**
+	* Compute SHA-256 on a subset of Dolibarr product fields (canonicalized).
+	*
+	* @param Product $p Product
+	* @return string   Hex digest
+	*/
 	private static function _checksumDoli(Product $p): string
 	{
-		return hash('sha256', self::_canon([
+		return hash('sha256',
+			self::_canon([
 			'ref'        => $p->ref,
 			'label'      => $p->label,
 			'description'=> $p->description,
-			'price_ttc'  => (float)$p->price_ttc,
-			'price'      => (float)$p->price,
-			'stock'      => property_exists($p,'stock_reel') ? (int)$p->stock_reel : 0,
+			'price_ttc'  => (float) $p->price_ttc,
+			'price'      => (float) $p->price,
+			'stock'      => property_exists($p, 'stock_reel') ? (int) $p->stock_reel : 0,
 			'tms'        => $p->tms,
 		]));
 	}
@@ -977,18 +1020,29 @@ class TalerProductLink extends CommonObject
 
 	/* *************** UI helpers (optional minimal stubs) *************** */
 
+	/**
+	 * Get HTML link for this object (standard Dolibarr pattern).
+	 *
+	 * @param int    $withpicto             Add picto (0=no, 1=with, 2=only picto)
+	 * @param string $option                'nolink' to return a span instead of anchor
+	 * @param int    $notooltip             1 to disable tooltip
+	 * @param string $morecss               Extra CSS classes on the link
+	 * @param int    $save_lastsearch_value See CommonObject::getNomUrl
+	 *
+	 * @return string HTML
+	 */
 	public function getNomUrl($withpicto = 0, $option = '', $notooltip = 0, $morecss = '', $save_lastsearch_value = -1)
 	{
 		global $langs;
 		$label = $langs->trans("TalerProductLink");
-		$url = dol_buildpath('/talerbarr/talerproductlink_card.php', 1).'?id='.(int)$this->id;
+		$url = dol_buildpath('/talerbarr/talerproductlink_card.php', 1).'?id='.(int) $this->id;
 		$linkstart = ($option == 'nolink' || empty($url)) ? '<span>' : '<a href="'.$url.'">';
 		$linkend = ($option == 'nolink' || empty($url)) ? '</span>' : '</a>';
 
 		$out = $linkstart;
 		if ($withpicto) $out .= img_object('', $this->picto, $withpicto != 2 ? 'class="paddingright"' : '');
 		if ($withpicto != 2) {
-			$ref = $this->taler_product_id ?: ('#'.(int)$this->id);
+			$ref = $this->taler_product_id ?: ('#'.(int) $this->id);
 			$out .= dol_escape_htmltag($ref);
 		}
 		$out .= $linkend;
@@ -997,6 +1051,8 @@ class TalerProductLink extends CommonObject
 
 	/**
 	 * Build a concise label for lists.
+	 *
+	 * @return string
 	 */
 	public function getLabelForList(): string
 	{
@@ -1035,7 +1091,7 @@ class TalerProductLink extends CommonObject
 	/**
 	 * Push (create or update) the linked Dolibarr product to the Taler inventory.
 	 *
-	 * @param User    $user
+	 * @param User    $user User performing the action
 	 * @param Product $prod   Dolibarr product to export (already loaded)
 	 * @return bool           true on success, false on failure (errors logged & set)
 	 */
@@ -1055,11 +1111,11 @@ class TalerProductLink extends CommonObject
 		$lastOkPush = ($this->lastsync_is_push === 1 && $this->last_sync_status === 'ok');
 
 		try {
-			if(!$lastOkPush){
-				$client->addProduct( $detail);
+			if (!$lastOkPush) {
+				$client->addProduct($detail);
 			} else {
 				unset($detail['product_id']);
-				$client->updateProduct( $this->taler_product_id, $detail);
+				$client->updateProduct($this->taler_product_id, $detail);
 			}
 
 			$this->markSyncResult(true, 'ok');
@@ -1073,17 +1129,17 @@ class TalerProductLink extends CommonObject
 			if (str_contains($e->getMessage(), 'HTTP 409') && !$lastOkPush) {
 				try {
 					unset($detail['product_id']); // PATCH must NOT include product_id
-					$client->updateProduct( $this->taler_product_id, $detail);
+					$client->updateProduct($this->taler_product_id, $detail);
 					$this->markSyncResult(true, 'ok');
 					return true;
 				} catch (Exception $e2) {
 					$err = $e2->getMessage();
 				}
-			// 404 means product doesn't exist - try to POST
+				// 404 means product doesn't exist - try to POST
 			} elseif (str_contains($e->getMessage(), 'HTTP 404') && $lastOkPush) {
 				try {
 					$detail['product_id'] = $this->taler_product_id;
-					$client->addProduct( $detail);
+					$client->addProduct($detail);
 					$this->markSyncResult(true, 'ok');
 					return true;
 				} catch (Exception $e2) {
@@ -1102,7 +1158,7 @@ class TalerProductLink extends CommonObject
 	/**
 	 * Pull latest product data from Taler and (optionally) update Dolibarr.
 	 *
-	 * @param User  $user
+	 * @param User  $user User performing the action
 	 * @param bool  $writeDoli  true = update or create Dolibarr product when missing
 	 * @return bool             true on success, false on failure
 	 */
@@ -1116,7 +1172,7 @@ class TalerProductLink extends CommonObject
 		}
 
 		try {
-			$detail = $client->getProduct( $this->taler_product_id);
+			$detail = $client->getProduct($this->taler_product_id);
 		} catch (Exception $e) {
 			$this->markSyncResult(false, 'error', 'fetch', $e->getMessage());
 			$this->logTalerError('product', 'fetch', $e->getMessage());
@@ -1135,13 +1191,15 @@ class TalerProductLink extends CommonObject
 						$prod->price     = $prod->price_ttc;   // keep TTC parity
 					}
 				}
-				if (isset($detail['total_stock'])) $prod->stock_reel = (int)$detail['total_stock'];
+				if (isset($detail['total_stock'])) $prod->stock_reel = (int) $detail['total_stock'];
 				$prod->update($this->fk_product, $user);
 				$this->setDolibarrSnapshot($prod);          // refresh cached ref + tms
 			}
 		} elseif (!$this->fk_product && $writeDoli) {
 			// No product yet – create it and link
-			$newProdId = $this->createDolibarrProductFromTalerDetail($detail, $user, [
+			$newProdId = $this->createDolibarrProductFromTalerDetail($detail,
+				$user,
+				[
 				'instance'        => $this->taler_instance,
 				'taler_product_id'=> $this->taler_product_id,
 				'create_link'     => false,                // we’ll reuse this link row
@@ -1170,7 +1228,7 @@ class TalerProductLink extends CommonObject
 	/**
 	 * Delete the product on the Taler backend.
 	 *
-	 * @param User $user
+	 * @param User $user User performing the action
 	 * @return bool  true on 204, false otherwise
 	 */
 	public function deleteOnTaler(User $user): bool
@@ -1182,7 +1240,7 @@ class TalerProductLink extends CommonObject
 			return false;
 		}
 		try {
-			$client->deleteProduct( $this->taler_product_id);
+			$client->deleteProduct($this->taler_product_id);
 			$this->markSyncResult(true, 'ok');
 			return true;
 		} catch (Exception $e) {

@@ -26,6 +26,14 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
 // Optionally useful if you want helpers that resolve Dolibarr category objects
 // require_once DOL_DOCUMENT_ROOT.'/categories/class/categorie.class.php';
 
+/**
+ * Class TalerCategoryMap
+ *
+ * Maps Taler (Merchant Backend) category ids/names to Dolibarr categories.
+ * Provides CRUD helpers and idempotent upsert by either side of the mapping.
+ *
+ * @package    TalerBarr
+ */
 class TalerCategoryMap extends CommonObject
 {
 	/** @var string */
@@ -65,6 +73,11 @@ class TalerCategoryMap extends CommonObject
 	// Public properties for IDE hints
 	public $rowid, $entity, $taler_instance, $taler_category_id, $taler_category_name, $fk_categorie, $note, $datec, $tms;
 
+	/**
+	 * Constructor.
+	 *
+	 * @param DoliDB $db Database handler
+	 */
 	public function __construct(DoliDB $db)
 	{
 		$this->db = $db;
@@ -81,7 +94,13 @@ class TalerCategoryMap extends CommonObject
 	}
 
 	/* ================== CRUD ================== */
-
+	/**
+	 * Create record in database.
+	 *
+	 * @param User $user      User performing the action
+	 * @param int  $notrigger 1 = do not call triggers
+	 * @return int            >0 if OK, <0 on error
+	 */
 	public function create(User $user, $notrigger = 0)
 	{
 		if (empty($this->entity)) $this->entity = (int) getEntity($this->element, 1);
@@ -89,17 +108,40 @@ class TalerCategoryMap extends CommonObject
 		return $this->createCommon($user, $notrigger);
 	}
 
+	/**
+	 * Fetch object from database.
+	 *
+	 * @param int         $id            Rowid
+	 * @param string|null $ref           Optional reference
+	 * @param int         $noextrafields 1 = do not load extrafields
+	 * @param int         $nolines       1 = do not load lines
+	 * @return int                       >0 if OK, 0 if not found, <0 on error
+	 */
 	public function fetch($id, $ref = null, $noextrafields = 1, $nolines = 1)
 	{
 		return $this->fetchCommon($id, $ref, '', $noextrafields);
 	}
 
+	/**
+	 * Update record in database.
+	 *
+	 * @param User $user      User performing the action
+	 * @param int  $notrigger 1 = do not call triggers
+	 * @return int            >0 if OK, <0 on error
+	 */
 	public function update(User $user, $notrigger = 0)
 	{
 		return $this->updateCommon($user, $notrigger);
 	}
 
-	public function delete(User $user, $notrigger = 0)
+	/**
+	 * Delete record from database.
+	 *
+	 * @param User $user      User performing the action
+	 * @param int $notrigger 1 = do not call triggers
+	 * @return int            >0 if OK, <0 on error
+	 */
+	public function delete(User $user, int $notrigger = 0) : int
 	{
 		return $this->deleteCommon($user, $notrigger);
 	}
@@ -108,7 +150,9 @@ class TalerCategoryMap extends CommonObject
 
 	/**
 	 * Fetch a mapping by Dolibarr category id (unique per entity).
-	 * @return int  >0 if loaded, 0 if not found, <0 on SQL error
+	 *
+	 * @param int $fk_categorie Dolibarr category rowid
+	 * @return int              >0 if loaded, 0 if not found, <0 on SQL error
 	 */
 	public function fetchByCategorie(int $fk_categorie): int
 	{
@@ -126,7 +170,10 @@ class TalerCategoryMap extends CommonObject
 
 	/**
 	 * Fetch a mapping by (taler_instance, taler_category_id) (unique per entity).
-	 * @return int  >0 if loaded, 0 if not found, <0 on SQL error
+	 *
+	 * @param string $instance        Taler instance (username/tenant)
+	 * @param int    $talerCategoryId Taler category id
+	 * @return int                    >0 if loaded, 0 if not found, <0 on SQL error
 	 */
 	public function fetchByInstanceCatId(string $instance, int $talerCategoryId): int
 	{
@@ -144,12 +191,18 @@ class TalerCategoryMap extends CommonObject
 	}
 
 	/**
-	 * Idempotent upsert helper respecting your unique keys.
-	 * - If (entity, fk_categorie) exists, update Taler side fields.
-	 * - Else if (entity, instance, taler_category_id) exists, update Dolibarr side fields.
-	 * - Else insert.
+	 * Idempotent upsert helper respecting unique keys.
+	 * - If (entity, fk_categorie) exists, updates Taler fields.
+	 * - Else if (entity, instance, taler_category_id) exists, updates Dolibarr fields.
+	 * - Else inserts a new row.
 	 *
-	 * @return int >0 row id on success, <0 on error
+	 * @param User        $user          User performing the action
+	 * @param string      $instance      Taler instance
+	 * @param int         $talerCatId    Taler category id
+	 * @param int         $fkCategorie   Dolibarr category rowid
+	 * @param string|null $talerCatName  Optional Taler category name
+	 * @param string|null $note          Optional free-form note
+	 * @return int                       >0 row id on success, <0 on error
 	 */
 	public function upsert(User $user, string $instance, int $talerCatId, int $fkCategorie, ?string $talerCatName = null, ?string $note = null)
 	{
@@ -206,7 +259,16 @@ class TalerCategoryMap extends CommonObject
 	}
 
 	/* ================== UI helpers ================== */
-
+	/**
+	 * Build HTML link to the card page.
+	 *
+	 * @param int         $withpicto             0=No picto, 1=Include picto+label, 2=Picto only
+	 * @param string      $option                'nolink' to return a span instead of a link
+	 * @param int         $notooltip             1=Disable tooltip
+	 * @param string      $morecss               Additional CSS classes on the <a> or <span>
+	 * @param int|string  $save_lastsearch_value Pass-through for Dolibarr helpers
+	 * @return string                            HTML
+	 */
 	public function getNomUrl($withpicto = 0, $option = '', $notooltip = 0, $morecss = '', $save_lastsearch_value = -1)
 	{
 		$label = 'TalerCategoryMap';
@@ -223,6 +285,11 @@ class TalerCategoryMap extends CommonObject
 		return $out;
 	}
 
+	/**
+	 * Build a concise label for list contexts.
+	 *
+	 * @return string Label like "instance/id (name) → #fk_categorie"
+	 */
 	public function getLabelForList(): string
 	{
 		$ti  = $this->taler_instance ?: '?';

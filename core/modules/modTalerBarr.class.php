@@ -266,8 +266,33 @@ class modTalerBarr extends DolibarrModules
 
 		// Cronjobs (List of cron jobs entries to add when module is enabled)
 		// unit_frequency must be 60 for minute, 3600 for hour, 86400 for day, 604800 for week
+		$arraydate  = dol_getdate(dol_now());
+		$datestart  = dol_mktime(
+			1,
+			0,
+			0,
+			$arraydate['mon'],
+			($arraydate['hours'] >= 1 ? $arraydate['mday'] + 1 : $arraydate['mday']),
+			$arraydate['year']
+		);
+
 		/* BEGIN MODULEBUILDER CRON */
 		$this->cronjobs = array(
+			0 => array(
+				'label'         => 'TalerDailySync',
+				'jobtype'       => 'method',
+				'class'         => '/talerbarr/lib/talersync.lib.php',
+				'objectname'    => 'TalerSyncUtil',
+				'method'        => 'launchBackgroundSync',
+				'parameters'    => '',
+				'comment'       => 'Auto Sync of Dolibarr ↔ GNU Taler',
+				'frequency'     => 1,
+				'unitfrequency' => 86400,
+				'datestart'     => $datestart,
+				'status'        => 0,
+				'test'          => 'isModEnabled("talerbarr")',
+				'priority'      => 50,
+			),
 			//  0 => array(
 			//      'label' => 'MyJob label',
 			//      'jobtype' => 'method',
@@ -581,7 +606,8 @@ class modTalerBarr extends DolibarrModules
 					}
 				}
 
-				$sql = array_merge($sql, array(
+				$sql = array_merge($sql,
+					array(
 					"DELETE FROM ".$this->db->prefix()."document_model WHERE nom = 'standard_".strtolower($myTmpObjectKey)."' AND type = '".$this->db->escape(strtolower($myTmpObjectKey))."' AND entity = ".((int) $conf->entity),
 					"INSERT INTO ".$this->db->prefix()."document_model (nom, type, entity) VALUES('standard_".strtolower($myTmpObjectKey)."', '".$this->db->escape(strtolower($myTmpObjectKey))."', ".((int) $conf->entity).")",
 					"DELETE FROM ".$this->db->prefix()."document_model WHERE nom = 'generic_".strtolower($myTmpObjectKey)."_odt' AND type = '".$this->db->escape(strtolower($myTmpObjectKey))."' AND entity = ".((int) $conf->entity),

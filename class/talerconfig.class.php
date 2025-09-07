@@ -245,8 +245,7 @@ class TalerConfig extends CommonObject
 	{
 		$result = $this->createCommon($user, $notrigger);
 
-		if ($result > 0)
-		{
+		if ($result > 0) {
 			TalerSyncUtil::launchBackgroundSync(true);
 		}
 		// uncomment lines below if you want to validate object after creation
@@ -1221,9 +1220,9 @@ class TalerConfig extends CommonObject
 	 * Return the single config row for current entity if it exists,
 	 * and verify it before returning. If none or invalid, return null.
 	 *
-	 * @param DoliDB $db
-	 * @param string|null $error Filled if verification fails
-	 * @return self|null
+	 * @param DoliDB      $db    Database handler.
+	 * @param string|null $error Filled with a human-readable reason if verification fails.
+	 * @return self|null         Loaded and (if possible) verified config, or null.
 	 */
 	public static function fetchSingletonVerified(DoliDB $db, ?string &$error = null)
 	{
@@ -1350,9 +1349,9 @@ class TalerConfig extends CommonObject
 	 * For 'admin' -> {base}/private/
 	 * For others -> {base}/instances/{username}/
 	 *
-	 * @param string $baseUrl
-	 * @param string $username
-	 * @return string URL ending with a trailing slash
+	 * @param string $baseUrl  Merchant base URL (with scheme), e.g. "https://merchant.example".
+	 * @param string $username Instance name (e.g. "admin" or an instance id).
+	 * @return string          URL ending with a trailing slash.
 	 */
 	public static function buildInstanceBase(string $baseUrl, string $username): string
 	{
@@ -1369,8 +1368,8 @@ class TalerConfig extends CommonObject
 	 *  - if no scheme, default to https://
 	 *  - collapse spaces
 	 *
-	 * @param string $url
-	 * @return string normalized URL or empty string if input empty
+	 * @param string $url Raw user-provided URL (may be missing scheme).
+	 * @return string     Normalized URL, or empty string if input is empty.
 	 */
 	public static function normalizeMerchantUrl(string $url): string
 	{
@@ -1385,13 +1384,13 @@ class TalerConfig extends CommonObject
 	}
 
 	/**
-	 * Lightweight HTTP GET using Dolibarr's getURLContent
+	 * Lightweight HTTP GET using Dolibarr's getURLContent.
 	 *
-	 * @param string $url
-	 * @param array $headers
-	 * @param int $httpcode Filled with HTTP status
-	 * @param string $err Filled on network/curl error
-	 * @return bool true if request went out (regardless of code)
+	 * @param string $url       Absolute URL to GET.
+	 * @param array  $headers   List of header strings (e.g., ["Accept: application/json"]).
+	 * @param int    $httpcode  Filled with HTTP status code (200, 404, ...).
+	 * @param string $err       Filled with transport error details if any (cURL code/message).
+	 * @return bool             True if an HTTP response was received (http code > 0).
 	 */
 	private static function isUrlOk(string $url, array $headers, int &$httpcode, string &$err): bool
 	{
@@ -1407,7 +1406,7 @@ class TalerConfig extends CommonObject
 			$headers,       // additional headers
 			array('http', 'https'), // allowed schemes
 			2,              // all URLs allowed
- 			-1,             // auto SSL verify
+			-1,             // auto SSL verify
 			5,              // connect timeout (sec)
 			10              // response timeout (sec)
 		);

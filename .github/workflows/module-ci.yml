@@ -2,6 +2,8 @@ name: "CI-PUSH"
 
 on: [push]
 jobs:
+  ci-pre-commit:
+
   gh-travis:  # Runs travis script on github runner (not on travis)
     uses: ./.github/workflows/gh-travis.yml
     with:

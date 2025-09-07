@@ -182,26 +182,25 @@ if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->ver
 	print '<div class="div-table-responsive-no-min">';
 	print '<table class="noborder centpercent">';
 
-// Header row
+	// Header row
 	print '<tr class="liste_titre">';
 	print '<th colspan="3">'.$langs->trans("TalerBarConfiguration").'</th>';
 	print '</tr>';
 
-// Content row
+	// Content row
 	print '<tr class="oddeven">';
 
-// Status icon
+	// Status icon
 	print '<td class="center" style="width:40px;">'.img_picto($langs->trans("Valid"), 'tick').'</td>';
 
-// Details block
+	// Details block
 	print '<td>';
 	print '<div style="font-size:15px; font-weight:bold; margin-bottom:6px;">'.$langs->trans("TalerConfigIsValid").'</div>';
-	print '<div><strong>'.$langs->trans("URL").':</strong> '
-		.'<a href="'.dol_escape_htmltag($safeUrl).'" target="_blank" rel="noopener">'.$safeUrl.'</a></div>';
+	print '<div><strong>'.$langs->trans("URL").':</strong> <a href="'.dol_escape_htmltag($safeUrl).'" target="_blank" rel="noopener">'.$safeUrl.'</a></div>';
 	print '<div><strong>'.$langs->trans("Instance").':</strong> '.$safeUser.'</div>';
 	print '</td>';
 
-// Action button
+	// Action button
 	print '<td class="right" style="width:120px;">';
 	print '<a class="butAction" href="'.$editUrl.'">'.$langs->trans("Modify").'</a>';
 	print '</td>';
