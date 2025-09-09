@@ -25,6 +25,7 @@
 global $conf, $user, $db, $langs;
 
 require_once dirname(__FILE__, 6).'/htdocs/master.inc.php';
+require_once dirname(__FILE__, 6).'/test/phpunit/CommonClassTest.class.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/core/modules/modTalerBarr.class.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/class/talerproductlink.class.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/class/talerconfig.class.php';
@@ -128,7 +129,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * Functional tests for TalerProductLink synchronisation helpers.
  */
-class TalerProductLinkTest extends TestCase
+class TalerProductLinkTest extends CommonClassTest
 {
 	/** @var DoliDB|null */
 	private static ?DoliDB $db = null;
@@ -225,29 +226,6 @@ class TalerProductLinkTest extends TestCase
 		print __METHOD__." BEGIN TRANSACTION\n";
 		$db->begin();
 
-		print __METHOD__." END\n";
-	}
-
-	/**
-	 * Rollback the big transaction so database stays pristine.
-	 *
-	 * @return void
-	 */
-	public static function tearDownAfterClass(): void
-	{
-		print __METHOD__." START\n";
-		if (self::$db) {
-			$connected = property_exists(self::$db, 'connected') ? (bool) self::$db->connected : true;
-			print __METHOD__." connected=".($connected ? '1' : '0')."\n";
-			if ($connected) {
-				print __METHOD__." ROLLBACK\n";
-				self::$db->rollback();
-			} else {
-				print __METHOD__." SKIP ROLLBACK (db closed)\n";
-			}
-		} else {
-			print __METHOD__." SKIP (no db)\n";
-		}
 		print __METHOD__." END\n";
 	}
 
