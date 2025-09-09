@@ -129,6 +129,14 @@ class TalerProductLink extends CommonObject
 	public function __construct(DoliDB $db)
 	{
 		$this->db = $db;
+		$this->log(
+			'__construct',
+			[
+				'entity_default' => getDolGlobalInt('MAIN_SHOW_TECHNICAL_ID')
+									? 'techid-visible'
+									: 'techid-hidden'
+			]
+		);
 
 		// Hide rowid in UI unless MAIN_SHOW_TECHNICAL_ID
 		if (!getDolGlobalInt('MAIN_SHOW_TECHNICAL_ID') && isset($this->fields['rowid'])) {
@@ -141,6 +149,28 @@ class TalerProductLink extends CommonObject
 		}
 	}
 
+	/* ************* Logger *************** */
+	/**
+	 * Lightweight logger wrapper to keep messages consistent.
+	 *
+	 * @param string $method Method or action name
+	 * @param array  $ctx    Context payload to JSON-encode (kept small)
+	 * @param int    $level  LOG_DEBUG|LOG_INFO|LOG_WARNING|LOG_ERR
+	 * @return void
+	 */
+	private function log(string $method, array $ctx = [], int $level = LOG_DEBUG): void
+	{
+		$safe = [];
+		foreach ($ctx as $k => $v) {
+			if (is_string($v) && strlen($v) > 32) {
+				$safe[$k] = substr($v, 0, 32).'…';
+			} else {
+				$safe[$k] = $v;
+			}
+		}
+		dol_syslog('TalerProductLink::'.$method.' '.json_encode($safe, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE), $level);
+	}
+
 	/* *************** CRUD *************** */
 	/**
 	 * Create record in database
@@ -151,10 +181,25 @@ class TalerProductLink extends CommonObject
 	 */
 	public function create(User $user, $notrigger = 0)
 	{
+		$this->log(
+			'create.begin',
+			[
+				'fk_product' => $this->fk_product,
+				'taler_instance' => $this->taler_instance ?? null,
+				'taler_product_id' => $this->taler_product_id ?? null,
+				'notrigger' => (int) $notrigger
+			]
+		);
 		if (empty($this->entity)) $this->entity = (int) getEntity($this->element, 1);
 		// Default datec
 		if (empty($this->datec))  $this->datec = dol_now();
-		return $this->createCommon($user, $notrigger);
+		$res = $this->createCommon($user, $notrigger);
+		$this->log(
+			'create.end',
+			['result' => (int) $res, 'id' => (int) $this->id],
+			$res > 0 ? LOG_INFO : LOG_ERR
+		);
+		return $res;
 	}
 
 	/**
@@ -168,7 +213,14 @@ class TalerProductLink extends CommonObject
 	 */
 	public function fetch($id, $ref = null, $noextrafields = 1, $nolines = 1)
 	{
-		return $this->fetchCommon($id, $ref, '', $noextrafields);
+		$this->log('fetch.begin', ['id' => (int) $id, 'ref' => $ref, 'noextrafields' => (int) $noextrafields]);
+		$res = $this->fetchCommon($id, $ref, '', $noextrafields);
+		$this->log(
+			'fetch.end',
+			['result' => (int) $res, 'loaded_id' => (int) $this->id],
+			$res > 0 ? LOG_DEBUG : ($res === 0 ? LOG_INFO : LOG_ERR)
+		);
+		return $res;
 	}
 
 	/**
@@ -180,7 +232,10 @@ class TalerProductLink extends CommonObject
 	 */
 	public function update(User $user, $notrigger = 0)
 	{
-		return $this->updateCommon($user, $notrigger);
+		$this->log('update.begin', ['id' => (int) $this->id, 'notrigger' => (int) $notrigger]);
+		$res = $this->updateCommon($user, $notrigger);
+		$this->log('update.end', ['id' => (int) $this->id, 'result' => (int) $res], $res > 0 ? LOG_INFO : LOG_ERR);
+		return $res;
 	}
 
 	/**
@@ -192,7 +247,10 @@ class TalerProductLink extends CommonObject
 	 */
 	public function delete(User $user, $notrigger = 0)
 	{
-		return $this->deleteCommon($user, $notrigger);
+		$this->log('delete.begin', ['id' => (int) $this->id, 'notrigger' => (int) $notrigger]);
+		$res = $this->deleteCommon($user, $notrigger);
+		$this->log('delete.end', ['id' => (int) $this->id, 'result' => (int) $res], $res > 0 ? LOG_INFO : LOG_ERR);
+		return $res;
 	}
 
 	/* *************** Finders *************** */
@@ -205,13 +263,21 @@ class TalerProductLink extends CommonObject
 	 */
 	public function fetchByProductId(int $fk_product): int
 	{
+		$this->log('fetchByProductId.begin', ['fk_product' => $fk_product]);
 		$sql  = "SELECT rowid FROM ".$this->db->prefix().$this->table_element;
 		$sql .= " WHERE entity IN (".getEntity($this->element).") AND fk_product = ".((int) $fk_product)." LIMIT 1";
 		$res = $this->db->query($sql);
-		if (!$res) { $this->error = $this->db->lasterror(); return -1; }
-		if ($this->db->num_rows($res) == 0) return 0;
+		if (!$res) {
+			$this->error = $this->db->lasterror();
+			$this->log('fetchByProductId.sql_error', ['error' => $this->error], LOG_ERR);
+			return -1;
+		}
+		if ($this->db->num_rows($res) == 0)
+			return 0;
 		$obj = $this->db->fetch_object($res);
-		return $this->fetch((int) $obj->rowid);
+		$r = $this->fetch((int) $obj->rowid);
+		$this->log('fetchByProductId.end', ['found_rowid' => (int) $obj->rowid, 'fetch_result' => (int) $r], $r > 0 ? LOG_INFO : LOG_ERR);
+		return $r;
 	}
 
 	/**
@@ -223,16 +289,24 @@ class TalerProductLink extends CommonObject
 	 */
 	public function fetchByInstancePid(string $instance, string $pid): int
 	{
+		$this->log('fetchByInstancePid.begin', ['instance' => $instance, 'pid' => $pid]);
 		$sql  = "SELECT rowid FROM ".$this->db->prefix().$this->table_element;
 		$sql .= " WHERE entity IN (".getEntity($this->element).")";
 		$sql .= " AND taler_instance='".$this->db->escape($instance)."'";
 		$sql .= " AND taler_product_id='".$this->db->escape($pid)."'";
 		$sql .= " LIMIT 1";
 		$res = $this->db->query($sql);
-		if (!$res) { $this->error = $this->db->lasterror(); return -1; }
-		if ($this->db->num_rows($res) == 0) return 0;
+		if (!$res) {
+			$this->error = $this->db->lasterror();
+			$this->log('fetchByInstancePid.sql_error', ['error' => $this->error], LOG_ERR);
+			return -1;
+		}
+		if ($this->db->num_rows($res) == 0)
+			return 0;
 		$obj = $this->db->fetch_object($res);
-		return $this->fetch((int) $obj->rowid);
+		$r = $this->fetch((int) $obj->rowid);
+		$this->log('fetchByInstancePid.end', ['found_rowid' => (int) $obj->rowid, 'fetch_result' => (int) $r], $r > 0 ? LOG_INFO : LOG_ERR);
+		return $r;
 	}
 
 
@@ -241,10 +315,10 @@ class TalerProductLink extends CommonObject
 	/**
 	 * Idempotent upsert driven by a *Dolibarr* product.
 	 *
-	 * @param DoliDB           $db db handler
+	 * @param DoliDB           $db	 db handler
 	 * @param Product          $prod Product from dolibarr
 	 * @param User             $user User performing the action
-	 * @param ?TalerConfig     $cfg   (optional) pre-loaded config
+	 * @param ?TalerConfig     $cfg  (optional) pre-loaded config
 	 *
 	 * @return int  1 = OK, 0 = ignored (no active cfg / pull-only),
 	 *             -1 = functional/SQL error (already logged)
@@ -255,6 +329,16 @@ class TalerProductLink extends CommonObject
 		User          $user,
 		?TalerConfig  $cfg = null
 	): int {
+		dol_syslog(
+			'TalerProductLink::upsertFromDolibarr.begin '.json_encode([
+						'product_id' => (int) $prod->id,
+						'product_ref' => (string) $prod->ref,
+						'cfg_supplied' => (bool) ($cfg !== null)
+					],
+				JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE),
+			LOG_DEBUG
+		);
+
 		/* ---------------------------------------------------------
 		  * 1) Resolve / verify config
 		  * ------------------------------------------------------ */
@@ -262,6 +346,10 @@ class TalerProductLink extends CommonObject
 			$cfgErr = null;
 			$cfg    = TalerConfig::fetchSingletonVerified($db, $cfgErr);
 			if (!$cfg || !$cfg->verification_ok) {
+				dol_syslog(
+					'TalerProductLink::upsertFromDolibarr.skip pull-only',
+					LOG_INFO
+				);
 				return 0;                                   // nothing to do
 			}
 		} else {
@@ -289,13 +377,15 @@ class TalerProductLink extends CommonObject
 		$link = new self($db);
 		$load = $link->fetchByProductId((int) $prod->id);
 		if ($load < 0) {
-			TalerErrorLog::recordArray($db,
+			dol_syslog('TalerProductLink::upsertFromDolibarr.fetch_link_error '.$link->error, LOG_ERR);
+			TalerErrorLog::recordArray(
+				$db,
 				[
-				'context'       => 'product',
-				'operation'     => 'fetch',
-				'fk_product'    => $prod->id,
-				'error_message' => $link->error ?: 'DB error while fetchByProductId',
-			],
+					'context'       => 'product',
+					'operation'     => 'fetch',
+					'fk_product'    => $prod->id,
+					'error_message' => $link->error ?: 'DB error while fetchByProductId',
+				],
 				$user);
 			return -1;
 		}
@@ -317,6 +407,10 @@ class TalerProductLink extends CommonObject
 			})();
 
 		if ($res <= 0) {
+			dol_syslog(
+				'TalerProductLink::upsertFromDolibarr.save_link_error '.$link->error,
+				LOG_ERR
+			);
 			TalerErrorLog::recordArray($db,
 				[
 				'context' => 'product',
@@ -339,17 +433,21 @@ class TalerProductLink extends CommonObject
 			&& $link->checksum_d_hex === $newDHash
 			&& $link->last_sync_status === 'ok';
 
-		if ($unchanged)
+		if ($unchanged) {
+			dol_syslog('TalerProductLink::upsertFromDolibarr.nochange skip push', LOG_DEBUG);
 			return 1;
+		}
 
 		$link->checksum_d_hex = $newDHash;
 		$link->update($user, 1);
 
-		if ($link->syncdirection_override !== null && (string) $link->syncdirection_override === '1')
+		if ($link->syncdirection_override !== null && (string) $link->syncdirection_override === '1') {
+			dol_syslog('TalerProductLink::upsertFromDolibarr.per-product override=pull-only skip', LOG_INFO);
 			return 1; // sync disabled for this product, treat as success(skip)
+		}
 
 		$pushOk = $link->pushToTaler($user, $prod);
-
+		dol_syslog('TalerProductLink::upsertFromDolibarr.end push='.($pushOk?'ok':'fail'), $pushOk?LOG_INFO:LOG_ERR);
 		return $pushOk ? 1 : -1;
 	}
 
@@ -369,41 +467,72 @@ class TalerProductLink extends CommonObject
 		User         $user,
 		array        $opts = []
 	): int {
+		dol_syslog('TalerProductLink::upsertFromTaler.begin '.json_encode(['opts'=>$opts], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE), LOG_DEBUG);
+
+		//TODO: Maybe we have to fetch this one, and the pullFromTaler
+		// a.k.a if this one has no fields like description, and then we actually have to call the
 		$instance = (string) ($opts['instance'] ?? '');
-		if ($instance === '') return -1;
+		if ($instance === '') {
+			dol_syslog('TalerProductLink::upsertFromTaler.error empty_instance', LOG_ERR);
+			return -1;
+		}
 
 		$pid = (string) ($detail['product_id'] ?? $detail->product_id ?? '');
-		if ($pid === '') return -1;
+		if ($pid === '') {
+			dol_syslog('TalerProductLink::upsertFromTaler.error empty_pid', LOG_ERR);
+			return -1;
+		}
 
 		// 1. Find or create the link row
 		$link = new self($db);
 		$load = $link->fetchByInstancePid($instance, $pid);
 		if ($load < 0) {
-			TalerErrorLog::recordArray($db,
+			dol_syslog('TalerProductLink::upsertFromTaler.fetch_link_error '.$link->error, LOG_ERR);
+			TalerErrorLog::recordArray(
+				$db,
 				[
-				'context' => 'product', 'operation' => 'fetch',
-				'taler_instance' => $instance, 'taler_product_id' => $pid,
-				'error_message' => $link->error ?: 'DB error while fetchByInstancePid',
-			],
-				$user);
+					'context' => 'product',
+					'operation' => 'fetch',
+					'taler_instance' => $instance, 'taler_product_id' => $pid,
+					'error_message' => $link->error ?: 'DB error while fetchByInstancePid',
+				],
+				$user
+			);
 			return -1;
 		}
 
-		// 2. Ensure Dolibarr product exists / is refreshed (if requested)
 		$writeDoli = $opts['write_dolibarr'] ?? true;
 		if ($writeDoli) {
+			$link->log('upsertFromTaler.writeDoli', ['link_id' => (int) $link->id, 'has_fk_product' => (bool) $link->fk_product]);
 			if ($link->fk_product) {
 				$prod = new Product($db);
 				if ($prod->fetch($link->fk_product) > 0) {
-					// light refresh (price / stock) – extend as needed
 					$fields = self::dolibarrArrayFromTalerDetail($detail);
+
+					if (isset($detail['total_stock']))
+						$prod->stock_reel = (int) $detail['total_stock'];
+
+					$prod->status = 1;
+					$prod->status_buy = 1;
+
+					$needPriceUpdate = false;
 					if ($fields['price_ttc'] !== null) {
 						$prod->price_ttc = $fields['price_ttc'];
 						$prod->price     = $fields['price'];
+						$needPriceUpdate = true;
 					}
 					if (isset($detail['total_stock']))
 						$prod->stock_reel = (int) $detail['total_stock'];
-					$prod->update($user);
+					$prod->update($link->fk_product, $user);
+
+					if ($needPriceUpdate) {
+						$prod->update_price();
+					}
+					$link->log(
+							'upsertFromTaler.product.updated',
+							['product_id' => (int) $prod->id, 'price_sync' => $needPriceUpdate],
+							LOG_INFO
+					);
 				}
 			} else {
 				$link->fk_product = $link
@@ -441,6 +570,8 @@ class TalerProductLink extends CommonObject
 
 		$res = ($load > 0) ? $link->update($user, 1) : $link->create($user, 1);
 		if ($res <= 0) {
+			$thisErr = $link->error ?: $db->lasterror();
+			$link->log('upsertFromTaler.save_link_error', ['error' => $thisErr], LOG_ERR);
 			TalerErrorLog::recordArray($db,
 				[
 				'context'=>'product',
@@ -451,6 +582,7 @@ class TalerProductLink extends CommonObject
 				$user);
 			return -1;
 		}
+		$link->log('upsertFromTaler.end', ['result' => (int) $res], LOG_INFO);
 		return 1;
 	}
 
@@ -471,7 +603,13 @@ class TalerProductLink extends CommonObject
 			return array('currency'=>'', 'value'=>null, 'fraction'=>null);
 		}
 		list($cur, $amt) = explode(':', $amountStr, 2);
+		$map = [
+			'KUDOS' => 'EUR',
+		];
 		$currency = strtoupper(trim($cur));
+		if (isset($map[$currency])) {
+			$currency = $map[$currency];
+		}
 		$amt = trim($amt);
 
 		if (!preg_match('~^\d+(\.\d+)?$~', $amt)) {
@@ -658,6 +796,7 @@ class TalerProductLink extends CommonObject
 	 */
 	public function talerDetailFromDolibarrProduct(Product $prod, array $opts = []): array
 	{
+		$this->log('talerDetailFromDolibarrProduct.begin', ['product_id' => (int) $prod->id, 'opts' => $opts]);
 		global $conf;
 
 		$currency = !empty($conf->currency) ? strtoupper($conf->currency) : 'EUR';
@@ -711,6 +850,7 @@ class TalerProductLink extends CommonObject
 			'minimum_age'       => null,
 		];
 
+		$this->log('talerDetailFromDolibarrProduct.end', ['unit' => $unitCode, 'amount' => $detail['price'] ?? null, 'cats' => count($detail['categories'])]);
 		return $detail;
 	}
 
@@ -724,9 +864,10 @@ class TalerProductLink extends CommonObject
 	 */
 	public static function dolibarrArrayFromTalerDetail($detail, ?float $vatRate = null): array
 	{
+		dol_syslog('TalerProductLink::dolibarrArrayFromTalerDetail.begin', LOG_DEBUG);
 		$src = is_object($detail) ? (array) $detail : (array) $detail;
 
-		$name   = isset($src['product_name']) ? (string) $src['product_name'] : '';
+		$name   = isset($src['product_name']) ? (string) $src['product_name'] : 'Product name missing on Taler';
 		$desc   = isset($src['description']) ? (string) $src['description'] : '';
 		$priceS = isset($src['price']) ? (string) $src['price'] : ''; // Taler Amount as string "CUR:12.34"
 		$parsed = self::parseTalerAmount($priceS);
@@ -784,6 +925,7 @@ class TalerProductLink extends CommonObject
 	 */
 	public function createDolibarrProductFromTalerDetail($detail, User $user, array $opts = []): int
 	{
+		$this->log('createDolibarrProductFromTalerDetail.begin', ['opts' => $opts]);
 		$this->db->begin();
 
 		try {
@@ -800,12 +942,17 @@ class TalerProductLink extends CommonObject
 				if ($fk !== null) $prod->fk_unit = $fk;
 			}
 
+			$prod->status = 1;
+			$prod->status_buy = 1;
+
 			$pid = $prod->create($user);
 			if ($pid <= 0) {
+				dol_syslog('TalerProductLink::createDolibarrProductFromTalerDetail.product_create_failed '.$prod->error, LOG_ERR);
 				$this->db->rollback();
 				$this->error = $prod->error ?: $this->db->lasterror();
 				return -1;
 			}
+			$this->log('createDolibarrProductFromTalerDetail.product_created', ['product_id' => (int) $pid], LOG_INFO);
 
 			// Assign local categories if we can map back from Taler categories
 			$instance = isset($opts['instance']) && $opts['instance'] !== '' ? (string) $opts['instance'] : $this->resolveInstanceFromConfig();
@@ -865,16 +1012,19 @@ class TalerProductLink extends CommonObject
 
 				$lid = $this->create($user, 1);
 				if ($lid <= 0) {
+					$this->log('createDolibarrProductFromTalerDetail.link_create_failed', ['error' => $this->error], LOG_ERR);
 					// don't rollback the product; just record the error
 					$this->error = $this->error ?: $this->db->lasterror();
 				}
 			}
 
 			$this->db->commit();
+			$this->log('createDolibarrProductFromTalerDetail.end', ['product_id' => (int) $pid, 'link_id' => (int) $this->id], LOG_INFO);
 			return (int) $pid;
 		} catch (Throwable $e) {
 			$this->db->rollback();
 			$this->error = $e->getMessage();
+			$this->log('createDolibarrProductFromTalerDetail.exception', ['error' => $this->error], LOG_ERR);
 			return -1;
 		}
 	}
@@ -891,6 +1041,7 @@ class TalerProductLink extends CommonObject
 	 */
 	public function prepareFromDolibarrAndTalerDetail(Product $prod, $detail = null, array $opts = [])
 	{
+		$this->log('prepareFromDolibarrAndTalerDetail.begin', ['product_id' => (int) $prod->id, 'has_detail' => (bool) $detail]);
 		global $conf;
 
 		$this->setDolibarrSnapshot($prod);
@@ -935,6 +1086,11 @@ class TalerProductLink extends CommonObject
 			}
 		}
 
+		$this->log('prepareFromDolibarrAndTalerDetail.end',
+			[
+				'taler_product_id' => $this->taler_product_id,
+				'amount' => $this->taler_amount_str
+				]);
 		return $this;
 	}
 
@@ -979,10 +1135,12 @@ class TalerProductLink extends CommonObject
 		}
 
 
-		return [[
+		$out = [[
 			'name' => $langs->trans("VAT") . ' ' . rtrim(rtrim(sprintf('%.3f', $rate), '0'), '.') . '%',
 			'tax'  => self::talerAmountFromFloat($taxValue, $currency),
 		]];
+		$this->log('buildTaxesForDolibarrProduct', ['rate' => $rate, 'tax_value' => $taxValue, 'currency' => $currency, 'items' => count($out)], LOG_DEBUG);
+		return $out;
 	}
 
 	/**
@@ -1097,10 +1255,18 @@ class TalerProductLink extends CommonObject
 	 */
 	public function pushToTaler(User $user, Product $prod): bool
 	{
+		$this->log('pushToTaler.begin',
+			[
+				'id' => (int) $this->id,
+				'fk_product' => (int) $this->fk_product,
+				'instance' => $this->taler_instance,
+				'taler_product_id' => $this->taler_product_id
+				]);
 		$err = null;
 		$client = $this->getMerchantClient($cfg, $err);
 		if (!$client) {
 			$this->markSyncResult(true, 'error', 'config', $err);
+			$this->log('pushToTaler.config_error', ['error' => $err], LOG_ERR);
 			return false;
 		}
 
@@ -1152,18 +1318,35 @@ class TalerProductLink extends CommonObject
 
 		$this->markSyncResult(true, 'error', 'push', $err);
 		$this->logTalerError('product', 'push', $err);
+		$this->log('pushToTaler.end', ['status' => 'error', 'error' => $err], LOG_ERR);
 		return false;
 	}
 
 	/**
 	 * Pull latest product data from Taler and (optionally) update Dolibarr.
 	 *
-	 * @param User  $user User performing the action
-	 * @param bool  $writeDoli  true = update or create Dolibarr product when missing
-	 * @return bool             true on success, false on failure
+	 * @param User    $user 	 User performing the action
+	 * @param bool    $writeDoli true = update or create Dolibarr product when missing
+	 * @param ?string $productId productId which we have to update
+	 * @return bool              true on success, false on failure
 	 */
-	public function pullFromTaler(User $user, bool $writeDoli = true): bool
+	public function pullFromTaler(User $user, bool $writeDoli = true, string $productId = null): bool
 	{
+		// Use override product ID if provided
+		$targetProductId = $productId ?? $this->taler_product_id;
+		if (empty($targetProductId)) {
+			$this->markSyncResult(false, 'error', 'config', 'No product ID specified');
+			return false;
+		}
+
+		$this->log('pullFromTaler.begin',
+			[
+				'id' => (int) $this->id,
+				'writeDoli' => (bool) $writeDoli,
+				'instance' => $this->taler_instance,
+				'taler_product_id' => $targetProductId
+		]);
+
 		$err = null;
 		$client = $this->getMerchantClient($cfg, $err);
 		if (!$client) {
@@ -1176,6 +1359,7 @@ class TalerProductLink extends CommonObject
 		} catch (Exception $e) {
 			$this->markSyncResult(false, 'error', 'fetch', $e->getMessage());
 			$this->logTalerError('product', 'fetch', $e->getMessage());
+			$this->log('pullFromTaler.fetch_error', ['error' => $e->getMessage()], LOG_ERR);
 			return false;
 		}
 
@@ -1192,8 +1376,11 @@ class TalerProductLink extends CommonObject
 					}
 				}
 				if (isset($detail['total_stock'])) $prod->stock_reel = (int) $detail['total_stock'];
+				$prod->status = 1;
+				$prod->status_buy = 1;
 				$prod->update($this->fk_product, $user);
 				$this->setDolibarrSnapshot($prod);          // refresh cached ref + tms
+				$this->log('pullFromTaler.product_updated', ['product_id' => (int) $prod->id], LOG_INFO);
 			}
 		} elseif (!$this->fk_product && $writeDoli) {
 			// No product yet – create it and link
@@ -1218,10 +1405,9 @@ class TalerProductLink extends CommonObject
 		$this->fillPriceFromAmountStr();
 
 		$this->checksum_t_hex = self::computeSha256Hex($detail);
-
 		$this->update($user, 1);
-
 		$this->markSyncResult(false, 'ok');
+		$this->log('pullFromTaler.end', ['status' => 'ok'], LOG_INFO);
 		return true;
 	}
 
@@ -1233,19 +1419,28 @@ class TalerProductLink extends CommonObject
 	 */
 	public function deleteOnTaler(User $user): bool
 	{
+		$this->log('deleteOnTaler.begin',
+			[
+				'id' => (int) $this->id,
+				'instance' => $this->taler_instance,
+				'taler_product_id' => $this->taler_product_id
+				]);
 		$err = null;
 		$client = $this->getMerchantClient($cfg, $err);
 		if (!$client) {
 			$this->markSyncResult(true, 'error', 'config', $err);
+			$this->log('deleteOnTaler.config_error', ['error' => $err], LOG_ERR);
 			return false;
 		}
 		try {
 			$client->deleteProduct($this->taler_product_id);
 			$this->markSyncResult(true, 'ok');
+			$this->log('deleteOnTaler.end', ['status' => 'ok'], LOG_INFO);
 			return true;
 		} catch (Exception $e) {
 			$this->markSyncResult(true, 'error', 'delete', $e->getMessage());
 			$this->logTalerError('product', 'delete', $e->getMessage());
+			$this->log('deleteOnTaler.end', ['status' => 'error', 'error' => $e->getMessage()], LOG_ERR);
 			return false;
 		}
 	}
@@ -1271,6 +1466,16 @@ class TalerProductLink extends CommonObject
 		$err->taler_product_id = $this->taler_product_id;
 		$err->error_message    = dol_trunc($message, 65535);
 		$err->datec            = dol_now();
-		$err->create($GLOBALS['user'] ?? null, 1);   // no triggers
+
+
+		$ok = $err->create($GLOBALS['user'] ?? null, 1); // no triggers
+		$this->log(
+			'logTalerError',
+			[
+				'context' => $context,
+				'operation' => $operation,
+				'created' => (int) $ok
+				],
+			$ok > 0 ? LOG_WARNING : LOG_ERR);
 	}
 }

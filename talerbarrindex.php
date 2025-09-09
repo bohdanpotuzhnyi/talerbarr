@@ -170,7 +170,7 @@ $formfile = new FormFile($db);
 
 llxHeader("", $langs->trans("TalerBarrArea"), '', '', 0, 0, '', '', '', 'mod-talerbarr page-index');
 
-print load_fiche_titre($langs->trans("TalerBarrArea"), '', 'talerbarr.png@talerbarr');
+print load_fiche_titre($langs->trans("TalerBarrArea"), '', 'cash-register');
 
 //print '<div class="fichecenter"><div class="fichethirdleft">';
 
@@ -211,6 +211,8 @@ if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->ver
 }
 
 $statusFile = DOL_DATA_ROOT.'/talerbarr/sync.status.json';
+// TODO: Would be very nice, if we can make some js that will listen, and will update this block,
+//   on every update of this file
 $status     = file_exists($statusFile) ? json_decode(@file_get_contents($statusFile), true) : null;
 
 print '<div class="div-table-responsive-no-min">';
