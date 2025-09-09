@@ -144,11 +144,11 @@ class TalerProductLinkTest extends TestCase
 	/**
 	 * @var string Taler “instance” name used for this run
 	 */
-	private static string $instance;
+	private static ?string $instance = null;
 	/**
 	 * @var int    Rowid of the specimen Dolibarr product we create
 	 */
-	private static int $prodId;
+	private static ?int $prodId = null;
 
 	/* ---------- helpers -------------------------------------------------- */
 
