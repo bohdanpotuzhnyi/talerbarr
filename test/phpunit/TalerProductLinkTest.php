@@ -175,7 +175,7 @@ class TalerProductLinkTest extends TestCase
 		/* 0) bootstrap the module (creates llx_taler_* tables) */
 
 		$mod = new modTalerBarr($db);
-		if ($mod->init([]) <= 0) {
+		if ($mod->init('') <= 0) {
 			throw new RuntimeException('Unable to init modTalerBarr: ' . $db->lasterror());
 		}
 		$conf->modules[$mod->numero] = get_class($mod);   // flag as enabled
