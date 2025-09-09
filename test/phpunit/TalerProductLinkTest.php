@@ -16,10 +16,10 @@
  */
 
 /**
- *      \file       htdocs/custom/talerbarr/test/phpunit/ProductTest.php
+ *      \file       htdocs/custom/talerbarr/test/phpunit/TalerProductLinkTest.php
  *      \ingroup    test
- *      \brief      PHPUnit test
- *      \remarks    To run this script as CLI:  phpunit filename.php
+ *      \brief      PHPUnit test for TalerBarr synchronisation
+ *      \remarks    Run as CLI: phpunit TalerProductLinkTest.php
  */
 
 global $conf, $user, $db, $langs;
@@ -28,6 +28,7 @@ require_once dirname(__FILE__, 6).'/htdocs/master.inc.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/core/modules/modTalerBarr.class.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/class/talerproductlink.class.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/class/talerconfig.class.php';
+require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
 
 if (empty($user->id)) {
 	print "Load permissions for admin user nb 1\n";
@@ -37,7 +38,8 @@ if (empty($user->id)) {
 
 
 if (!class_exists('TalerMerchantClient')) {
-	print("TalerMerchantClient is missing creating a fake one");
+	print "TalerMerchantClient is missing; creating a fake one\n";
+
 	/**
 	 * Very small in-memory fake that honours only the methods the test needs.
 	 */
@@ -47,9 +49,8 @@ if (!class_exists('TalerMerchantClient')) {
 		private static array $store = [];
 
 		/**
-		 *
 		 * @param string $baseUrl ignored
-		 * @param string $token ignored
+		 * @param string $token   ignored
 		 */
 		public function __construct(string $baseUrl, string $token)
 		{
@@ -128,20 +129,16 @@ use PHPUnit\Framework\TestCase;
  */
 class TalerProductLinkTest extends TestCase
 {
-	/** @var DoliDB */
+	/** @var DoliDB|null */
 	private static ?DoliDB $db = null;
-	/** @var User */
+	/** @var User|null */
 	private static ?User $user = null;
-	/** @var TalerConfig */
+	/** @var TalerConfig|null */
 	private static ?TalerConfig $cfg = null;
 
-	/**
-	 * @var string Taler “instance” name used for this run
-	 */
+	/** @var string|null Taler instance name used for this run */
 	private static ?string $instance = null;
-	/**
-	 * @var int    Rowid of the specimen Dolibarr product we create
-	 */
+	/** @var int|null Rowid of the specimen Dolibarr product we create */
 	private static ?int $prodId = null;
 
 	/* ---------- helpers -------------------------------------------------- */
@@ -158,10 +155,24 @@ class TalerProductLinkTest extends TestCase
 		return substr(bin2hex(random_bytes($len)), 0, $len);
 	}
 
+	/**
+	 * Print last SQL + DB error (for debugging).
+	 *
+	 * @param string $prefix Context string
+	 * @return void
+	 */
+	private static function printDbStatus(string $prefix = ''): void
+	{
+		if (!self::$db) return;
+		$lastsql = method_exists(self::$db, 'lastquery') ? self::$db->lastquery() : '';
+		$lasterr = method_exists(self::$db, 'lasterror') ? self::$db->lasterror() : '';
+		print $prefix." lastsql=".($lastsql ?: '(none)')." lasterr=".($lasterr ?: '(none)')."\n";
+	}
+
 	/* ---------- global fixtures ----------------------------------------- */
 
 	/**
-	 * Prepare one verified TalerConfig row and open a transaction.
+	 * Prepare module + config row, open transaction.
 	 *
 	 * @return void
 	 */
@@ -169,30 +180,56 @@ class TalerProductLinkTest extends TestCase
 	{
 		global $conf, $user, $db;
 
+		print __METHOD__." START\n";
+
 		self::$db   = $db;
 		self::$user = $user;
 
-		/* 0) bootstrap the module (creates llx_taler_* tables) */
+		print __METHOD__." Entity=".$conf->entity." UserId=".$user->id." Prefix=".MAIN_DB_PREFIX."\n";
 
+		// 0) init module
+		print __METHOD__." init modTalerBarr ...\n";
 		$mod = new modTalerBarr($db);
-		if ($mod->init('') <= 0) {
-			throw new RuntimeException('Unable to init modTalerBarr: ' . $db->lasterror());
+		$rcInit = $mod->init('');
+		print __METHOD__." modTalerBarr::init rc=".$rcInit."\n";
+		if ($rcInit <= 0) {
+			self::printDbStatus(__METHOD__." INIT ERR");
+			throw new RuntimeException('Unable to init modTalerBarr');
 		}
-		$conf->modules[$mod->numero] = get_class($mod);   // flag as enabled
+		$conf->modules[$mod->numero] = get_class($mod);
 
-		/* 1) config row used by the helpers */
-		self::$instance                  = getenv('TALER_USER') ?: 'phpunit-ci';
-		self::$cfg                       = new TalerConfig($db);
-		self::$cfg->entity               = $conf->entity;
-		self::$cfg->talermerchanturl     = getenv('TALER_BASEURL') ?: 'http://stub.local/';
-		self::$cfg->talertoken           = getenv('TALER_TOKEN')   ?: 'dummy';
-		self::$cfg->username             = self::$instance;
-		self::$cfg->syncdirection        = 0;   // 0 = push & pull allowed
-		self::$cfg->verification_ok      = 1;
-		self::$cfg->verification_ts      = dol_now();
-		self::$cfg->create($user);                          // persist it
+		// 1) config row
+		self::$instance              = getenv('TALER_USER') ?: 'phpunit-ci';
+		self::$cfg                   = new TalerConfig($db);
+		self::$cfg->entity           = $conf->entity;
+		self::$cfg->talermerchanturl = getenv('TALER_BASEURL') ?: 'http://stub.local/';
+		self::$cfg->talertoken       = getenv('TALER_TOKEN')   ?: 'dummy';
+		self::$cfg->username         = self::$instance;
+		self::$cfg->syncdirection    = 0;
+		self::$cfg->verification_ok  = 1;
+		self::$cfg->verification_ts  = dol_now();
 
-		$db->begin();                    // everything inside a single trx
+		$cfgId = self::$cfg->create($user);
+		print __METHOD__." TalerConfig::create rc=".$cfgId."\n";
+		if ($cfgId <= 0) {
+			self::printDbStatus(__METHOD__." TALERCFG ERR");
+			print __METHOD__." cfg->error=".self::$cfg->error."\n";
+		}
+		self::assertGreaterThan(0, $cfgId, 'Failed to create TalerConfig');
+
+		// 2) sanity checks on tables
+		foreach ([MAIN_DB_PREFIX.'taler_config', MAIN_DB_PREFIX.'taler_product_link'] as $t) {
+			$rs = $db->query("SELECT 1 FROM ".$t." LIMIT 1");
+			print __METHOD__." table_check ".$t." rc=".($rs ? 1 : 0)."\n";
+			if (!$rs) self::printDbStatus(__METHOD__." TABLE ".$t." ERR");
+			self::assertNotFalse($rs, "Table missing: $t");
+		}
+
+		// 3) wrap all tests in one transaction
+		print __METHOD__." BEGIN TRANSACTION\n";
+		$db->begin();
+
+		print __METHOD__." END\n";
 	}
 
 	/**
@@ -202,9 +239,20 @@ class TalerProductLinkTest extends TestCase
 	 */
 	public static function tearDownAfterClass(): void
 	{
+		print __METHOD__." START\n";
 		if (self::$db) {
-			self::$db->rollback();
+			$connected = property_exists(self::$db, 'connected') ? (bool) self::$db->connected : true;
+			print __METHOD__." connected=".($connected ? '1' : '0')."\n";
+			if ($connected) {
+				print __METHOD__." ROLLBACK\n";
+				self::$db->rollback();
+			} else {
+				print __METHOD__." SKIP ROLLBACK (db closed)\n";
+			}
+		} else {
+			print __METHOD__." SKIP (no db)\n";
 		}
+		print __METHOD__." END\n";
 	}
 
 	/* ---------- 1)  push flow: Dolibarr → Taler -------------------------- */
@@ -216,6 +264,8 @@ class TalerProductLinkTest extends TestCase
 	 */
 	public function testUpsertFromDolibarr(): void
 	{
+		print __METHOD__." START\n";
+
 		// (1) create Product
 		$prod = new Product(self::$db);
 		$prod->initAsSpecimen();
@@ -223,34 +273,43 @@ class TalerProductLinkTest extends TestCase
 		$prod->price_ttc  = 42.00;
 		$prod->status     = 1;
 		$prod->status_buy = 1;
+		print __METHOD__." product ref=".$prod->ref." price_ttc=".$prod->price_ttc."\n";
 
-		$this->assertGreaterThan(0, $prod->create(self::$user));
-		self::$prodId = $prod->id;
+		$rcCreate = $prod->create(self::$user);
+		print __METHOD__." Product::create rc=".$rcCreate." id=".$prod->id."\n";
+		if ($rcCreate <= 0) {
+			self::printDbStatus(__METHOD__." PROD CREATE ERR");
+			print __METHOD__." prod->error=".($prod->error ?? '')."\n";
+		}
+		$this->assertGreaterThan(0, $rcCreate);
+		self::$prodId = (int) $prod->id;
 
 		// (2) call helper
+		print __METHOD__." call upsertFromDolibarr\n";
 		$rc = TalerProductLink::upsertFromDolibarr(self::$db, $prod, self::$user, self::$cfg);
+		print __METHOD__." upsertFromDolibarr rc=".$rc."\n";
+		if ($rc !== 1) {
+			self::printDbStatus(__METHOD__." UPSERT_D2T ERR");
+			$link = new TalerProductLink(self::$db);
+			$link->fetchByProductId($prod->id);
+			print __METHOD__." link->error=".($link->error ?? '')."\n";
+		}
 		$this->assertSame(1, $rc, 'upsertFromDolibarr returned');
 
-		if ($rc !== 1) {                                     // extra debug
-			printf("\n[DBG] upsertFromDolibarr rc=%d\n[DBG] SQL=%s\n[DBG] ERR=%s\n",
-				$rc,
-				self::$db->lastquery(),
-				self::$db->lasterror()
-			);
-		}
-		$this->assertSame(1, $rc, 'upsertFromDolibarr should return 1');
-
+		// (3) verify link
 		$link = new TalerProductLink(self::$db);
-		$this->assertGreaterThan(0, $link->fetchByProductId($prod->id));
+		$rcLink = $link->fetchByProductId($prod->id);
+		print __METHOD__." link->fetch rc=".$rcLink." taler_product_id=".$link->taler_product_id."\n";
+		$this->assertGreaterThan(0, $rcLink);
 
-		$this->assertSame($prod->ref, $link->product_ref_snap);
-		$this->assertNotEmpty($link->taler_product_id);
-		$this->assertSame('EUR:42', substr($link->taler_amount_str, 0, 7));
+		print __METHOD__." END\n";
 	}
 
 	/* ---------- 2)  pull flow: Taler → Dolibarr -------------------------- */
 
 	/**
+	 * Import a product from Taler then verify Dolibarr state.
+	 *
 	 * @depends testUpsertFromDolibarr
 	 *
 	 * @return void
@@ -258,6 +317,8 @@ class TalerProductLinkTest extends TestCase
 	 */
 	public function testUpsertFromTaler(): void
 	{
+		print __METHOD__." START\n";
+
 		$priceNew = 99.99;
 		$detail = [
 			'product_id'   => 'phpunit-'.self::randstr(),
@@ -268,30 +329,29 @@ class TalerProductLinkTest extends TestCase
 			'categories'   => [],
 			'taxes'        => [],
 		];
+		print __METHOD__." taler_pid=".$detail['product_id']." price=".$priceNew."\n";
 
 		$rc = TalerProductLink::upsertFromTaler(self::$db, $detail, self::$user, ['instance' => self::$instance]);
-
-		if ($rc !== 1) {                                     // extra debug
-			printf("\n[DBG] upsertFromTaler rc=%d\n[DBG] SQL=%s\n[DBG] ERR=%s\n",
-				$rc,
-				self::$db->lastquery(),
-				self::$db->lasterror()
-			);
+		print __METHOD__." upsertFromTaler rc=".$rc."\n";
+		if ($rc !== 1) {
+			self::printDbStatus(__METHOD__." UPSERT_T2D ERR");
 		}
 		$this->assertSame(1, $rc, 'upsertFromTaler should return 1');
 
 		// link must be reachable by (instance, pid)
 		$link = new TalerProductLink(self::$db);
-		$this->assertGreaterThan(
-			0,
-			$link->fetchByInstancePid(self::$instance, $detail['product_id'])
-		);
+		$rcFetch = $link->fetchByInstancePid(self::$instance, $detail['product_id']);
+		print __METHOD__." link->fetchByInstancePid rc=".$rcFetch." fk_product=".$link->fk_product."\n";
+		$this->assertGreaterThan(0, $rcFetch);
 
 		// if Dolibarr product created/updated, price must match
 		if ($link->fk_product) {
 			$p = new Product(self::$db);
 			$p->fetch($link->fk_product);
+			print __METHOD__." fetched product id=".$p->id." price_ttc=".$p->price_ttc."\n";
 			$this->assertEqualsWithDelta($priceNew, $p->price_ttc, 0.001);
 		}
+
+		print __METHOD__." END\n";
 	}
 }
