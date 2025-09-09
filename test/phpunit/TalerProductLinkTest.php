@@ -137,9 +137,9 @@ class TalerProductLinkTest extends TestCase
 	/** @var DoliDB */
 	private static ?DoliDB $db = null;
 	/** @var User */
-	private static User $user;
+	private static ?User $user = null;
 	/** @var TalerConfig */
-	private static TalerConfig $cfg;
+	private static ?TalerConfig $cfg = null;
 
 	/**
 	 * @var string Taler “instance” name used for this run
