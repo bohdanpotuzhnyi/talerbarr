@@ -128,6 +128,10 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Functional tests for TalerProductLink synchronisation helpers.
+ *
+ * @backupGlobals disabled
+ * @backupStaticAttributes enabled
+ * @remarks backups must stay to not be dropped between tests
  */
 class TalerProductLinkTest extends CommonClassTest
 {
