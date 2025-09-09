@@ -27,7 +27,7 @@ global $conf, $user, $db, $langs;
 /* --------------------------------------------------------------------------
  * 1. Boot Dolibarr    (same trick used by core tests)
  * ------------------------------------------------------------------------ */
-require_once dirname(__FILE__, 4).'/htdocs/master.inc.php';
+require_once dirname(__FILE__, 6).'/htdocs/master.inc.php';
 
 // Make sure we test with an admin user
 if (empty($user->id)) {
