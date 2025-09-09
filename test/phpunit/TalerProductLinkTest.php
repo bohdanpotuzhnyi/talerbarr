@@ -135,7 +135,7 @@ use PHPUnit\Framework\TestCase;
 class TalerProductLinkTest extends TestCase
 {
 	/** @var DoliDB */
-	private static DoliDB $db;
+	private static ?DoliDB $db = null;
 	/** @var User */
 	private static User $user;
 	/** @var TalerConfig */
@@ -200,7 +200,9 @@ class TalerProductLinkTest extends TestCase
 	 */
 	public static function tearDownAfterClass(): void
 	{
-		self::$db->rollback();
+		if (self::$db) {
+			self::$db->rollback();
+		}
 	}
 
 	/* ---------- 1)  push flow: Dolibarr → Taler -------------------------- */
