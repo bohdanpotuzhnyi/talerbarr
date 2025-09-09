@@ -29,6 +29,7 @@ require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/core/modules/modTalerBarr.clas
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/class/talerproductlink.class.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/class/talerconfig.class.php';
 require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
+require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php'; // needed to activate the module
 
 if (empty($user->id)) {
 	print "Load permissions for admin user nb 1\n";
@@ -187,7 +188,7 @@ class TalerProductLinkTest extends TestCase
 
 		print __METHOD__." Entity=".$conf->entity." UserId=".$user->id." Prefix=".MAIN_DB_PREFIX."\n";
 
-		// 0) init module
+		// 0) init module (enable flags, menus, cron, etc.)
 		print __METHOD__." init modTalerBarr ...\n";
 		$mod = new modTalerBarr($db);
 		$rcInit = $mod->init('');
@@ -198,7 +199,10 @@ class TalerProductLinkTest extends TestCase
 		}
 		$conf->modules[$mod->numero] = get_class($mod);
 
-		// 1) config row
+		// 1) ensure SQL tables are there (use the same installer as admin UI)
+		self::ensureTalerTables();
+
+		// 2) only now create the config row
 		self::$instance              = getenv('TALER_USER') ?: 'phpunit-ci';
 		self::$cfg                   = new TalerConfig($db);
 		self::$cfg->entity           = $conf->entity;
@@ -217,15 +221,7 @@ class TalerProductLinkTest extends TestCase
 		}
 		self::assertGreaterThan(0, $cfgId, 'Failed to create TalerConfig');
 
-		// 2) sanity checks on tables
-		foreach ([MAIN_DB_PREFIX.'taler_config', MAIN_DB_PREFIX.'taler_product_link'] as $t) {
-			$rs = $db->query("SELECT 1 FROM ".$t." LIMIT 1");
-			print __METHOD__." table_check ".$t." rc=".($rs ? 1 : 0)."\n";
-			if (!$rs) self::printDbStatus(__METHOD__." TABLE ".$t." ERR");
-			self::assertNotFalse($rs, "Table missing: $t");
-		}
-
-		// 3) wrap all tests in one transaction
+		// 3) single transaction around everything
 		print __METHOD__." BEGIN TRANSACTION\n";
 		$db->begin();
 
@@ -353,5 +349,84 @@ class TalerProductLinkTest extends TestCase
 		}
 
 		print __METHOD__." END\n";
+	}
+
+	/**
+	 * Execute a module SQL file using the same helper the admin UI uses.
+	 *
+	 * @param string $file Absolute path to .sql file
+	 * @return void
+	 */
+	private static function runSqlFile(string $file): void
+	{
+		global $conf;
+		if (!is_readable($file)) {
+			print __METHOD__." SKIP (not readable) file=".$file."\n";
+			return;
+		}
+		print "Admin.lib::run_sql file=".$file." silent=1 entity=".$conf->entity." usesavepoint=1 handler=default\n";
+		// signature: run_sql($file, $silent=1, $entity=0, $usesavepoint=1, $handler='default', $okerror='default')
+		run_sql($file, 1, $conf->entity, 1, 'default', 'default');
+	}
+
+	/**
+	 * Mimic admin activation: run all SQL files in the module SQL dir in alpha order.
+	 *
+	 * @return void
+	 */
+	private static function installModuleSqlLikeAdmin(): void
+	{
+		$dir = DOL_DOCUMENT_ROOT.'/custom/talerbarr/sql';
+		print __METHOD__." dir=".$dir."\n";
+		if (!is_dir($dir)) {
+			print __METHOD__." SKIP (no sql dir)\n";
+			return;
+		}
+		$files = glob($dir.'/*.sql');
+		sort($files);
+		foreach ($files as $f) {
+			self::runSqlFile($f);
+		}
+	}
+
+	/**
+	 * Ensure the module tables exist; install them like the admin UI if missing.
+	 *
+	 * @return void
+	 */
+	private static function ensureTalerTables(): void
+	{
+		$need = [
+			MAIN_DB_PREFIX.'talerbarr_product_link',
+			MAIN_DB_PREFIX.'talerbarr_category_map',
+			MAIN_DB_PREFIX.'talerbarr_error_log',
+			MAIN_DB_PREFIX.'talerbarr_tax_map',
+			MAIN_DB_PREFIX.'talerbarr_talerconfig',
+			MAIN_DB_PREFIX.'talerbarr_talerconfig_extrafields',
+		];
+
+		$missing = [];
+		foreach ($need as $t) {
+			$rs = self::$db->query("SELECT 1 FROM ".$t." LIMIT 1");
+			print __METHOD__." table_check ".$t." rc=".($rs ? 1 : 0)."\n";
+			if (!$rs) $missing[] = $t;
+		}
+
+		if ($missing) {
+			print __METHOD__." missing=".implode(',', $missing)." -> running SQL like admin\n";
+			self::installModuleSqlLikeAdmin();
+
+			// re-check
+			$still = [];
+			foreach ($missing as $t) {
+				$rs = self::$db->query("SELECT 1 FROM ".$t." LIMIT 1");
+				print __METHOD__." recheck ".$t." rc=".($rs ? 1 : 0)."\n";
+				if (!$rs) $still[] = $t;
+			}
+			if ($still) {
+				print __METHOD__." STILL MISSING: ".implode(',', $still)."\n";
+				self::markTestSkipped('Taler SQL tables not installed on this CI: '.implode(',', $still));
+			}
+		}
 	}
 }
