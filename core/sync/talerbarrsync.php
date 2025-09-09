@@ -187,6 +187,7 @@ do {
 		try {
 			// fetch the full ProductDetail *now*
 			$detail = $client->getProduct($summary['product_id']);
+			$detail["product_id"] = $summary['product_id']; // of course it is missing from getProduct
 			TalerProductLink::upsertFromTaler(
 				$GLOBALS['db'],
 				$detail,
