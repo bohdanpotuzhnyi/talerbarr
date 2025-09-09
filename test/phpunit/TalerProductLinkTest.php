@@ -25,6 +25,7 @@
 global $conf, $user, $db, $langs;
 
 require_once dirname(__FILE__, 6).'/htdocs/master.inc.php';
+require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/core/modules/modTalerBarr.class.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/class/talerproductlink.class.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/class/talerconfig.class.php';
 
@@ -172,7 +173,7 @@ class TalerProductLinkTest extends TestCase
 		self::$user = $user;
 
 		/* 0) bootstrap the module (creates llx_taler_* tables) */
-		require_once DOL_DOCUMENT_ROOT . '/custom/talerbarr/modTalerBarr.class.php';
+
 		$mod = new modTalerBarr($db);
 		if ($mod->init([]) <= 0) {
 			throw new RuntimeException('Unable to init modTalerBarr: ' . $db->lasterror());
