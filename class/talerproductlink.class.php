@@ -1345,7 +1345,8 @@ class TalerProductLink extends CommonObject
 				'writeDoli' => (bool) $writeDoli,
 				'instance' => $this->taler_instance,
 				'taler_product_id' => $targetProductId
-		]);
+			]
+		);
 
 		$err = null;
 		$client = $this->getMerchantClient($cfg, $err);
