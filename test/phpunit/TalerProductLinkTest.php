@@ -410,4 +410,121 @@ class TalerProductLinkTest extends CommonClassTest
 			}
 		}
 	}
+
+	/**
+	 * Data‑provider for parseTalerAmount() cases.
+	 * @return array[]
+	 */
+	public static function providerParseTalerAmount(): array
+	{
+		return [
+			// basic major+minor
+			['EUR:12.34', ['currency'=>'EUR','value'=>12,'fraction'=>34000000]],
+			// many decimals → trimmed/rounded to 8 places (here: 1 µ‑unit)
+			['EUR:0.000001', ['currency'=>'EUR','value'=>0,'fraction'=>100]],
+			// currency alias / mapping
+			['KUDOS:5', ['currency'=>'EUR','value'=>5,'fraction'=>0]],
+			// invalid → nulls
+			['xyz', ['currency'=>'','value'=>null,'fraction'=>null]],
+			// spaces & lowercase
+			[" chf:7.70 \n", ['currency'=>'CHF','value'=>7,'fraction'=>70000000]],
+		];
+	}
+
+
+	/**
+	 * @dataProvider providerParseTalerAmount
+	 *
+	 * @param string $input input
+	 * @param array  $expected output
+	 * @return void
+	 */
+	public function testParseTalerAmount(string $input, array $expected): void
+	{
+		$out = TalerProductLink::parseTalerAmount($input);
+		$this->assertSame($expected['currency'], $out['currency'], 'currency');
+		$this->assertSame($expected['value'], $out['value'], 'value');
+		$this->assertSame($expected['fraction'], $out['fraction'], 'fraction');
+	}
+
+
+	/**
+	 * Provider for amount‑string formatting helpers.
+	 *
+	 * @return array
+	 */
+	public static function providerAmountStr(): array
+	{
+		return [
+			[12.5, 'eur', 2, 'EUR:12.5'], // trims trailing zero
+			[0.0, 'EUR', 2, 'EUR:0'],
+			[12.345, 'CHF', 2, 'CHF:12.35'], // conventional rounding
+			[-7.0, 'CHF', 2, 'CHF:0'], // negatives → clamped to zero
+		];
+	}
+
+
+	/**
+	 * @dataProvider providerAmountStr
+	 *
+	 * @param float  $price price in float
+	 * @param string $cur 	currency
+	 * @param int    $scale scale
+	 * @param string $exp   expected
+	 *
+	 * @return void
+	 */
+	public function testAmountStrFromPrice(float $price, string $cur, int $scale, string $exp): void
+	{
+		$got = TalerProductLink::amountStrFromPrice($price, $cur, $scale);
+		$this->assertSame($exp, $got);
+		// talerAmountFromFloat is just a wrapper with scale=2
+		if ($scale === 2) {
+			$this->assertSame($exp, TalerProductLink::talerAmountFromFloat($price, $cur));
+		}
+	}
+
+
+	/**
+	 * Ensure computeSha256Hex() hashes strings and that input order affects hashes for raw arrays.
+	 *
+	 * @return void
+	 */
+	public function testComputeSha256Hex(): void
+	{
+		$this->assertSame(hash('sha256', 'abc'), TalerProductLink::computeSha256Hex('abc'));
+
+		// same associative array with different key order → same JSON canonicalisation? No – function keeps order.
+		$a1 = ['a'=>1,'b'=>2];
+		$a2 = ['b'=>2,'a'=>1];
+		$h1 = TalerProductLink::computeSha256Hex($a1);
+		$h2 = TalerProductLink::computeSha256Hex($a2);
+		$this->assertNotSame($h1, $h2, 'order matters for raw computeSha256Hex');
+	}
+
+
+	/**
+	 * Minimal smoke-test for dolibarrArrayFromTalerDetail() mapping.
+	 *
+	 * @return void
+	 */
+	public function testDolibarrArrayFromTalerDetailBasic(): void
+	{
+		$detail = [
+			'product_name' => 'Test prod',
+			'description' => 'desc',
+			'price' => 'EUR:12.34',
+			'taxes' => [['percent'=>7.7]],
+			'unit' => 'PIECE',
+			'categories' => [1,2,3],
+		];
+
+		$out = TalerProductLink::dolibarrArrayFromTalerDetail($detail);
+
+		$this->assertSame('Test prod', $out['label']);
+		$this->assertEqualsWithDelta(12.34, (float) $out['price_ttc'], 0.00001);
+		$this->assertSame('TTC', $out['price_base_type']);
+		$this->assertSame('PIECE', $out['_unit_code']);
+		$this->assertSame([1,2,3], $out['_categories']);
+	}
 }

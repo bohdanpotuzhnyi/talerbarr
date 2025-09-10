@@ -28,10 +28,9 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/geturl.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
 
-require_once __DIR__.'/talerconfig.class.php';
-require_once __DIR__.'/talermerchantclient.class.php';
-require_once __DIR__.'/talererrorlog.class.php';
-
+dol_include_once('/talerbarr/class/talerconfig.class.php');
+dol_include_once('/talerbarr/class/talermerchantclient.class.php');
+dol_include_once('/talerbarr/class/talererrorlog.class.php');
 
 /**
  * Class TalerProductLink
@@ -467,10 +466,12 @@ class TalerProductLink extends CommonObject
 		User         $user,
 		array        $opts = []
 	): int {
-		dol_syslog('TalerProductLink::upsertFromTaler.begin '.json_encode(['opts'=>$opts], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE), LOG_DEBUG);
+		dol_syslog(
+			'TalerProductLink::upsertFromTaler.begin '.json_encode(
+				['opts'=>$opts],
+				JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE),
+			LOG_DEBUG);
 
-		//TODO: Maybe we have to fetch this one, and the pullFromTaler
-		// a.k.a if this one has no fields like description, and then we actually have to call the
 		$instance = (string) ($opts['instance'] ?? '');
 		if ($instance === '') {
 			dol_syslog('TalerProductLink::upsertFromTaler.error empty_instance', LOG_ERR);
@@ -1330,7 +1331,7 @@ class TalerProductLink extends CommonObject
 	 * @param ?string $productId productId which we have to update
 	 * @return bool              true on success, false on failure
 	 */
-	public function pullFromTaler(User $user, bool $writeDoli = true, string $productId = null): bool
+	public function pullFromTaler(User $user, bool $writeDoli = true, ?string $productId = null): bool
 	{
 		// Use override product ID if provided
 		$targetProductId = $productId ?? $this->taler_product_id;

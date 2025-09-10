@@ -23,7 +23,6 @@
 
 require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
-// Optionally useful if you want helpers that resolve Dolibarr category objects
 // require_once DOL_DOCUMENT_ROOT.'/categories/class/categorie.class.php';
 
 /**
@@ -54,7 +53,7 @@ class TalerCategoryMap extends CommonObject
 	/** @var int|string */
 	public $ismultientitymanaged = 1; // we have an entity field
 
-	// ===== Fields definition (keep in sync with SQL) =====
+	// Fields definition
 	public $fields = array(
 		'rowid'                => array('type'=>'integer',  'label'=>'TechnicalID',   'visible'=>0, 'notnull'=>1, 'index'=>1, 'position'=>1),
 		'entity'               => array('type'=>'integer',  'label'=>'Entity',        'visible'=>0, 'notnull'=>1, 'default'=>1, 'index'=>1, 'position'=>5),
@@ -93,7 +92,7 @@ class TalerCategoryMap extends CommonObject
 		}
 	}
 
-	/* ================== CRUD ================== */
+	// CRUD
 	/**
 	 * Create record in database.
 	 *
@@ -146,7 +145,7 @@ class TalerCategoryMap extends CommonObject
 		return $this->deleteCommon($user, $notrigger);
 	}
 
-	/* ================== Finders ================== */
+	// Finders
 
 	/**
 	 * Fetch a mapping by Dolibarr category id (unique per entity).
@@ -258,7 +257,7 @@ class TalerCategoryMap extends CommonObject
 		return (int) $this->id;
 	}
 
-	/* ================== UI helpers ================== */
+	// UI categories
 	/**
 	 * Build HTML link to the card page.
 	 *
@@ -271,14 +270,15 @@ class TalerCategoryMap extends CommonObject
 	 */
 	public function getNomUrl($withpicto = 0, $option = '', $notooltip = 0, $morecss = '', $save_lastsearch_value = -1)
 	{
-		$label = 'TalerCategoryMap';
+		global $langs;
+		$label = $langs->trans('TalerCategoryMap');
 		$url = dol_buildpath('/talerbarr/talercategorymap_card.php', 1).'?id='.(int) $this->id;
 
 		$linkstart = ($option == 'nolink' || empty($url)) ? '<span>' : '<a href="'.$url.'">';
 		$linkend   = ($option == 'nolink' || empty($url)) ? '</span>' : '</a>';
 
 		$out = $linkstart;
-		if ($withpicto) $out .= img_object('', $this->picto, $withpicto != 2 ? 'class="paddingright"' : '');
+		if ($withpicto) $out .= img_object($label, $this->picto, $withpicto != 2 ? 'class="paddingright"' : '');
 		if ($withpicto != 2) $out .= dol_escape_htmltag($this->getLabelForList());
 		$out .= $linkend;
 
