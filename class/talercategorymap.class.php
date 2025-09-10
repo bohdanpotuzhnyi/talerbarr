@@ -58,12 +58,12 @@ class TalerCategoryMap extends CommonObject
 		'rowid'                => array('type'=>'integer',  'label'=>'TechnicalID',   'visible'=>0, 'notnull'=>1, 'index'=>1, 'position'=>1),
 		'entity'               => array('type'=>'integer',  'label'=>'Entity',        'visible'=>0, 'notnull'=>1, 'default'=>1, 'index'=>1, 'position'=>5),
 
-		'taler_instance'       => array('type'=>'varchar(64)',  'label'=>'TalerInstance',     'visible'=>1, 'notnull'=>1, 'index'=>1, 'position'=>10),
-		'taler_category_id'    => array('type'=>'integer',      'label'=>'TalerCategoryId',   'visible'=>1, 'notnull'=>1, 'index'=>1, 'position'=>11),
-		'taler_category_name'  => array('type'=>'varchar(255)', 'label'=>'TalerCategoryName', 'visible'=>1, 'notnull'=>0,                'position'=>12),
+		'taler_instance'       => array('type'=>'varchar(64)',  'label'=>'TalerInstance',     'visible'=>1, 'notnull'=>1, 'index'=>1, 'position'=>10, 'enabled'=>'1'),
+		'taler_category_id'    => array('type'=>'integer',      'label'=>'TalerCategoryId',   'visible'=>1, 'notnull'=>1, 'index'=>1, 'position'=>11, 'enabled'=>'1'),
+		'taler_category_name'  => array('type'=>'varchar(255)', 'label'=>'TalerCategoryName', 'visible'=>1, 'notnull'=>0,                'position'=>12, 'enabled'=>'1'),
 
-		'fk_categorie'         => array('type'=>'integer:Categorie:categories/class/categorie.class.php', 'label'=>'DolibarrCategory', 'visible'=>1, 'notnull'=>1, 'index'=>1, 'position'=>20, 'picto'=>'category'),
-		'note'                 => array('type'=>'varchar(255)', 'label'=>'Note',               'visible'=>1, 'notnull'=>0,                'position'=>30),
+		'fk_categorie'         => array('type'=>'integer', 'label'=>'DolibarrCategory', 'visible'=>1, 'notnull'=>1, 'index'=>1, 'position'=>20, 'picto'=>'category', 'enabled'=>'1'),
+		'note'                 => array('type'=>'varchar(255)', 'label'=>'Note',               'visible'=>1, 'notnull'=>0,                'position'=>30, 'enabled'=>'1'),
 
 		'datec'                => array('type'=>'datetime',     'label'=>'DateCreation',       'visible'=>-2, 'notnull'=>0, 'position'=>500),
 		'tms'                  => array('type'=>'timestamp',    'label'=>'DateModification',   'visible'=>-2, 'notnull'=>1, 'position'=>501),
