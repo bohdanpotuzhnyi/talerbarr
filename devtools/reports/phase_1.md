@@ -25,6 +25,10 @@ For the UI you can check the next screenshots:
 ![Module UI](./img/p1_img21.png)
 ![Module UI](./img/p1_img22.png)
 
+For the Documentation, it's done as PHPDoc comments in the code:
+
+![Module Documentation](./img/p1_img24.png)
+
 ## Long
 
 As stated in the MoU, phase 1 is all about inventory synchronization. In the next screenshot you can see how it works.
