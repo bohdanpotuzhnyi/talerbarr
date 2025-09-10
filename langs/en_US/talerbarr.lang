@@ -64,6 +64,7 @@ SyncDirection = Sync from
 SyncFrom = Sync from
 TalerConfigIsValid = Valid Taler Config Is Found
 Username = Username
+DeleteTalerConfig = Deleting TalerBarr configuration
 
 
 #
