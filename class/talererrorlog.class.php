@@ -113,10 +113,10 @@ class TalerErrorLog extends CommonObject
 	 * Create record.
 	 *
 	 * @param User $user       User performing the creation (used by triggers/audit).
-	 * @param int  $notrigger  Set to 1 to disable triggers.
+	 * @param int $notrigger  Set to 1 to disable triggers.
 	 * @return int             >0 on success, <0 on error.
 	 */
-	public function create(User $user, $notrigger = 1)
+	public function create(User $user, int $notrigger = 1): int
 	{
 		if (empty($this->entity)) $this->entity = (int) getEntity($this->element, 1);
 		if (empty($this->datec))  $this->datec  = dol_now();
@@ -317,7 +317,8 @@ class TalerErrorLog extends CommonObject
 	 */
 	public function getNomUrl($withpicto = 0, $option = '', $notooltip = 0, $morecss = '', $save_lastsearch_value = -1)
 	{
-		$label = 'TalerErrorLog';
+		global $langs;
+		$label = $langs->trans('TalerErrorLog');
 		$url = dol_buildpath('/talerbarr/talererrorlog_card.php', 1).'?id='.(int) $this->id;
 
 		$linkstart = ($option == 'nolink' || empty($url)) ? '<span>' : '<a href="'.$url.'">';
@@ -346,7 +347,7 @@ class TalerErrorLog extends CommonObject
 		$op   = $this->operation ?: '';
 		$http = $this->http_status !== null ? 'HTTP '.$this->http_status : '';
 		$code = $this->error_code ?: '';
-		$rid  = '#'.$this->rowid;
+		$rid  = '#'.(int) $this->rowid;
 		$right = trim(($http ? $http.' ' : '').$code);
 		$left  = trim($ctx.($op ? '/'.$op : ''));
 		return trim($rid.' '.$left.($right ? ' — '.$right : ''));

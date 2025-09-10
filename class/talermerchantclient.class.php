@@ -176,14 +176,14 @@ class TalerMerchantClient
 		$res = getURLContent(
 			$url,
 			$verb,
-			$payload,                     // body for POST/PUT/PATCH, empty for GET/DELETE
-			1,                            // follow redirects
+			$payload,              // body for POST/PUT/PATCH, empty for GET/DELETE
+			1,          // follow redirects
 			$headers,
 			array('http','https'),
-			2,                            // allow all URLs (same as in your verifyConfig)
-			-1,                           // auto SSL verification (Dolibarr decides)
-			5,                            // connect timeout (seconds)
-			$timeoutSeconds               // overall timeout (seconds)
+			2,              // allow all URLs (same as in your verifyConfig)
+			-1,         // auto SSL verification (Dolibarr decides)
+			5,        // connect timeout (seconds)
+			$timeoutSeconds        // overall timeout (seconds)
 		);
 
 		$http = isset($res['http_code']) ? (int) $res['http_code'] : 0;
