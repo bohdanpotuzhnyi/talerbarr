@@ -11,7 +11,7 @@ self‑hosted [GNU Taler Merchant](https://docs.taler.net/merchant/merchant.ht
 It automates the heavy lifting—price & stock synchronisation, category mapping, tax export—and gives you full 
 control over direction of this automatization.
 
-Compatible with **Dolibarr 20 → 22** and **Taler v1.0.0+ (v20+ of API) +**
+Compatible with **Dolibarr 22**, **Taler v1.0.0+ (v20+ of API) + and PHP 8.0+**
 (earlier versions may work but are untested).
 
 ---
@@ -44,17 +44,13 @@ Add your screenshots to `img/` and remove comment markers.
 
 ### 2 · Get the module
 
-<details>
-<summary><strong>A&nbsp;·&nbsp;Via the Dolibarr GUI (zip)</strong></summary>
+#### A Via the Dolibarr GUI (zip)
 
-1. Download the latest release `module_talerbarr‑x.y.z.zip` from [https://www.dolistore.com](https://www.dolistore.com) or the project’s *Releases* tab.
+1. Download the latest release `module_talerbarr‑x.y.z.zip` from [https://www.dolistore.com](https://www.dolistore.com) or the project’s [*Releases*](https://github.com/bohdanpotuzhnyi/talerbarr/releases) tab.
 2. Log in as a super‑admin ➜ **Home → Setup → Modules/Application → Deploy/install external app/module**.
 3. Upload the zip, then confirm.
 
-</details>
-
-<details>
-<summary><strong>B&nbsp;·&nbsp;Via Git (dev install)</strong></summary>
+#### B Via Git (dev install)
 
 ```bash
 cd $DOLIBARR_HOME/htdocs/custom
@@ -62,8 +58,6 @@ git clone https://github.com/bohdanpotuzhnyi/talerbarr.git
 ```
 
 If you want a clean Dolibarr tree, create a symbolic link or zip.
-
-</details>
 
 ### 3 · Enable & configure
 
