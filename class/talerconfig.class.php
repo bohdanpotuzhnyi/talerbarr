@@ -136,6 +136,7 @@ class TalerConfig extends CommonObject
 		"expiration" => array("type" => "timestamp", "label" => "Expiration", "enabled" => "1", 'position' => 0, 'notnull' => 1, "visible" => "1", "comment" => "Epoch expiration of token"),
 		"talertoken" => array("type" => "varchar(128)", "label" => "TalerToken", "enabled" => "1", 'position' => 0, 'notnull' => 1, "visible" => "1", "comment" => "Token received from merchant"),
 		"syncdirection" => array("type" => "boolean", "label" => "SyncDirection", "enabled" => "1", 'position' => 0, 'notnull' => 0, "visible" => "1", "default" => "1", "comment" => "True from Taler, false from Dolibarr"),
+		"fk_bank_account" => ["type" => "integer", "label"=>"BankAccount", "enabled"=>"1", "visible"=>"-1", "notnull"=>1, "index"=>1, "comment"=>"Destination bank account for wired settlement"]
 	);
 	public $rowid;
 	public $date_creation;
@@ -148,6 +149,7 @@ class TalerConfig extends CommonObject
 	public $expiration;
 	public $talertoken;
 	public $syncdirection;
+	public $fk_bank_account;
 	// END MODULEBUILDER PROPERTIES
 
 	private string $talerMerchantInstanceUrl;
