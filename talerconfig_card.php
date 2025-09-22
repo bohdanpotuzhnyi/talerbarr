@@ -510,6 +510,7 @@ if ($action == 'create') {
 	// Not including unwanted(output fields)
 	unset($object->fields['status']);
 	unset($object->fields['syncdirection']);
+	unset($object->fields['fk_bank_account']);
 	print '<style>.field_expiration{display:none !important;}</style>';
 	print '<style>.field_talertoken{display:none !important;}</style>';
 
@@ -533,6 +534,14 @@ if ($action == 'create') {
 	print '    </label>';
 	print '  </td>';
 	print '</tr>';
+
+	// --- manual fk_bank_account row ---
+	$fk_account = GETPOSTINT('fk_bank_account');
+	print '<tr class="field_fk_bank_account">';
+	print '  <td class="fieldrequired">'.$langs->trans("BankAccount").'</td><td>';
+	print img_picto('', 'bank_account', 'class="pictofixedwidth"');
+	print $form->select_comptes($fk_account, 'fk_bank_account', 0, '', 1, '', 0, 'maxwidth250 widthcentpercentminusx', 1);
+	print '</td></tr>';
 
 	// style for the switch
 	print '<style>
@@ -599,6 +608,7 @@ if (($id || $ref) && $action == 'edit') {
 
 	unset($object->fields['status']);
 	unset($object->fields['syncdirection']);
+	unset($object->fields['fk_bank_account']);
 	print '<style>.field_expiration{display:none !important;}</style>';
 	print '<style>.field_talertoken{display:none !important;}</style>';
 
@@ -622,6 +632,14 @@ if (($id || $ref) && $action == 'edit') {
 	print '    </label>';
 	print '  </td>';
 	print '</tr>';
+
+	// --- manual fk_bank_account row ---
+	$fk_account = GETPOSTINT('fk_bank_account');
+	print '<tr class="field_fk_bank_account">';
+	print '  <td class="fieldrequired">'.$langs->trans("BankAccount").'</td><td>';
+	print img_picto('', 'bank_account', 'class="pictofixedwidth"');
+	print $form->select_comptes($fk_account, 'fk_bank_account', 0, '', 1, '', 0, 'maxwidth250 widthcentpercentminusx', 1);
+	print '</td></tr>';
 
 	// style for the switch
 	print '<style>
@@ -774,10 +792,22 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	print '<table class="border centpercent tableforfield">'."\n";
 
 	// Common attributes
+	unset($object->fields['fk_bank_account']);
 	//$keyforbreak='fieldkeytoswitchonsecondcolumn';	// We change column just before this field
 	//unset($object->fields['fk_project']);				// Hide field already shown in banner
 	//unset($object->fields['fk_soc']);					// Hide field already shown in banner
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_view.tpl.php';
+
+	require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';
+
+	$acc = new Account($db);
+	if ($object->fk_bank_account && $acc->fetch($object->fk_bank_account) > 0) {
+		print '<tr class="field_fk_bank_account">';
+		print '  <td>'.$langs->trans("BankAccount").'</td><td>';
+		//print img_picto('', 'bank_account', 'class="pictofixedwidth"').' ';
+		print $acc->getNomUrl(1);
+		print '</td></tr>';
+	}
 
 	print '<script>
 jQuery(function($){

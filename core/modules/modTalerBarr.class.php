@@ -617,6 +617,9 @@ class modTalerBarr extends DolibarrModules
 			}
 		}
 
+		//TODO: We have to add and enable the new payment method of Taler Digital Cash
+		// 104,1,GIRO,Giropay,1,0,,,0
+		//105,1,PPL,PayPal,1,0,,,0
 		return $this->_init($sql, $options);
 	}
 
@@ -631,6 +634,9 @@ class modTalerBarr extends DolibarrModules
 	public function remove($options = '')
 	{
 		$sql = array();
+
+		//TODO: Deactivate the Taler Digital Cash payment method if it was activated
+
 		return $this->_remove($sql, $options);
 	}
 }
