@@ -621,6 +621,10 @@ class modTalerBarr extends DolibarrModules
 			return -1;
 		}
 
+		if ($this->ensureTalerClearingAccount() < 0) {
+			return -1;
+		}
+
 		return $this->_init($sql, $options);
 	}
 
@@ -637,6 +641,10 @@ class modTalerBarr extends DolibarrModules
 		$sql = array();
 
 		if ($this->disableTalerPaymentMethod() < 0) {
+			return -1;
+		}
+
+		if ($this->disableTalerClearingAccount() < 0) {
 			return -1;
 		}
 
@@ -709,6 +717,138 @@ class modTalerBarr extends DolibarrModules
 			$this->error = $this->db->lasterror();
 			return -1;
 		}
+
+		return 1;
+	}
+
+	/**
+	 * Ensure the GNU Taler clearing bank account exists and stays open.
+	 *
+	 * @return int 1 if OK, <0 if error
+	 */
+	private function ensureTalerClearingAccount()
+	{
+		global $conf;
+
+		require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';
+
+		$entity = (int) $conf->entity;
+		$ref = 'TLRCLEAR';
+		$label = 'GNU Taler Clearing';
+		$constName = 'TALERBARR_CLEARING_ACCOUNT_ID';
+
+		$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."bank_account WHERE entity = ".$entity." AND ref = '".$this->db->escape($ref)."'";
+		$res = $this->db->query($sql);
+		if (!$res) {
+			$this->error = $this->db->lasterror();
+			return -1;
+		}
+
+		$rowid = 0;
+		if ($obj = $this->db->fetch_object($res)) {
+			$rowid = (int) $obj->rowid;
+		}
+		$this->db->free($res);
+
+		if ($rowid > 0) {
+			$update = "UPDATE ".MAIN_DB_PREFIX."bank_account SET label = '".$this->db->escape($label)."', clos = 0, courant = ".Account::TYPE_CURRENT." WHERE rowid = ".$rowid;
+			if (!$this->db->query($update)) {
+				$this->error = $this->db->lasterror();
+				return -1;
+			}
+
+			require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
+			dolibarr_set_const($this->db, $constName, $rowid, 'chaine', 0, '', $entity);
+
+			return 1;
+		}
+
+		$fkPays = (int) getDolGlobalInt('MAIN_INFO_COUNTRY');
+		$currency = getDolGlobalString('MAIN_INFO_CURRENCY', '');
+		if (empty($currency) && !empty($conf->currency)) {
+			$currency = $conf->currency;
+		}
+
+		$probe = $this->db->query("SELECT fk_pays, currency_code FROM ".MAIN_DB_PREFIX."bank_account WHERE entity = ".$entity." ORDER BY rowid ASC LIMIT 1");
+		if ($probe) {
+			$probeObj = $this->db->fetch_object($probe);
+			if ($probeObj) {
+				if (empty($fkPays) && (int) $probeObj->fk_pays > 0) {
+					$fkPays = (int) $probeObj->fk_pays;
+				}
+				if (empty($currency) && !empty($probeObj->currency_code)) {
+					$currency = $probeObj->currency_code;
+				}
+			}
+			$this->db->free($probe);
+		}
+
+		if (empty($fkPays)) {
+			$resCountry = $this->db->query("SELECT rowid FROM ".MAIN_DB_PREFIX."c_pays WHERE active = 1 ORDER BY rowid ASC LIMIT 1");
+			if ($resCountry) {
+				$countryObj = $this->db->fetch_object($resCountry);
+				if ($countryObj) {
+					$fkPays = (int) $countryObj->rowid;
+				}
+				$this->db->free($resCountry);
+			}
+		}
+		if (empty($fkPays)) {
+			$fkPays = 1;
+		}
+		if (empty($currency)) {
+			$currency = 'EUR';
+		}
+
+		$now = $this->db->idate(dol_now());
+		$insert = "INSERT INTO ".MAIN_DB_PREFIX."bank_account (datec, ref, label, entity, fk_pays, currency_code, rappro, clos, courant, bank, comment) VALUES ('".$now."', '".$this->db->escape($ref)."', '".$this->db->escape($label)."', ".$entity.", ".$fkPays.", '".$this->db->escape($currency)."', 1, 0, ".Account::TYPE_CURRENT.", 'GNU Taler', 'Auto-created by TalerBarr module')";
+		if (!$this->db->query($insert)) {
+			$this->error = $this->db->lasterror();
+			return -1;
+		}
+
+		$rowid = (int) $this->db->last_insert_id(MAIN_DB_PREFIX."bank_account");
+
+		require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
+		dolibarr_set_const($this->db, $constName, $rowid, 'chaine', 0, '', $entity);
+
+		return 1;
+	}
+
+	/**
+	 * Mark the GNU Taler clearing account as closed and drop the tracking constant.
+	 *
+	 * @return int 1 if OK, <0 if error
+	 */
+	private function disableTalerClearingAccount()
+	{
+		global $conf;
+
+		$entity = (int) $conf->entity;
+		$constName = 'TALERBARR_CLEARING_ACCOUNT_ID';
+		$accountId = (int) getDolGlobalInt($constName);
+
+		if ($accountId <= 0) {
+			$res = $this->db->query("SELECT rowid FROM ".MAIN_DB_PREFIX."bank_account WHERE entity = ".$entity." AND ref = '".$this->db->escape('TLRCLEAR')."'");
+			if ($res) {
+				$obj = $this->db->fetch_object($res);
+				if ($obj) {
+					$accountId = (int) $obj->rowid;
+				}
+				$this->db->free($res);
+			}
+		}
+
+		if ($accountId > 0) {
+			$sql = "UPDATE ".MAIN_DB_PREFIX."bank_account SET clos = 1 WHERE rowid = ".$accountId;
+			if (!$this->db->query($sql)) {
+				$this->error = $this->db->lasterror();
+				return -1;
+			}
+		}
+
+		require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
+		dolibarr_del_const($this->db, $constName, $entity);
 
 		return 1;
 	}

@@ -25,15 +25,10 @@ Synchronisation of the inventories
 
 ---
 
-## Screenshots
+[//]: # (## Screenshots)
 
-<!--
-Add your screenshots to `img/` and remove comment markers.
 
-![Product sync dashboard](img/screenshot_talerbarr_dashboard.png)
--->
-
----
+[//]: # (---)
 
 ## Installation
 
@@ -76,6 +71,17 @@ Additional cron jobs, will trigger re-checking every 24 hours.
 
 Consult the Dolibarr tutorials for info how to use Dolibarr,
 as well as Taler Tutorials for info how to use the Taler Merchant
+
+### Recommended Dolibarr modules activated
+Enable the following core modules  so TalerBarr can cover the complete order → payout lifecycle:
+
+1. **Products** – enables sync between Dolibarr and Taler for all your products and services.
+2. **Stocks** – keeps stock levels in sync between the two systems (stock in, stock out).
+3. **Tags / Categories** – maps categories across systems. (Note: Taler doesn’t allow categories on orders — yet.)
+4. **Tax** – syncs product-level tax info. Taler only supports taxes through the product, not as standalone per-order rules.
+5. **Scheduled jobs** – lets the daily sync and background retries do their thing automatically.
+6. **Banks & Cash** – handles the temporary clearing account and final payment reconciliation account.
+7. **Invoices** – needed to keep the full Dolibarr flow (order → invoice → clearing → bank) functional and traceable.
 
 ---
 
