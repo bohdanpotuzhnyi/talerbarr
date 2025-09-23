@@ -156,9 +156,9 @@ class modTalerBarr extends DolibarrModules
 		$this->langfiles = array("talerbarr@talerbarr");
 
 		// Prerequisites
-		$this->phpmin = array(7, 1); // Minimum version of PHP required by module
+		$this->phpmin = array(8, 0); // Minimum version of PHP required by module
 		// $this->phpmax = array(8, 0); // Maximum version of PHP required by module
-		$this->need_dolibarr_version = array(19, -3); // Minimum version of Dolibarr required by module
+		$this->need_dolibarr_version = array(20, -3); // Minimum version of Dolibarr required by module
 		// $this->max_dolibarr_version = array(19, -3); // Maximum version of Dolibarr required by module
 		$this->need_javascript_ajax = 0;
 
@@ -609,17 +609,18 @@ class modTalerBarr extends DolibarrModules
 
 				$sql = array_merge($sql,
 					array(
-					"DELETE FROM ".$this->db->prefix()."document_model WHERE nom = 'standard_".strtolower($myTmpObjectKey)."' AND type = '".$this->db->escape(strtolower($myTmpObjectKey))."' AND entity = ".((int) $conf->entity),
-					"INSERT INTO ".$this->db->prefix()."document_model (nom, type, entity) VALUES('standard_".strtolower($myTmpObjectKey)."', '".$this->db->escape(strtolower($myTmpObjectKey))."', ".((int) $conf->entity).")",
-					"DELETE FROM ".$this->db->prefix()."document_model WHERE nom = 'generic_".strtolower($myTmpObjectKey)."_odt' AND type = '".$this->db->escape(strtolower($myTmpObjectKey))."' AND entity = ".((int) $conf->entity),
-					"INSERT INTO ".$this->db->prefix()."document_model (nom, type, entity) VALUES('generic_".strtolower($myTmpObjectKey)."_odt', '".$this->db->escape(strtolower($myTmpObjectKey))."', ".((int) $conf->entity).")"
-				));
+						"DELETE FROM ".$this->db->prefix()."document_model WHERE nom = 'standard_".strtolower($myTmpObjectKey)."' AND type = '".$this->db->escape(strtolower($myTmpObjectKey))."' AND entity = ".((int) $conf->entity),
+						"INSERT INTO ".$this->db->prefix()."document_model (nom, type, entity) VALUES('standard_".strtolower($myTmpObjectKey)."', '".$this->db->escape(strtolower($myTmpObjectKey))."', ".((int) $conf->entity).")",
+						"DELETE FROM ".$this->db->prefix()."document_model WHERE nom = 'generic_".strtolower($myTmpObjectKey)."_odt' AND type = '".$this->db->escape(strtolower($myTmpObjectKey))."' AND entity = ".((int) $conf->entity),
+						"INSERT INTO ".$this->db->prefix()."document_model (nom, type, entity) VALUES('generic_".strtolower($myTmpObjectKey)."_odt', '".$this->db->escape(strtolower($myTmpObjectKey))."', ".((int) $conf->entity).")"
+					));
 			}
 		}
 
-		//TODO: We have to add and enable the new payment method of Taler Digital Cash
-		// 104,1,GIRO,Giropay,1,0,,,0
-		//105,1,PPL,PayPal,1,0,,,0
+		if ($this->enableTalerPaymentMethod() < 0) {
+			return -1;
+		}
+
 		return $this->_init($sql, $options);
 	}
 
@@ -635,8 +636,80 @@ class modTalerBarr extends DolibarrModules
 	{
 		$sql = array();
 
-		//TODO: Deactivate the Taler Digital Cash payment method if it was activated
+		if ($this->disableTalerPaymentMethod() < 0) {
+			return -1;
+		}
 
 		return $this->_remove($sql, $options);
+	}
+
+	/**
+	 * Ensure the Taler Digital Cash payment method exists and is active.
+	 *
+	 * @return int 1 if OK, <0 if error
+	 */
+	private function enableTalerPaymentMethod()
+	{
+		global $conf;
+
+		$code = 'TLR';
+		$label = 'Taler';
+		$module = 'talerbarr';
+		$type = 1;
+		$targetEntity = (int) (!empty($conf->entity) ? $conf->entity : 1);
+
+		$sqlUpdate = "UPDATE ".MAIN_DB_PREFIX."c_paiement SET active = 1, libelle = '".$this->db->escape($label)."', type = ".$type.", module = '".$this->db->escape($module)."' WHERE code = '".$this->db->escape($code)."'";
+		if (!$this->db->query($sqlUpdate)) {
+			$this->error = $this->db->lasterror();
+			return -1;
+		}
+
+		$sqlSelect = "SELECT id FROM ".MAIN_DB_PREFIX."c_paiement WHERE code = '".$this->db->escape($code)."' AND entity = ".$targetEntity;
+		$resSelect = $this->db->query($sqlSelect);
+		if (!$resSelect) {
+			$this->error = $this->db->lasterror();
+			return -1;
+		}
+
+		if ($this->db->num_rows($resSelect) > 0) {
+			$this->db->free($resSelect);
+			return 1;
+		}
+
+		$this->db->free($resSelect);
+
+		$sqlInsert = "INSERT INTO ".MAIN_DB_PREFIX."c_paiement (id, entity, code, libelle, type, active, accountancy_code, module, position) VALUES (271, ".$targetEntity.", '".$this->db->escape($code)."', '".$this->db->escape($label)."', ".$type.", 1, NULL, '".$this->db->escape($module)."', 0)";
+		$resInsert = $this->db->query($sqlInsert);
+		if (!$resInsert) {
+			$errorMsg = $this->db->lasterror();
+			if (stripos($errorMsg, 'duplicate') === false) {
+				$this->error = $errorMsg;
+				return -1;
+			}
+
+			$sqlInsertFallback = "INSERT INTO ".MAIN_DB_PREFIX."c_paiement (entity, code, libelle, type, active, accountancy_code, module, position) VALUES (".$targetEntity.", '".$this->db->escape($code)."', '".$this->db->escape($label)."', ".$type.", 1, NULL, '".$this->db->escape($module)."', 0)";
+			if (!$this->db->query($sqlInsertFallback)) {
+				$this->error = $this->db->lasterror();
+				return -1;
+			}
+		}
+
+		return 1;
+	}
+
+	/**
+	 * Disable the Taler Digital Cash payment method if present.
+	 *
+	 * @return int 1 if OK, <0 if error
+	 */
+	private function disableTalerPaymentMethod()
+	{
+		$sql = "UPDATE ".MAIN_DB_PREFIX."c_paiement SET active = 0 WHERE code = '".$this->db->escape('TLR')."'";
+		if (!$this->db->query($sql)) {
+			$this->error = $this->db->lasterror();
+			return -1;
+		}
+
+		return 1;
 	}
 }
