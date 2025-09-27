@@ -137,7 +137,7 @@ class TalerMerchantClient
 	/**
 	 * Low-level HTTP request helper around Dolibarr's getURL().
 	 *
-	 * @param string          $verb  HTTP verb ('GET','POST','PUT','PATCH','DELETE').
+	 * @param string          $verb  HTTP verb ('GET','POST','PUT','PATCH','PATCHALREADYFORMATED','DELETE').
 	 * @param string          $path  Relative path (may start with '/').
 	 * @param null|array      $body  If given, JSON-encoded into request body.
 	 * @param null|array      $query Optional query parameters to append to URL.
@@ -418,5 +418,118 @@ class TalerMerchantClient
 	{
 		$path = "products/".rawurlencode($productId);
 		$this->delete($path);
+	}
+
+	/* =======================================================================
+	 * Payment: Orders
+	 * =======================================================================
+	 */
+
+	/**
+	 * Create a new order that a wallet can pay for.
+	 *
+	 * Required permission: orders-write
+	 *
+	 * @param $postOrderRequest PostOrderRequest payload per Taler merchant API.
+	 * @return array{order_id:string,token?:string}
+	 * @throws Exception On HTTP/JSON errors.
+	 */
+	public function createOrder(array $postOrderRequest): array
+	{
+		$path = "orders";
+		return $this->post($path, $postOrderRequest);
+	}
+
+	/**
+	 * List orders with optional filters (paid/refunded/wired/session/etc).
+	 *
+	 * Required permission: orders-read
+	 *
+	 * @param array<string, mixed> $query Optional query string parameters (leave values null to skip).
+	 * @return array{orders: array<int, array<string, mixed>>}
+	 * @throws Exception On HTTP/JSON errors.
+	 */
+	public function listOrders(array $query = []): array
+	{
+		$path = "orders";
+		$query = array_filter($query,
+			static function ($value) {
+				return $value !== null;
+			});
+
+		return $this->get($path, $query);
+	}
+
+	/**
+	 * Inspect a single order and its payment status.
+	 *
+	 * Required permission: orders-read
+	 *
+	 * @param string               $orderId Order identifier.
+	 * @param array<string, mixed> $query   Optional query parameters (session_id, timeout_ms, allow_refunded_for_repurchase).
+	 * @return array<string, mixed>
+	 * @throws Exception On HTTP/JSON errors.
+	 */
+	public function getOrderStatus(string $orderId, array $query = []): array
+	{
+		$path = "orders/".rawurlencode($orderId);
+		$query = array_filter($query,
+			static function ($value) {
+				return $value !== null;
+			});
+
+		return $this->get($path, $query);
+	}
+
+	/**
+	 * Forget sensitive fields from an order contract.
+	 *
+	 * Required permission: orders-write
+	 *
+	 * @param string            $orderId Order identifier.
+	 * @param array<int,string> $fields  JSON-path-like entries referencing forgettable fields.
+	 * @return array<string, mixed>
+	 * @throws InvalidArgumentException When $fields is empty.
+	 * @throws Exception On HTTP errors (400 malformed, 404 unknown order, 409 not forgettable).
+	 */
+	public function forgetOrderFields(string $orderId, array $fields): array
+	{
+		if (empty($fields)) {
+			throw new \InvalidArgumentException('At least one forgettable field path must be provided.');
+		}
+
+		$path = "orders/".rawurlencode($orderId)."/forget";
+		return $this->patch($path, ['fields' => array_values($fields)]);
+	}
+
+	/**
+	 * Delete an order from the backend.
+	 *
+	 * Required permission: orders-write
+	 *
+	 * @param string $orderId Order identifier.
+	 * @return void
+	 * @throws Exception On HTTP errors (404 unknown order, 409 conflict).
+	 */
+	public function deleteOrder(string $orderId): void
+	{
+		$path = "orders/".rawurlencode($orderId);
+		$this->delete($path);
+	}
+
+	/**
+	 * Request a refund for a paid order.
+	 *
+	 * Required permission: orders-refund
+	 *
+	 * @param string $orderId       Order identifier.
+	 * @param array  $refundRequest RefundRequest payload (refund amount and reason).
+	 * @return array{taler_refund_uri:string,h_contract:string}
+	 * @throws Exception On HTTP errors (403 forbidden, 404 unknown, 409 conflict, 410 gone, 451 unavailable).
+	 */
+	public function refundOrder(string $orderId, array $refundRequest): array
+	{
+		$path = "orders/".rawurlencode($orderId)."/refund";
+		return $this->post($path, $refundRequest);
 	}
 }
