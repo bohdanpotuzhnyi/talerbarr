@@ -430,7 +430,7 @@ class TalerMerchantClient
 	 *
 	 * Required permission: orders-write
 	 *
-	 * @param $postOrderRequest PostOrderRequest payload per Taler merchant API.
+	 * @param $postOrderRequest payload per Taler merchant API.
 	 * @return array{order_id:string,token?:string}
 	 * @throws Exception On HTTP/JSON errors.
 	 */
