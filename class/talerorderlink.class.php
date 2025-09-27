@@ -23,9 +23,16 @@
 
 require_once DOL_DOCUMENT_ROOT . '/core/class/commonobject.class.php';
 require_once DOL_DOCUMENT_ROOT . '/core/lib/date.lib.php';
+require_once DOL_DOCUMENT_ROOT . '/societe/class/societe.class.php';
+require_once DOL_DOCUMENT_ROOT . '/product/class/product.class.php';
+require_once DOL_DOCUMENT_ROOT . '/commande/class/commande.class.php';
+require_once DOL_DOCUMENT_ROOT . '/compta/facture/class/facture.class.php';
+require_once DOL_DOCUMENT_ROOT . '/compta/paiement/class/paiement.class.php';
+require_once DOL_DOCUMENT_ROOT . '/compta/bank/class/account.class.php';
 
 
 dol_include_once('/talerbarr/class/talerconfig.class.php');
+dol_include_once('/talerbarr/class/talerproductlink.class.php');
 
 /**
  * Class TalerOrderLink
@@ -130,6 +137,426 @@ class TalerOrderLink extends CommonObject
 	public $fk_facture;
 	public $fk_bank_account_dest;
 	public $merchant_status_raw;
+
+	/**
+	 * Fetch link row using (instance, order_id).
+	 *
+	 * @param string $instance Instance identifier as configured in TalerConfig::username.
+	 * @param string $orderId  Taler order identifier.
+	 * @return int             >0 if found, 0 if not found, <0 on error.
+	 */
+	public function fetchByInstanceOrderId(string $instance, string $orderId): int
+	{
+		$this->log('fetchByInstanceOrderId.begin', ['instance' => $instance, 'order_id' => $orderId]);
+		$sql = sprintf(
+			"SELECT rowid FROM %s%s WHERE taler_instance = '%s' AND taler_order_id = '%s' AND entity IN (%s)",
+			MAIN_DB_PREFIX,
+			$this->table_element,
+			$this->db->escape($instance),
+			$this->db->escape($orderId),
+			getEntity($this->element, true)
+		);
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			$this->error = $this->db->lasterror();
+			$this->log('fetchByInstanceOrderId.sql_error', ['error' => $this->error], LOG_ERR);
+			return -1;
+		}
+		if ($obj = $this->db->fetch_object($resql)) {
+			$r = $this->fetch((int) $obj->rowid);
+			$this->db->free($resql);
+			$this->log('fetchByInstanceOrderId.end', ['rowid' => (int) $this->id, 'res' => $r]);
+			return $r;
+		}
+		$this->db->free($resql);
+		$this->log('fetchByInstanceOrderId.end', ['rowid' => null, 'res' => 0]);
+		return 0;
+	}
+
+	/**
+	 * Convert mixed (array|object) payload into associative array.
+	 *
+	 * @param object|array|null $value Mixed payload to normalize.
+	 * @return array<string, mixed>    Normalized associative array.
+	 */
+	private static function normalizeToArray(object|array|null $value): array
+	{
+		if (is_array($value)) {
+			return $value;
+		}
+		if (is_object($value)) {
+			return json_decode(json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), true) ?: [];
+		}
+		return [];
+	}
+
+	/**
+	 * Helper returning the first non-empty scalar value.
+	 *
+	 * @param mixed ...$values Values to inspect in order.
+	 * @return string          First non-empty scalar value (stringified) or empty string.
+	 */
+	private static function coalesceString(mixed ...$values): string
+	{
+		foreach ($values as $value) {
+			if (is_string($value) && $value !== '') {
+				return $value;
+			}
+			if ((is_int($value) || is_float($value)) && $value !== 0) {
+				return (string) $value;
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Parse various timestamp formats produced by the Taler backend.
+	 *
+	 * @param mixed $value Timestamp candidate from Taler payload.
+	 * @return int|null    Unix timestamp when parseable, null otherwise.
+	 */
+	private static function parseTimestamp(mixed $value): ?int
+	{
+		if ($value === null || $value === '') {
+			return null;
+		}
+		if (is_numeric($value)) {
+			$value = (int) $value;
+			return $value > 0 ? $value : null;
+		}
+		if (is_array($value) && isset($value['t_s'])) {
+			return self::parseTimestamp($value['t_s']);
+		}
+		try {
+			$dt = new DateTime((string) $value);
+			return $dt->getTimestamp();
+		} catch (Exception) {
+			return null;
+		}
+	}
+
+	/**
+	 * Parse a Taler amount representation into Dolibarr-friendly parts.
+	 *
+	 * @param mixed $amount Taler amount structure or string.
+	 * @return array<string, int|string|null> Parsed amount components.
+	 */
+	private static function extractAmount(mixed $amount): array
+	{
+		if (is_string($amount)) {
+			$parsed = TalerProductLink::parseTalerAmount($amount);
+			$parsed['amount_str'] = $amount;
+			return $parsed;
+		}
+		if (is_array($amount)) {
+			if (isset($amount['amount'])) {
+				return self::extractAmount($amount['amount']);
+			}
+			$currency = (string) ($amount['currency'] ?? '');
+			$value    = isset($amount['value']) ? (int) $amount['value'] : null;
+			$fraction = isset($amount['fraction']) ? (int) $amount['fraction'] : null;
+			$amountStr = $currency;
+			if ($currency !== '' && $value !== null) {
+				$amountStr .= ':' . $value;
+				if ($fraction !== null) {
+					$amountStr .= '.' . str_pad((string) $fraction, 8, '0', STR_PAD_LEFT);
+				}
+			}
+			return array(
+				'currency'   => strtoupper($currency),
+				'value'      => $value,
+				'fraction'   => $fraction,
+				'amount_str' => ($currency !== '' ? $amountStr : null),
+			);
+		}
+		return array('currency' => '', 'value' => null, 'fraction' => null, 'amount_str' => null);
+	}
+
+	/**
+	 * Convert parsed amount into float (major units, VAT excluded assumption).
+	 *
+	 * @param array<string, int|string|null> $parsed Parsed amount structure.
+	 * @return float                              Monetary value in major units.
+	 */
+	private static function amountToFloat(array $parsed): float
+	{
+		$major = (float) ($parsed['value'] ?? 0);
+		$fraction = (int) ($parsed['fraction'] ?? 0);
+		if ($fraction !== 0) {
+			$major += $fraction / 100000000;
+		}
+		return $major;
+	}
+
+	/**
+	 * Retrieve Taler configuration row by instance username.
+	 *
+	 * @param DoliDB $db       Active database handler.
+	 * @param string $instance Taler instance identifier.
+	 * @return TalerConfig|null Loaded configuration or null on failure.
+	 */
+	private static function fetchConfigForInstance(DoliDB $db, string $instance): ?TalerConfig
+	{
+		$cfg = new TalerConfig($db);
+		$sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.$cfg->table_element.
+			" WHERE username = '".$db->escape($instance)."'".
+			' AND entity IN ('.getEntity('talerconfig', true).')';
+		$resql = $db->query($sql);
+		if (!$resql) {
+			dol_syslog(__METHOD__.' sql_error '.$db->lasterror(), LOG_ERR);
+			return null;
+		}
+		if ($obj = $db->fetch_object($resql)) {
+			if ($cfg->fetch((int) $obj->rowid) > 0) {
+				return $cfg;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Resolve default thirdparty/customer identifier.
+	 *
+	 * @param TalerOrderLink $link Current order link context.
+	 * @return int|null            Customer identifier or null if unavailable.
+	 */
+	private static function resolveCustomerId(TalerOrderLink $link): ?int
+	{
+		if (!empty($link->fk_soc)) {
+			return (int) $link->fk_soc;
+		}
+		$global = (int) getDolGlobalInt('TALERBARR_DEFAULT_SOCID');
+		return $global > 0 ? $global : null;
+	}
+
+	/**
+	 * Resolve configured payment mode identifier for Taler payments.
+	 *
+	 * @return int|null Payment mode identifier or null when not configured.
+	 */
+	private static function resolvePaymentModeId(): ?int
+	{
+		$global = (int) getDolGlobalInt('TALERBARR_PAYMENT_MODE_ID');
+		return $global > 0 ? $global : null;
+	}
+
+	/**
+	 * Resolve configured clearing bank account for incoming Taler payments.
+	 *
+	 * @return int|null Bank account identifier or null when not configured.
+	 */
+	private static function resolveClearingAccountId(): ?int
+	{
+		$global = (int) getDolGlobalInt('TALERBARR_CLEARING_BANK_ACCOUNT');
+		return $global > 0 ? $global : null;
+	}
+
+	/**
+	 * Resolve configured final bank account for transfers after clearing.
+	 *
+	 * @return int|null Bank account identifier or null when not configured.
+	 */
+	private static function resolveFinalAccountId(): ?int
+	{
+		$global = (int) getDolGlobalInt('TALERBARR_FINAL_BANK_ACCOUNT');
+		return $global > 0 ? $global : null;
+	}
+
+	/**
+	 * Ensure a Dolibarr customer order exists and is validated.
+	 *
+	 * @param DoliDB         $db            Database connection.
+	 * @param User           $user          Current user executing the sync.
+	 * @param TalerOrderLink $link          Order link needing a Dolibarr order.
+	 * @param array          $contractTerms Contract terms payload from Taler.
+	 * @param array          $statusData    Latest Taler status payload.
+	 * @return Commande|null Created or fetched order, null on failure.
+	 */
+	private static function ensureDolibarrOrder(
+		DoliDB          $db,
+		User            $user,
+		TalerOrderLink  $link,
+		array           $contractTerms,
+		array           $statusData
+	): ?Commande {
+		$orderId = $link->fk_commande ? (int) $link->fk_commande : 0;
+		if ($orderId > 0) {
+			$commande = new Commande($db);
+			if ($commande->fetch($orderId) > 0) {
+				return $commande;
+			}
+		}
+
+		$socid = self::resolveCustomerId($link);
+		if ($socid === null) {
+			dol_syslog(__METHOD__.' missing customer mapping for order '.$link->taler_order_id, LOG_WARNING);
+			return null;
+		}
+
+		$commande = new Commande($db);
+		$commande->socid = $socid;
+		$commande->entity = $link->entity ?: getEntity('commande', 1);
+		$commande->ref_client = $link->taler_order_id;
+		$commande->date = self::parseTimestamp($contractTerms['timestamp'] ?? null) ?: dol_now();
+		$commande->cond_reglement_id = (int) getDolGlobalInt('TALERBARR_DEFAULT_PAYMENT_TERMS') ?: null;
+		$commande->mode_reglement_id = self::resolvePaymentModeId();
+		$commande->note_public = (string) ($contractTerms['summary'] ?? $statusData['summary'] ?? '');
+		$commande->note_private = 'Taler order '.$link->taler_order_id;
+		$commande->origin = 'taler';
+		$commande->origin_id = 0;
+
+		$resCreate = $commande->create($user);
+		if ($resCreate <= 0) {
+			dol_syslog(__METHOD__.' create_failed '.$commande->error, LOG_ERR);
+			return null;
+		}
+
+		$products = $contractTerms['products'] ?? [];
+		if (!is_array($products)) {
+			$products = [];
+		}
+		if (empty($products)) {
+			$products = array(array(
+				'description' => $contractTerms['summary'] ?? $link->taler_order_id,
+				'quantity'    => 1,
+				'price'       => $contractTerms['amount'] ?? ($statusData['amount'] ?? null),
+			));
+		}
+
+		foreach ($products as $productLine) {
+			if (!is_array($productLine)) {
+				continue;
+			}
+			$desc = (string) ($productLine['description'] ?? $productLine['product_name'] ?? $link->taler_order_id);
+			$qty = (float) ($productLine['quantity'] ?? 1);
+			if ($qty <= 0) {
+				$qty = 1.0;
+			}
+			$amountParsed = self::extractAmount($productLine['price'] ?? $contractTerms['amount'] ?? ($statusData['amount'] ?? null));
+			$unitPrice = self::amountToFloat($amountParsed);
+			$fkProd = 0;
+			$talPid = (string) ($productLine['product_id'] ?? '');
+			if ($talPid !== '') {
+				$linkProd = new TalerProductLink($db);
+				if ($linkProd->fetchByInstancePid($link->taler_instance, $talPid) > 0 && !empty($linkProd->fk_product)) {
+					$fkProd = (int) $linkProd->fk_product;
+				}
+			}
+			$resLine = $commande->addline(
+				$desc,
+				$unitPrice,
+				$qty,
+				0,
+				0,
+				0,
+				$fkProd
+			);
+			if ($resLine <= 0) {
+				dol_syslog(__METHOD__.' addline_failed '.$commande->error, LOG_ERR);
+			}
+		}
+
+		$commande->update_price(1);
+		$commande->valid($user);
+
+		return $commande;
+	}
+
+	/**
+	 * Ensure a validated Dolibarr invoice exists for the order link.
+	 *
+	 * @param DoliDB         $db         Database connection.
+	 * @param User           $user       Current user executing the sync.
+	 * @param TalerOrderLink $link       Order link referencing the invoice.
+	 * @param Commande       $commande   Source order used to generate invoice lines.
+	 * @param array          $statusData Latest Taler status payload.
+	 * @return Facture|null  Created or fetched invoice, null on failure.
+	 */
+	private static function ensureInvoice(
+		DoliDB          $db,
+		User            $user,
+		TalerOrderLink  $link,
+		Commande        $commande,
+		array           $statusData
+	): ?Facture {
+		if (!empty($link->fk_facture)) {
+			$invoice = new Facture($db);
+			if ($invoice->fetch((int) $link->fk_facture) > 0) {
+				return $invoice;
+			}
+		}
+
+		$invoice = new Facture($db);
+		$result = $invoice->createFromOrder($commande, $user);
+		if ($result <= 0) {
+			dol_syslog(__METHOD__.' createFromOrder_failed '.$invoice->error, LOG_ERR);
+			return null;
+		}
+		$invoice->fetch($result);
+		$invoice->note_public = trim(($invoice->note_public ?? '')."\n".'Taler payment: '.$link->taler_order_id);
+		$datePaidTs = self::parseTimestamp($statusData['last_payment'] ?? $statusData['creation_time'] ?? null);
+		if ($datePaidTs) {
+			$invoice->date = $datePaidTs;
+			$invoice->date_lim_reglement = $datePaidTs;
+			$invoice->update($invoice->id, $user, 1);
+		}
+		$invoice->validate($user);
+		return $invoice;
+	}
+
+	/**
+	 * Ensure a Dolibarr payment exists and is linked to the invoice.
+	 *
+	 * @param DoliDB         $db         Database connection.
+	 * @param User           $user       Current user executing the sync.
+	 * @param TalerOrderLink $link       Order link referencing the payment.
+	 * @param Facture        $invoice    Invoice to settle.
+	 * @param array          $statusData Latest Taler status payload.
+	 * @return Paiement|null Created or fetched payment, null on failure.
+	 */
+	private static function ensurePayment(
+		DoliDB          $db,
+		User            $user,
+		TalerOrderLink  $link,
+		Facture         $invoice,
+		array           $statusData
+	): ?Paiement {
+		if (!empty($link->fk_paiement)) {
+			$paiement = new Paiement($db);
+			if ($paiement->fetch((int) $link->fk_paiement) > 0) {
+				return $paiement;
+			}
+		}
+
+		$paymentModeId = self::resolvePaymentModeId();
+		$clearingAccountId = self::resolveClearingAccountId();
+		if ($paymentModeId === null || $clearingAccountId === null) {
+			dol_syslog(__METHOD__.' missing payment mode or clearing account for order '.$link->taler_order_id, LOG_WARNING);
+			return null;
+		}
+
+		$paiement = new Paiement($db);
+		$paiement->datepaye = self::parseTimestamp($statusData['last_payment'] ?? $statusData['creation_time'] ?? null) ?: dol_now();
+		$paiement->paiementid = $paymentModeId;
+		$paiement->fk_account = $clearingAccountId;
+		$paiement->amounts = array($invoice->id => $invoice->total_ttc);
+		$paiement->note_public = 'Taler payment '.$link->taler_order_id;
+		$paymentId = $paiement->create($user, 1);
+		if ($paymentId <= 0) {
+			dol_syslog(__METHOD__.' create_failed '.$paiement->error, LOG_ERR);
+			return null;
+		}
+		$paiement->id = $paymentId;
+		$paiement->addPaymentToBank(
+			$user,
+			'payment',
+			'Taler payment '.$link->taler_order_id,
+			$clearingAccountId,
+			'',
+			''
+		);
+		return $paiement;
+	}
 
 	/**
 	 * Constructor
