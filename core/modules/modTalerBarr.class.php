@@ -663,7 +663,8 @@ class modTalerBarr extends DolibarrModules
 		$code = 'TLR';
 		$label = 'Taler';
 		$module = 'talerbarr';
-		$type = 1;
+		// Use type=2 (credit) so the method appears in standard customer payment selectors.
+		$type = 2;
 		$targetEntity = (int) (!empty($conf->entity) ? $conf->entity : 1);
 
 		$sqlUpdate = "UPDATE ".MAIN_DB_PREFIX."c_paiement SET active = 1, libelle = '".$this->db->escape($label)."', type = ".$type.", module = '".$this->db->escape($module)."' WHERE code = '".$this->db->escape($code)."'";

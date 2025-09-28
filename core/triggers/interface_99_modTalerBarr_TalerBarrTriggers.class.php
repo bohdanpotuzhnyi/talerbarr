@@ -31,12 +31,14 @@
 
 require_once DOL_DOCUMENT_ROOT.'/core/triggers/dolibarrtriggers.class.php';
 require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
+require_once DOL_DOCUMENT_ROOT.'/commande/class/commande.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/functions.lib.php';
 
 // Our classes
 require_once dol_buildpath('/talerbarr/class/talerproductlink.class.php', 0);
 require_once dol_buildpath('/talerbarr/class/talererrorlog.class.php', 0);
 require_once dol_buildpath('/talerbarr/class/talerconfig.class.php', 0);
+require_once dol_buildpath('/talerbarr/class/talerorderlink.class.php', 0);
 
 /**
  *  Class of triggers for TalerBarr module
@@ -142,7 +144,8 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 			// Sales orders
 			//case 'ORDER_CREATE':
 			//case 'ORDER_MODIFY':
-			//case 'ORDER_VALIDATE':
+			case 'ORDER_VALIDATE':
+				return $this->orderValidate($action, $object, $user, $langs, $conf);
 			//case 'ORDER_DELETE':
 			//case 'ORDER_CANCEL':
 			//case 'ORDER_SENTBYMAIL':
@@ -317,6 +320,41 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 		}
 
 		return 0;
+	}
+
+	/**
+	 * Push a validated Dolibarr order to GNU Taler via TalerOrderLink helper.
+	 *
+	 * @param string     $action Triggered action code
+	 * @param CommonObject $object Loaded business object (Commande expected)
+	 * @param User       $user   Current user executing the trigger
+	 * @param Translate  $langs  Translation handler
+	 * @param Conf       $conf   Global configuration
+	 *
+	 * @return int 0 if ignored or an error prevented sync, >0 if handled
+	 */
+	public function orderValidate($action, $object, User $user, Translate $langs, Conf $conf): int
+	{
+		dol_syslog(__METHOD__.' triggered for order '.(isset($object->id) ? $object->id : 'n/a'), LOG_DEBUG);
+
+		if (!($object instanceof Commande)) {
+			return 0;
+		}
+
+		$targetPaymentModeId = (int) getDolGlobalInt('TALERBARR_PAYMENT_MODE_ID');
+		if ($targetPaymentModeId > 0) {
+			$currentPaymentModeId = 0;
+			if (!empty($object->mode_reglement_id)) {
+				$currentPaymentModeId = (int) $object->mode_reglement_id;
+			} elseif (!empty($object->fk_mode_reglement)) {
+				$currentPaymentModeId = (int) $object->fk_mode_reglement;
+			}
+			if ($currentPaymentModeId !== $targetPaymentModeId) {
+				return 0;
+			}
+		}
+
+		return TalerOrderLink::upsertFromDolibarr($this->db, $object, $user);
 	}
 
 	/**

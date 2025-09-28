@@ -414,6 +414,12 @@ class TalerOrderLink extends CommonObject
 		}
 		$db->free($resql);
 		if ($id > 0) {
+			// Ensure dictionary entry stays aligned with UI expectations (type 2 = customer credit payment).
+			$updateSql = 'UPDATE '.MAIN_DB_PREFIX."c_paiement SET type = 2, active = 1, module = '".$db->escape('talerbarr')."' WHERE id = ".$id;
+			if (!$db->query($updateSql)) {
+				dol_syslog(__METHOD__.' failed to normalize payment mode: '.$db->lasterror(), LOG_WARNING);
+			}
+
 			if (!function_exists('dolibarr_set_const')) {
 				require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 			}
@@ -1395,6 +1401,7 @@ class TalerOrderLink extends CommonObject
 
 		global $conf;
 		$currency = !empty($cmd->multicurrency_code) ? strtoupper($cmd->multicurrency_code) : (!empty($conf->currency) ? strtoupper($conf->currency) : 'EUR');
+		$currency = 'KUDOS'; // TODO: revert to real currency once Taler backend supports EUR payouts
 
 		// Build order summary and fallback fulfillment message
 		$summaryCandidates = array(
