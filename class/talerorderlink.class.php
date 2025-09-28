@@ -23,6 +23,7 @@
 
 require_once DOL_DOCUMENT_ROOT . '/core/class/commonobject.class.php';
 require_once DOL_DOCUMENT_ROOT . '/core/lib/date.lib.php';
+require_once DOL_DOCUMENT_ROOT . '/core/lib/price.lib.php';
 require_once DOL_DOCUMENT_ROOT . '/societe/class/societe.class.php';
 require_once DOL_DOCUMENT_ROOT . '/product/class/product.class.php';
 require_once DOL_DOCUMENT_ROOT . '/commande/class/commande.class.php';
@@ -33,6 +34,7 @@ require_once DOL_DOCUMENT_ROOT . '/compta/bank/class/account.class.php';
 
 dol_include_once('/talerbarr/class/talerconfig.class.php');
 dol_include_once('/talerbarr/class/talerproductlink.class.php');
+dol_include_once('/talerbarr/class/talermerchantclient.class.php');
 
 /**
  * Class TalerOrderLink
@@ -289,6 +291,55 @@ class TalerOrderLink extends CommonObject
 	}
 
 	/**
+	 * Format a decimal amount into Taler amount string (CUR:value[.fraction]).
+	 *
+	 * @param string $currency ISO currency code
+	 * @param float  $amount   Decimal amount (major units)
+	 * @return string          Formatted amount string accepted by Taler API
+	 */
+	private static function formatAmountString(string $currency, float $amount): string
+	{
+		global $conf;
+
+		$cur = strtoupper($currency ?: ($conf->currency ?? 'EUR'));
+		$negative = $amount < 0;
+		$abs      = abs($amount);
+		$value    = (int) floor($abs);
+		$fraction = (int) round(($abs - $value) * 100000000);
+		if ($fraction >= 100000000) {
+			$value++;
+			$fraction -= 100000000;
+		}
+		$body = $fraction > 0
+			? sprintf('%s:%d.%08d', $cur, $value, $fraction)
+			: sprintf('%s:%d', $cur, $value);
+		return $negative ? '-' . $body : $body;
+	}
+
+	/**
+	 * Normalize a candidate order identifier to Taler constraints.
+	 *
+	 * @param string $candidate Raw identifier.
+	 * @return string           Sanitized identifier (may be empty).
+	 */
+	private static function sanitizeOrderIdCandidate(string $candidate): string
+	{
+		$candidate = trim($candidate);
+		if ($candidate === '') {
+			return '';
+		}
+		$candidate = preg_replace('~[^A-Za-z0-9._:-]+~', '-', $candidate);
+		$candidate = trim($candidate, '-_.:');
+		if ($candidate === '') {
+			return '';
+		}
+		if (strlen($candidate) > 120) {
+			$candidate = substr($candidate, 0, 120);
+		}
+		return $candidate;
+	}
+
+	/**
 	 * Retrieve Taler configuration row by instance username.
 	 *
 	 * @param DoliDB $db       Active database handler.
@@ -337,7 +388,40 @@ class TalerOrderLink extends CommonObject
 	private static function resolvePaymentModeId(): ?int
 	{
 		$global = (int) getDolGlobalInt('TALERBARR_PAYMENT_MODE_ID');
-		return $global > 0 ? $global : null;
+		if ($global > 0) {
+			return $global;
+		}
+
+		global $db, $conf;
+		if (!isset($db) || !($db instanceof DoliDB)) {
+			return null;
+		}
+		$entityId = 1;
+		if (isset($conf) && is_object($conf) && !empty($conf->entity)) {
+			$entityId = (int) $conf->entity;
+		}
+
+		$sql = 'SELECT id FROM '.MAIN_DB_PREFIX."c_paiement WHERE code = '".$db->escape('TLR')."'".
+			' AND entity IN ('.getEntity('c_paiement', true).') ORDER BY active DESC, entity = '.$entityId.' DESC LIMIT 1';
+		$resql = $db->query($sql);
+		if (!$resql) {
+			dol_syslog(__METHOD__.' sql_error '.$db->lasterror(), LOG_ERR);
+			return null;
+		}
+		$id = null;
+		if ($obj = $db->fetch_object($resql)) {
+			$id = (int) $obj->id;
+		}
+		$db->free($resql);
+		if ($id > 0) {
+			if (!function_exists('dolibarr_set_const')) {
+				require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
+			}
+			dolibarr_set_const($db, 'TALERBARR_PAYMENT_MODE_ID', $id, 'chaine', 0, '', $entityId);
+			return $id;
+		}
+
+		return null;
 	}
 
 	/**
@@ -348,18 +432,29 @@ class TalerOrderLink extends CommonObject
 	private static function resolveClearingAccountId(): ?int
 	{
 		$global = (int) getDolGlobalInt('TALERBARR_CLEARING_BANK_ACCOUNT');
-		return $global > 0 ? $global : null;
+		if ($global > 0) {
+			return $global;
+		}
+		$legacy = (int) getDolGlobalInt('TALERBARR_CLEARING_ACCOUNT_ID');
+		return $legacy > 0 ? $legacy : null;
 	}
 
 	/**
 	 * Resolve configured final bank account for transfers after clearing.
 	 *
+	 * @param TalerConfig|null $config Optional Taler configuration context.
 	 * @return int|null Bank account identifier or null when not configured.
 	 */
-	private static function resolveFinalAccountId(): ?int
+	private static function resolveFinalAccountId(?TalerConfig $config = null): ?int
 	{
 		$global = (int) getDolGlobalInt('TALERBARR_FINAL_BANK_ACCOUNT');
-		return $global > 0 ? $global : null;
+		if ($global > 0) {
+			return $global;
+		}
+		if ($config && !empty($config->fk_bank_account)) {
+			return (int) $config->fk_bank_account;
+		}
+		return null;
 	}
 
 	/**
@@ -547,7 +642,7 @@ class TalerOrderLink extends CommonObject
 			return null;
 		}
 		$paiement->id = $paymentId;
-		$paiement->addPaymentToBank(
+		$bankLineId = $paiement->addPaymentToBank(
 			$user,
 			'payment',
 			'Taler payment '.$link->taler_order_id,
@@ -555,6 +650,11 @@ class TalerOrderLink extends CommonObject
 			'',
 			''
 		);
+		$paiement->_taler_payment_mode_id = $paymentModeId;
+		$paiement->_taler_clearing_account_id = $clearingAccountId;
+		if ($bankLineId > 0) {
+			$paiement->_taler_bank_line_id = (int) $bankLineId;
+		}
 		return $paiement;
 	}
 
@@ -654,474 +754,196 @@ class TalerOrderLink extends CommonObject
 	 */
 	public static function upsertFromTalerOnOrderCreation(DoliDB $db, $statusResponse, User $user, object|array $contractTerms): int
 	{
-		// TODO: implement mapping with rules as follows
-		//   1. We anyway have to start with creation of the order in the Dolibarr
-		//      Usually it requires a customer which of course in this case is really hard to define...
-		// 		So we can just say that it is some default taler user, which we have to make sure exists on the import of
-		// 		the module.
-		// 		We also have to make sure that the payment method is Taler digital cash which we have to add the same on
-		//      the import of the module.
-		//      Otherwise I believe it is all for the first step.
-		//      With date of now
-		//      Ref we can make to match the taler order id
-		//      and default doc template
-		//      as taler do not support the tags/categories for this part, we can simply ignore them
-		//
-		//   2. As order (rather order template) is created at step 1, we have to add products to this order, from the
-		//      products that we have received from taler, as taler can have the discounts for the product, we have to apply it
-		//      If we doesn't have the product_id from taler, we can create a dummy product with some price that will match the
-		//      price from taler, and add it to talet without reference to dolibarr.
-		//
-		//   3. We have to validate it, and that's it for this part.
-		// Taler can provide us 2 versions:
-		// 1. Contract Terms v0
-		// 2. Contract Terms v1
-		//type ContractTerms = (ContractTermsV1 | ContractTermsV0) & ContractTermsCommon;
-		//interface ContractTermsV1 {
-		//  // Version 1 supports the choices array, see
-		//  // https://docs.taler.net/design-documents/046-mumimo-contracts.html.
-		//  // @since protocol **vSUBSCRIBE**
-		//  version: 1;
-		//
-		//  // List of contract choices that the customer can select from.
-		//  // @since protocol **vSUBSCRIBE**
-		//  choices: ContractChoice[];
-		//
-		//  // Map of storing metadata and issue keys of
-		//  // token families referenced in this contract.
-		//  // @since protocol **vSUBSCRIBE**
-		//  token_families: { [token_family_slug: string]: ContractTokenFamily };
-		//}
-		//interface ContractTermsV0 {
-		//  // Defaults to version 0.
-		//  version?: 0;
-		//
-		//  // Total price for the transaction.
-		//  // The exchange will subtract deposit fees from that amount
-		//  // before transferring it to the merchant.
-		//  amount: Amount;
-		//
-		//  // Maximum total deposit fee accepted by the merchant for this contract.
-		//  // Overrides defaults of the merchant instance.
-		//  max_fee: Amount;
-		//}
-		//interface ContractTermsCommon {
-		//  // Human-readable description of the whole purchase.
-		//  summary: string;
-		//
-		//  // Map from IETF BCP 47 language tags to localized summaries.
-		//  summary_i18n?: { [lang_tag: string]: string };
-		//
-		//  // Unique, free-form identifier for the proposal.
-		//  // Must be unique within a merchant instance.
-		//  // For merchants that do not store proposals in their DB
-		//  // before the customer paid for them, the order_id can be used
-		//  // by the frontend to restore a proposal from the information
-		//  // encoded in it (such as a short product identifier and timestamp).
-		//  order_id: string;
-		//
-		//  // URL where the same contract could be ordered again (if
-		//  // available). Returned also at the public order endpoint
-		//  // for people other than the actual buyer (hence public,
-		//  // in case order IDs are guessable).
-		//  public_reorder_url?: string;
-		//
-		//  // URL that will show that the order was successful after
-		//  // it has been paid for.  Optional, but either fulfillment_url
-		//  // or fulfillment_message must be specified in every
-		//  // contract terms.
-		//  //
-		//  // If a non-unique fulfillment URL is used, a customer can only
-		//  // buy the order once and will be redirected to a previous purchase
-		//  // when trying to buy an order with the same fulfillment URL a second
-		//  // time. This is useful for digital goods that a customer only needs
-		//  // to buy once but should be able to repeatedly download.
-		//  //
-		//  // For orders where the customer is expected to be able to make
-		//  // repeated purchases (for equivalent goods), the fulfillment URL
-		//  // should be made unique for every order. The easiest way to do
-		//  // this is to include a unique order ID in the fulfillment URL.
-		//  //
-		//  // When POSTing to the merchant, the placeholder text "${ORDER_ID}"
-		//  // is be replaced with the actual order ID (useful if the
-		//  // order ID is generated server-side and needs to be
-		//  // in the URL). Note that this placeholder can only be used once.
-		//  // Front-ends may use other means to generate a unique fulfillment URL.
-		//  fulfillment_url?: string;
-		//
-		//  // Message shown to the customer after paying for the order.
-		//  // Either fulfillment_url or fulfillment_message must be specified.
-		//  fulfillment_message?: string;
-		//
-		//  // Map from IETF BCP 47 language tags to localized fulfillment
-		//  // messages.
-		//  fulfillment_message_i18n?: { [lang_tag: string]: string };
-		//
-		//  // List of products that are part of the purchase (see Product).
-		//  products: Product[];
-		//
-		//  // Time when this contract was generated.
-		//  timestamp: Timestamp;
-		//
-		//  // After this deadline has passed, no refunds will be accepted.
-		//  refund_deadline: Timestamp;
-		//
-		//  // After this deadline, the merchant won't accept payments for the contract.
-		//  pay_deadline: Timestamp;
-		//
-		//  // Transfer deadline for the exchange.  Must be in the
-		//  // deposit permissions of coins used to pay for this order.
-		//  wire_transfer_deadline: Timestamp;
-		//
-		//  // Merchant's public key used to sign this proposal; this information
-		//  // is typically added by the backend. Note that this can be an ephemeral key.
-		//  merchant_pub: EddsaPublicKey;
-		//
-		//  // Base URL of the (public!) merchant backend API.
-		//  // Must be an absolute URL that ends with a slash.
-		//  merchant_base_url: string;
-		//
-		//  // More info about the merchant, see below.
-		//  merchant: Merchant;
-		//
-		//  // The hash of the merchant instance's wire details.
-		//  h_wire: HashCode;
-		//
-		//  // Wire transfer method identifier for the wire method associated with h_wire.
-		//  // The wallet may only select exchanges via a matching auditor if the
-		//  // exchange also supports this wire method.
-		//  // The wire transfer fees must be added based on this wire transfer method.
-		//  wire_method: string;
-		//
-		//  // Exchanges that the merchant accepts even if it does not accept any auditors that audit them.
-		//  exchanges: Exchange[];
-		//
-		//  // Delivery location for (all!) products.
-		//  delivery_location?: Location;
-		//
-		//  // Time indicating when the order should be delivered.
-		//  // May be overwritten by individual products.
-		//  delivery_date?: Timestamp;
-		//
-		//  // Nonce generated by the wallet and echoed by the merchant
-		//  // in this field when the proposal is generated.
-		//  nonce: string;
-		//
-		//  // Specifies for how long the wallet should try to get an
-		//  // automatic refund for the purchase. If this field is
-		//  // present, the wallet should wait for a few seconds after
-		//  // the purchase and then automatically attempt to obtain
-		//  // a refund.  The wallet should probe until "delay"
-		//  // after the payment was successful (i.e. via long polling
-		//  // or via explicit requests with exponential back-off).
-		//  //
-		//  // In particular, if the wallet is offline
-		//  // at that time, it MUST repeat the request until it gets
-		//  // one response from the merchant after the delay has expired.
-		//  // If the refund is granted, the wallet MUST automatically
-		//  // recover the payment.  This is used in case a merchant
-		//  // knows that it might be unable to satisfy the contract and
-		//  // desires for the wallet to attempt to get the refund without any
-		//  // customer interaction.  Note that it is NOT an error if the
-		//  // merchant does not grant a refund.
-		//  auto_refund?: RelativeTime;
-		//
-		//  // Extra data that is only interpreted by the merchant frontend.
-		//  // Useful when the merchant needs to store extra information on a
-		//  // contract without storing it separately in their database.
-		//  // Must really be an Object (not a string, integer, float or array).
-		//  extra?: Object;
-		//
-		//  // Minimum age the buyer must have (in years). Default is 0.
-		//  // This value is at least as large as the maximum over all
-		//  // minimum age requirements of the products in this contract.
-		//  // It might also be set independent of any product, due to
-		//  // legal requirements.
-		//  minimum_age?: Integer;
-		//
-		//}
-		//interface ContractChoice {
-		//  // Price to be paid for this choice. Could be 0.
-		//  // The price is in addition to other instruments,
-		//  // such as rations and tokens.
-		//  // The exchange will subtract deposit fees from that amount
-		//  // before transferring it to the merchant.
-		//  amount: Amount;
-		//
-		//  // Human readable description of the semantics of the choice
-		//  // within the contract to be shown to the user at payment.
-		//  description?: string;
-		//
-		//  // Map from IETF 47 language tags to localized descriptions.
-		//  description_i18n?: { [lang_tag: string]: string };
-		//
-		//  // List of inputs the wallet must provision (all of them) to
-		//  // satisfy the conditions for the contract.
-		//  inputs: ContractInput[];
-		//
-		//  // List of outputs the merchant promises to yield (all of them)
-		//  // once the contract is paid.
-		//  outputs: ContractOutput[];
-		//
-		//  // Maximum total deposit fee accepted by the merchant for this contract.
-		//  max_fee: Amount;
-		//}
-		//// For now, only tokens are supported as inputs.
-		//type ContractInput = ContractInputToken;
-		//interface ContractInputToken {
-		//  type: "token";
-		//
-		//  // Slug of the token family in the
-		//  // token_families map on the order.
-		//  token_family_slug: string;
-		//
-		//  // Number of tokens of this type required.
-		//  // Defaults to one if the field is not provided.
-		//  count?: Integer;
-		//};
-		//// For now, only tokens are supported as outputs.
-		//type ContractOutput = ContractOutputToken | ContractOutputTaxReceipt;
-		//interface ContractOutputToken {
-		//  type: "token";
-		//
-		//  // Slug of the token family in the
-		//  // 'token_families' map on the top-level.
-		//  token_family_slug: string;
-		//
-		//  // Number of tokens to be issued.
-		//  // Defaults to one if the field is not provided.
-		//  count?: Integer;
-		//
-		//  // Index of the public key for this output token
-		//  // in the ContractTokenFamily keys array.
-		//  key_index: Integer;
-		//
-		//}
-		//interface ContractOutputTaxReceipt {
-		//
-		//  // Tax receipt output.
-		//  type: "tax-receipt";
-		//
-		//  // Array of base URLs of donation authorities that can be
-		//  // used to issue the tax receipts. The client must select one.
-		//  donau_urls: string[];
-		//
-		//  // Total amount that will be on the tax receipt.
-		//  amount: Amount;
-		//
-		//}
-		//interface ContractTokenFamily {
-		//  // Human-readable name of the token family.
-		//  name: string;
-		//
-		//  // Human-readable description of the semantics of
-		//  // this token family (for display).
-		//  description: string;
-		//
-		//  // Map from IETF BCP 47 language tags to localized descriptions.
-		//  description_i18n?: { [lang_tag: string]: string };
-		//
-		//  // Public keys used to validate tokens issued by this token family.
-		//  keys: TokenIssuePublicKey[];
-		//
-		//  // Kind-specific information of the token
-		//  details: ContractTokenDetails;
-		//
-		//  // Must a wallet understand this token type to
-		//  // process contracts that use or issue it?
-		//  critical: boolean;
-		//};
-		//type TokenIssuePublicKey =
-		//  | TokenIssueRsaPublicKey
-		//  | TokenIssueCsPublicKey;
-		//interface TokenIssueRsaPublicKey {
-		//  cipher: "RSA";
-		//
-		//  // RSA public key.
-		//  rsa_pub: RsaPublicKey;
-		//
-		//  // Start time of this key's signatures validity period.
-		//  signature_validity_start: Timestamp;
-		//
-		//  // End time of this key's signatures validity period.
-		//  signature_validity_end: Timestamp;
-		//
-		//}
-		//interface TokenIssueCsPublicKey {
-		//  cipher: "CS";
-		//
-		//  // CS public key.
-		//  cs_pub: Cs25519Point;
-		//
-		//  // Start time of this key's signatures validity period.
-		//  signature_validity_start: Timestamp;
-		//
-		//  // End time of this key's signatures validity period.
-		//  signature_validity_end: Timestamp;
-		//
-		//}
-		//type ContractTokenDetails =
-		//  | ContractSubscriptionTokenDetails
-		//  | ContractDiscountTokenDetails;
-		//interface ContractSubscriptionTokenDetails {
-		//  class: "subscription";
-		//
-		//  // Array of domain names where this subscription
-		//  // can be safely used (e.g. the issuer warrants that
-		//  // these sites will re-issue tokens of this type
-		//  // if the respective contract says so).  May contain
-		//  // "*" for any domain or subdomain.
-		//  trusted_domains: string[];
-		//};
-		//interface ContractDiscountTokenDetails {
-		//  class: "discount";
-		//
-		//  // Array of domain names where this discount token
-		//  // is intended to be used.  May contain "*" for any
-		//  // domain or subdomain.  Users should be warned about
-		//  // sites proposing to consume discount tokens of this
-		//  // type that are not in this list that the merchant
-		//  // is accepting a coupon from a competitor and thus
-		//  // may be attaching different semantics (like get 20%
-		//  // discount for my competitors 30% discount token).
-		//  expected_domains: string[];
-		//};
-		//The wallet must select an exchange that either the merchant accepts directly by listing it in the exchanges array, or for which the merchant accepts an auditor that audits that exchange by listing it in the auditors array.
-		//
-		//The Product object describes the product being purchased from the merchant. It has the following structure:
-		//
-		//interface Product {
-		//
-		//  // Merchant-internal identifier for the product.
-		//  product_id?: string;
-		//
-		//  // Name of the product.
-		//  // Since API version **v20**.  Optional only for
-		//  // backwards-compatibility, should be considered mandatory
-		//  // moving forward!
-		//  product_name?: string;
-		//
-		//  // Human-readable product description.
-		//  description: string;
-		//
-		//  // Map from IETF BCP 47 language tags to localized descriptions.
-		//  description_i18n?: { [lang_tag: string]: string };
-		//
-		//  // The number of units of the product to deliver to the customer.
-		//  quantity?: Integer;
-		//
-		//  // Unit in which the product is measured (liters, kilograms, packages, etc.).
-		//  unit?: string;
-		//
-		//  // The price of the product; this is the total price for quantity times unit of this product.
-		//  price?: Amount;
-		//
-		//  // An optional base64-encoded product image.
-		//  image?: ImageDataUrl;
-		//
-		//  // A list of taxes paid by the merchant for this product. Can be empty.
-		//  taxes?: Tax[];
-		//
-		//  // Time indicating when this product should be delivered.
-		//  delivery_date?: Timestamp;
-		//}
-		//interface Tax {
-		//  // The name of the tax.
-		//  name: string;
-		//
-		//  // Amount paid in tax.
-		//  tax: Amount;
-		//}
-		//interface Merchant {
-		//  // The merchant's legal name of business.
-		//  name: string;
-		//
-		//  // Email address for contacting the merchant.
-		//  email?: string;
-		//
-		//  // Label for a location with the business address of the merchant.
-		//  website?: string;
-		//
-		//  // An optional base64-encoded product image.
-		//  logo?: ImageDataUrl;
-		//
-		//  // Label for a location with the business address of the merchant.
-		//  address?: Location;
-		//
-		//  // Label for a location that denotes the jurisdiction for disputes.
-		//  // Some of the typical fields for a location (such as a street address) may be absent.
-		//  jurisdiction?: Location;
-		//}
-		//// Delivery location, loosely modeled as a subset of
-		//// ISO20022's PostalAddress25.
-		//interface Location {
-		//  // Nation with its own government.
-		//  country?: string;
-		//
-		//  // Identifies a subdivision of a country such as state, region, county.
-		//  country_subdivision?: string;
-		//
-		//  // Identifies a subdivision within a country sub-division.
-		//  district?: string;
-		//
-		//  // Name of a built-up area, with defined boundaries, and a local government.
-		//  town?: string;
-		//
-		//  // Specific location name within the town.
-		//  town_location?: string;
-		//
-		//  // Identifier consisting of a group of letters and/or numbers that
-		//  // is added to a postal address to assist the sorting of mail.
-		//  post_code?: string;
-		//
-		//  // Name of a street or thoroughfare.
-		//  street?: string;
-		//
-		//  // Name of the building or house.
-		//  building_name?: string;
-		//
-		//  // Number that identifies the position of a building on a street.
-		//  building_number?: string;
-		//
-		//  // Free-form address lines, should not exceed 7 elements.
-		//  address_lines?: string[];
-		//}
-		//interface Auditor {
-		//  // Official name.
-		//  name: string;
-		//
-		//  // Auditor's public key.
-		//  auditor_pub: EddsaPublicKey;
-		//
-		//  // Base URL of the auditor.
-		//  url: string;
-		//}
-		//interface Exchange {
-		//  // The exchange's base URL.
-		//  url: string;
-		//
-		//  // How much would the merchant like to use this exchange.
-		//  // The wallet should use a suitable exchange with high
-		//  // priority. The following priority values are used, but
-		//  // it should be noted that they are NOT in any way normative.
-		//  //
-		//  // 0: likely it will not work (recently seen with account
-		//  //    restriction that would be bad for this merchant)
-		//  // 512: merchant does not know, might be down (merchant
-		//  //    did not yet get /wire response).
-		//  // 1024: good choice (recently confirmed working)
-		//  priority: Integer;
-		//
-		//  // Master public key of the exchange.
-		//  master_pub: EddsaPublicKey;
-		//
-		//  // Maximum amount that the merchant could be paid
-		//  // using this exchange (due to legal limits).
-		//  // New in protocol **v17**.
-		//  // Optional, no limit if missing.
-		//  max_contribution?: Amount;
-		//}
-		dol_syslog('TalerOrderLink::upsertFromTaler TODO', LOG_DEBUG);
+		$statusData   = self::normalizeToArray($statusResponse);
+		$contractData = self::normalizeToArray($contractTerms);
+
+		$orderId = (string) ($statusData['order_id'] ?? $contractData['order_id'] ?? '');
+		if ($orderId === '') {
+			dol_syslog(__METHOD__.' missing order_id in payload', LOG_ERR);
+			return -1;
+		}
+
+		$config = null;
+		$instance = (string) ($statusData['merchant_instance']
+			?? ($statusData['merchant']['instance'] ?? $statusData['merchant']['id'] ?? '')
+			?? ($contractData['merchant']['instance'] ?? $contractData['merchant']['id'] ?? '')
+		);
+		if ($instance !== '') {
+			$config = self::fetchConfigForInstance($db, $instance);
+		}
+		if (!$config) {
+			$cfgErr = null;
+			$config = TalerConfig::fetchSingletonVerified($db, $cfgErr);
+			if (!$config || empty($config->verification_ok)) {
+				dol_syslog(__METHOD__.' configuration not available: '.($cfgErr ?: 'unknown error'), LOG_ERR);
+				return -1;
+			}
+			$instance = (string) $config->username;
+		}
+
+		$link = new self($db);
+		$loaded = $link->fetchByInstanceOrderId($instance, $orderId);
+		if ($loaded < 0) {
+			dol_syslog(__METHOD__.' fetchByInstanceOrderId failed: '.$link->error, LOG_ERR);
+			return -1;
+		}
+
+		$isNew = ($loaded === 0);
+		if ($isNew) {
+			$link->entity        = (int) getEntity($link->element, 1);
+			$link->taler_instance = $instance;
+			$link->taler_order_id = $orderId;
+			$link->datec          = dol_now();
+		}
+
+		// Snapshot amount & summary
+		$statusAmount = $statusData['amount'] ?? null;
+		$contractAmount = $contractData['amount'] ?? ($contractData['amount_str'] ?? null);
+		$parsedAmount = self::extractAmount($statusAmount ?? $contractAmount);
+		if (!empty($parsedAmount['amount_str'])) {
+			$link->order_amount_str = (string) $parsedAmount['amount_str'];
+		}
+		if (!empty($parsedAmount['currency'])) {
+			$link->order_currency = (string) $parsedAmount['currency'];
+		}
+		if ($parsedAmount['value'] !== null) {
+			$link->order_value = (int) $parsedAmount['value'];
+		}
+		if ($parsedAmount['fraction'] !== null) {
+			$link->order_fraction = (int) $parsedAmount['fraction'];
+		}
+
+		$summary = self::coalesceString(
+			$contractData['summary'] ?? null,
+			$statusData['summary'] ?? null,
+			$link->order_summary ?? ''
+		);
+		if ($summary !== '') {
+			$link->order_summary = $summary;
+		}
+
+		if (isset($statusData['deposit_total'])) {
+			$link->deposit_total_str = (string) $statusData['deposit_total'];
+		} elseif (isset($contractData['max_fee'])) {
+			$link->deposit_total_str = is_string($contractData['max_fee'])
+				? $contractData['max_fee']
+				: ($contractData['max_fee']['amount'] ?? null);
+		}
+
+		// Identity / URLs
+		if (!empty($statusData['taler_pay_uri'])) {
+			$link->taler_pay_uri = (string) $statusData['taler_pay_uri'];
+		} elseif (!empty($statusData['pay_url'])) {
+			$link->taler_pay_uri = (string) $statusData['pay_url'];
+		}
+		if (!empty($statusData['order_status_url'] ?? $statusData['status_url'] ?? '')) {
+			$link->taler_status_url = (string) ($statusData['order_status_url'] ?? $statusData['status_url']);
+		}
+		if (!empty($statusData['session_id'] ?? $contractData['session_id'] ?? '')) {
+			$link->taler_session_id = (string) ($statusData['session_id'] ?? $contractData['session_id']);
+		}
+
+		// Deadlines
+		$refundTs = self::parseTimestamp($contractData['refund_deadline'] ?? $statusData['refund_deadline'] ?? null);
+		if ($refundTs) {
+			$link->taler_refund_deadline = $db->idate($refundTs);
+		}
+		$payTs = self::parseTimestamp($contractData['pay_deadline'] ?? $statusData['pay_deadline'] ?? null);
+		if ($payTs) {
+			$link->taler_pay_deadline = $db->idate($payTs);
+		}
+
+		// Status flags
+		$statusText = (string) ($statusData['status'] ?? $statusData['order_status'] ?? $link->merchant_status_raw ?? '');
+		if ($statusText !== '') {
+			$link->merchant_status_raw = $statusText;
+		}
+		$stateMap = [
+			'unpaid'   => 10,
+			'claimed'  => 20,
+			'paid'     => 30,
+			'delivered'=> 40,
+			'wired'    => 50,
+			'refunded' => 70,
+			'expired'  => 90,
+			'aborted'  => 91,
+		];
+		if ($statusText !== '' && isset($stateMap[strtolower($statusText)])) {
+			$link->taler_state = $stateMap[strtolower($statusText)];
+		}
+
+		if (isset($statusData['wired'])) {
+			$link->taler_wired = (int) ((bool) $statusData['wired']);
+		}
+		if (!empty($statusData['wtid'])) {
+			$link->taler_wtid = (string) $statusData['wtid'];
+		}
+		if (isset($statusData['exchange_url'])) {
+			$link->taler_exchange_url = (string) $statusData['exchange_url'];
+		}
+
+		$claimTs = self::parseTimestamp($statusData['last_claimed'] ?? $statusData['claim_timestamp'] ?? null);
+		if ($claimTs) {
+			$link->taler_claimed_at = $db->idate($claimTs);
+		}
+		$paidTs = self::parseTimestamp($statusData['last_payment'] ?? null);
+		if (!$paidTs && !empty($statusData['payments']) && is_array($statusData['payments'])) {
+			$payments = array_values($statusData['payments']);
+			$lastPayment = end($payments);
+			$paidTs = self::parseTimestamp($lastPayment['timestamp'] ?? $lastPayment['time'] ?? null);
+		}
+		if ($paidTs) {
+			$link->taler_paid_at = $db->idate($paidTs);
+		}
+		if (isset($statusData['refund_pending'])) {
+			$link->taler_refund_pending = (int) ((bool) $statusData['refund_pending']);
+		}
+		if (!empty($statusData['refund_amount'] ?? $statusData['amount_refunded'] ?? '')) {
+			$link->taler_refunded_total = (string) ($statusData['refund_amount'] ?? $statusData['amount_refunded']);
+		}
+
+		if (!empty($statusData['idempotency_key'])) {
+			$link->idempotency_key = (string) $statusData['idempotency_key'];
+		}
+		$link->last_status_check_at = $db->idate(dol_now());
+
+		// Link-level configuration defaults
+		$defaultSoc = (int) getDolGlobalInt('TALERBARR_DEFAULT_SOCID');
+		if (empty($link->fk_soc) && $defaultSoc > 0) {
+			$link->fk_soc = $defaultSoc;
+		}
+		$clearingAccountId = self::resolveClearingAccountId();
+		if ($clearingAccountId !== null) {
+			$link->fk_bank_account = $clearingAccountId;
+		}
+		if (!empty($config->fk_bank_account)) {
+			$link->fk_bank_account_dest = (int) $config->fk_bank_account;
+		}
+
+		// Ensure Dolibarr artefacts (order at minimum)
+		$commande = self::ensureDolibarrOrder($db, $user, $link, $contractData, $statusData);
+		if ($commande instanceof Commande) {
+			$link->fk_commande = (int) $commande->id;
+			$link->commande_ref_snap = $commande->ref ?? $commande->ref_client ?? $link->commande_ref_snap;
+			if (!empty($commande->date_commande)) {
+				$link->commande_datec = $db->idate($commande->date_commande);
+			}
+			if (!empty($commande->date_validation)) {
+				$link->commande_validated_at = $db->idate($commande->date_validation);
+			}
+			if (!empty($commande->mode_reglement_id)) {
+				$link->fk_c_paiement = (int) $commande->mode_reglement_id;
+			}
+		}
+
+		// Persist
+		$res = $isNew ? $link->create($user, 1) : $link->update($user, 1);
+		if ($res <= 0) {
+			dol_syslog(__METHOD__.' failed to save link: '.($link->error ?: $db->lasterror()), LOG_ERR);
+			return -1;
+		}
+
+		dol_syslog(__METHOD__.' completed', LOG_INFO);
 		return 1;
 	}
 
@@ -1136,22 +958,187 @@ class TalerOrderLink extends CommonObject
 	 */
 	public static function upsertFromTalerOfPayment(DoliDB $db, $statusResponse, User $user): int
 	{
-		//TODO: This function will be called when the order was paid in taler and we have to reflect this in dolibarr
-		// 1. We have to create the invoice for the created and validated order
-		// 	  customer is re_used from the order
-		//    type is standard invoice
-		//    invoice date is date when the order has been paid
-		//    payment terms are now required(I believe we have to state some default taler payment terms on the import of the module)
-		//  2. Validate the invoice
-		//  3. Add the information about the payment to the facture public notes
-		//  3. Create the payment for this invoice
-		//  4. We have to enter payment received from customer for this invoice
-		//     Date of payment is date when the order has been paid
-		//     Payment method is taler digital cash
-		//     Account to credit, is something rather strange, let's for this moment say we have to create the Taler Bank Account Clearing
-		//     on the import of the module, and use it here as it is part of the configuration
-		//     We have to connect the invoices and set the amount that was paid.
-		dol_syslog('TalerOrderLink::upsertFromTalerOfPayment TODO', LOG_DEBUG);
+		$statusData = self::normalizeToArray($statusResponse);
+		if (empty($statusData)) {
+			dol_syslog(__METHOD__.' empty status payload', LOG_WARNING);
+			return -1;
+		}
+
+		$orderId = (string) ($statusData['order_id'] ?? $statusData['orderId'] ?? '');
+		if ($orderId === '') {
+			dol_syslog(__METHOD__.' missing order_id in payload', LOG_ERR);
+			return -1;
+		}
+
+		$contractData = self::normalizeToArray($statusData['contract_terms'] ?? $statusData['contract'] ?? null);
+		$merchantData = self::normalizeToArray($statusData['merchant'] ?? null);
+		$contractMerchantData = self::normalizeToArray($contractData['merchant'] ?? null);
+
+		$instance = (string) (
+			$statusData['merchant_instance']
+			?? ($merchantData['instance'] ?? $merchantData['id'] ?? '')
+			?? ($contractMerchantData['instance'] ?? $contractMerchantData['id'] ?? '')
+		);
+
+		$config = null;
+		if ($instance !== '') {
+			$config = self::fetchConfigForInstance($db, $instance);
+		}
+		if (!$config) {
+			$cfgErr = null;
+			$config = TalerConfig::fetchSingletonVerified($db, $cfgErr);
+			if (!$config || empty($config->verification_ok)) {
+				dol_syslog(__METHOD__.' configuration not available: '.($cfgErr ?: 'unknown error'), LOG_ERR);
+				return -1;
+			}
+			$instance = (string) $config->username;
+		}
+
+		if (!empty($contractData)) {
+			self::upsertFromTalerOnOrderCreation($db, $statusResponse, $user, $contractData);
+		}
+
+		$link = new self($db);
+		$loaded = $link->fetchByInstanceOrderId($instance, $orderId);
+		if ($loaded <= 0) {
+			dol_syslog(__METHOD__.' unable to locate order link for '.$instance.'#'.$orderId, $loaded < 0 ? LOG_ERR : LOG_WARNING);
+			return $loaded < 0 ? -1 : 0;
+		}
+		if (empty($link->id)) {
+			$link->id = $link->rowid;
+		}
+
+		$commande = self::ensureDolibarrOrder($db, $user, $link, $contractData, $statusData);
+		if (!$commande) {
+			dol_syslog(__METHOD__.' cannot ensure customer order for '.$orderId, LOG_ERR);
+			return -1;
+		}
+
+		$link->fk_commande = (int) $commande->id;
+		if (!empty($commande->ref)) {
+			$link->commande_ref_snap = $commande->ref;
+		} elseif (!empty($commande->ref_client)) {
+			$link->commande_ref_snap = $commande->ref_client;
+		}
+		if (!empty($commande->date_commande)) {
+			$link->commande_datec = $db->idate($commande->date_commande);
+		}
+		if (!empty($commande->date_validation)) {
+			$link->commande_validated_at = $db->idate($commande->date_validation);
+		}
+		if (!empty($commande->mode_reglement_id)) {
+			$link->fk_c_paiement = (int) $commande->mode_reglement_id;
+		}
+		if (!empty($commande->cond_reglement_id)) {
+			$link->fk_cond_reglement = (int) $commande->cond_reglement_id;
+		}
+
+		$invoice = self::ensureInvoice($db, $user, $link, $commande, $statusData);
+		if (!$invoice) {
+			dol_syslog(__METHOD__.' cannot ensure invoice for '.$orderId, LOG_ERR);
+			return -1;
+		}
+
+		$link->fk_facture = (int) $invoice->id;
+		if (!empty($invoice->ref)) {
+			$link->facture_ref_snap = $invoice->ref;
+		}
+		if (!empty($invoice->date)) {
+			$link->facture_datef = $db->idate($invoice->date);
+		}
+		if (!empty($invoice->date_validation)) {
+			$link->facture_validated_at = $db->idate($invoice->date_validation);
+		} elseif (!empty($invoice->date_valid)) {
+			$link->facture_validated_at = $db->idate($invoice->date_valid);
+		}
+		if (!empty($invoice->cond_reglement_id)) {
+			$link->fk_cond_reglement = (int) $invoice->cond_reglement_id;
+		}
+
+		$paiement = self::ensurePayment($db, $user, $link, $invoice, $statusData);
+		if (!$paiement) {
+			dol_syslog(__METHOD__.' cannot ensure payment for '.$orderId, LOG_ERR);
+			return -1;
+		}
+
+		$link->fk_paiement = (int) $paiement->id;
+		if (!empty($paiement->datepaye)) {
+			$link->paiement_datep = $db->idate($paiement->datepaye);
+		}
+		if (!empty($paiement->paiementid)) {
+			$link->fk_c_paiement = (int) $paiement->paiementid;
+		}
+		if (!empty($paiement->_taler_clearing_account_id)) {
+			$link->fk_bank_account = (int) $paiement->_taler_clearing_account_id;
+		} elseif (!empty($paiement->fk_account)) {
+			$link->fk_bank_account = (int) $paiement->fk_account;
+		}
+		if (!empty($paiement->_taler_bank_line_id)) {
+			$link->fk_bank = (int) $paiement->_taler_bank_line_id;
+		} elseif (!empty($paiement->fk_bank)) {
+			$link->fk_bank = (int) $paiement->fk_bank;
+		}
+
+		$paidTs = self::parseTimestamp($statusData['last_payment'] ?? $statusData['paid_at'] ?? null);
+		if (!$paidTs && !empty($paiement->datepaye)) {
+			$paidTs = is_numeric($paiement->datepaye) ? (int) $paiement->datepaye : (int) strtotime((string) $paiement->datepaye);
+		}
+		if ($paidTs) {
+			$link->taler_paid_at = $db->idate($paidTs);
+		}
+
+		if (empty($link->fk_bank_account_dest)) {
+			$finalAccountId = self::resolveFinalAccountId($config);
+			if ($finalAccountId !== null) {
+				$link->fk_bank_account_dest = $finalAccountId;
+			}
+		}
+
+		$statusText = (string) ($statusData['status'] ?? $statusData['order_status'] ?? 'paid');
+		$stateMap = [
+			'unpaid'    => 10,
+			'claimable' => 15,
+			'claimed'   => 20,
+			'paid'      => 30,
+			'delivered' => 40,
+			'wired'     => 50,
+			'refunded'  => 70,
+			'expired'   => 90,
+			'aborted'   => 91,
+		];
+		$stateKey = strtolower($statusText);
+		if ($stateKey !== '' && isset($stateMap[$stateKey])) {
+			$link->taler_state = $stateMap[$stateKey];
+		} elseif (empty($link->taler_state) || (int) $link->taler_state < 30) {
+			$link->taler_state = 30;
+		}
+		$link->merchant_status_raw = $statusText;
+
+		if (isset($statusData['wired'])) {
+			$link->taler_wired = (int) ((bool) $statusData['wired']);
+		}
+		if (!empty($statusData['wtid'])) {
+			$link->taler_wtid = (string) $statusData['wtid'];
+		}
+		if (!empty($statusData['exchange_url'])) {
+			$link->taler_exchange_url = (string) $statusData['exchange_url'];
+		}
+		if (isset($statusData['refund_pending'])) {
+			$link->taler_refund_pending = (int) ((bool) $statusData['refund_pending']);
+		}
+		if (!empty($statusData['refund_amount'] ?? $statusData['amount_refunded'] ?? '')) {
+			$link->taler_refunded_total = (string) ($statusData['refund_amount'] ?? $statusData['amount_refunded']);
+		}
+
+		$link->last_status_check_at = $db->idate(dol_now());
+
+		$resUpdate = $link->update($user, 1);
+		if ($resUpdate <= 0) {
+			dol_syslog(__METHOD__.' failed to persist link '.$orderId.': '.($link->error ?: $db->lasterror()), LOG_ERR);
+			return -1;
+		}
+
+		dol_syslog(__METHOD__.' completed for order '.$orderId, LOG_INFO);
 		return 1;
 	}
 
@@ -1166,19 +1153,198 @@ class TalerOrderLink extends CommonObject
 	 */
 	public static function upsertFromTalerOfWireTransfer(DoliDB $db, $statusResponse, User $user): int
 	{
-		//TODO: This function will be called when the order was wired in taler and we have to reflect this
-		//  in dolibarr
-		// 1. Basically, this means that we have to change the status of the paiement that was previously made for the
-		//    Clearing account, and I believe now it is quite strange as normally the Bank Account that the transfer from
-		//    taler should be done to is not a clearing account, but some real bank account, with IBAN and cookies but let's say this
-		// 	  that is something that was made on the setting-up of the module, we just have to fetch it from the configuration.
-		// 2.  We have to enter payment received from customer for array of invoices
-		//     Date of payment is date when the order has been paid
-		//     Payment method is taler digital cash
-		//     Account to credit, is something rather strange, let's for this moment say we have to create the Taler Bank Account
-		//     on the import of the module, and use it here.
-		//     We have to connect the invoices and set the amount that was wired.
-		dol_syslog('TalerOrderLink::upsertFromTalerOfWireTransfer TODO', LOG_DEBUG);
+		$statusData = self::normalizeToArray($statusResponse);
+		if (empty($statusData)) {
+			dol_syslog(__METHOD__.' empty status payload', LOG_WARNING);
+			return -1;
+		}
+
+		$orderId = (string) ($statusData['order_id'] ?? $statusData['orderId'] ?? '');
+		if ($orderId === '') {
+			dol_syslog(__METHOD__.' missing order_id in payload', LOG_ERR);
+			return -1;
+		}
+
+		$contractData = self::normalizeToArray($statusData['contract_terms'] ?? $statusData['contract'] ?? null);
+		$merchantData = self::normalizeToArray($statusData['merchant'] ?? null);
+		$contractMerchantData = self::normalizeToArray($contractData['merchant'] ?? null);
+
+		$instance = (string) (
+			$statusData['merchant_instance']
+			?? ($merchantData['instance'] ?? $merchantData['id'] ?? '')
+			?? ($contractMerchantData['instance'] ?? $contractMerchantData['id'] ?? '')
+		);
+
+		$config = null;
+		if ($instance !== '') {
+			$config = self::fetchConfigForInstance($db, $instance);
+		}
+		if (!$config) {
+			$cfgErr = null;
+			$config = TalerConfig::fetchSingletonVerified($db, $cfgErr);
+			if (!$config || empty($config->verification_ok)) {
+				dol_syslog(__METHOD__.' configuration not available: '.($cfgErr ?: 'unknown error'), LOG_ERR);
+				return -1;
+			}
+			$instance = (string) $config->username;
+		}
+
+		// Ensure invoice and payment are aligned before handling the wire.
+		$resPayment = self::upsertFromTalerOfPayment($db, $statusResponse, $user);
+		if ($resPayment < 0) {
+			dol_syslog(__METHOD__.' aborted because payment upsert failed for '.$orderId, LOG_ERR);
+			return -1;
+		}
+
+		$link = new self($db);
+		$loaded = $link->fetchByInstanceOrderId($instance, $orderId);
+		if ($loaded <= 0) {
+			dol_syslog(__METHOD__.' unable to locate order link for '.$instance.'#'.$orderId, $loaded < 0 ? LOG_ERR : LOG_WARNING);
+			return $loaded < 0 ? -1 : 0;
+		}
+		if (empty($link->id)) {
+			$link->id = $link->rowid;
+		}
+
+		$commande = self::ensureDolibarrOrder($db, $user, $link, $contractData, $statusData);
+		$invoice = $commande ? self::ensureInvoice($db, $user, $link, $commande, $statusData) : null;
+		if (!$invoice) {
+			dol_syslog(__METHOD__.' cannot ensure invoice for '.$orderId, LOG_ERR);
+			return -1;
+		}
+
+		$clearingAccountId = self::resolveClearingAccountId();
+		$finalAccountId = $link->fk_bank_account_dest ?: self::resolveFinalAccountId($config);
+		if ($clearingAccountId === null) {
+			dol_syslog(__METHOD__.' clearing bank account not configured', LOG_ERR);
+			return -1;
+		}
+		if ($finalAccountId === null) {
+			dol_syslog(__METHOD__.' final bank account not configured', LOG_ERR);
+			return -1;
+		}
+		if ($clearingAccountId === $finalAccountId) {
+			dol_syslog(__METHOD__.' clearing and final bank accounts must differ', LOG_ERR);
+			return -1;
+		}
+
+		$wireRawDetails = self::normalizeToArray($statusData['wire_details'] ?? $statusData['wire_transfer'] ?? $statusData['wire'] ?? null);
+		$wireAmountCandidate = $wireRawDetails['amount']
+			?? $wireRawDetails['amount_wire']
+			?? $statusData['wire_amount']
+			?? $statusData['wired_amount']
+			?? ($statusData['amount'] ?? null);
+		$parsedWireAmount = self::extractAmount($wireAmountCandidate ?? $link->order_amount_str ?? null);
+		$wireAmount = self::amountToFloat($parsedWireAmount);
+		if ($wireAmount <= 0 && isset($invoice->total_ttc)) {
+			$wireAmount = (float) price2num($invoice->total_ttc, 'MT');
+		}
+		if ($wireAmount <= 0) {
+			dol_syslog(__METHOD__.' cannot determine wire amount for '.$orderId, LOG_ERR);
+			return -1;
+		}
+
+		$executionTs = self::parseTimestamp($statusData['wire_execution_time'] ?? $statusData['execution_time'] ?? $wireRawDetails['execution_time'] ?? $wireRawDetails['wired_at'] ?? null);
+		if (!$executionTs) {
+			$executionTs = dol_now();
+		}
+
+		$performedTransfer = false;
+		$bankLineFromId = null;
+		$bankLineToId = null;
+		if (empty($link->taler_wired) || empty($link->wire_execution_time)) {
+			$accountFrom = new Account($db);
+			$accountTo = new Account($db);
+			if ($accountFrom->fetch($clearingAccountId) <= 0) {
+				dol_syslog(__METHOD__.' cannot fetch clearing account '.$clearingAccountId.': '.$accountFrom->error, LOG_ERR);
+				return -1;
+			}
+			if ($accountTo->fetch($finalAccountId) <= 0) {
+				dol_syslog(__METHOD__.' cannot fetch final account '.$finalAccountId.': '.$accountTo->error, LOG_ERR);
+				return -1;
+			}
+
+			$typeFrom = ($accountFrom->type == Account::TYPE_CASH || $accountTo->type == Account::TYPE_CASH) ? 'LIQ' : 'PRE';
+			$typeTo = ($accountFrom->type == Account::TYPE_CASH || $accountTo->type == Account::TYPE_CASH) ? 'LIQ' : 'VIR';
+			$description = 'GNU Taler wire '.$orderId;
+			$amountOut = -1 * (float) price2num($wireAmount, 'MT');
+			$amountIn = (float) price2num($wireAmount, 'MT');
+
+			$db->begin();
+			$bankLineFromId = $accountFrom->addline($executionTs, $typeFrom, $description, $amountOut, '', 0, $user);
+			if (!($bankLineFromId > 0)) {
+				$db->rollback();
+				dol_syslog(__METHOD__.' failed to add bank line on clearing account: '.$accountFrom->error, LOG_ERR);
+				return -1;
+			}
+			$bankLineToId = $accountTo->addline($executionTs, $typeTo, $description, $amountIn, '', 0, $user);
+			if (!($bankLineToId > 0)) {
+				$db->rollback();
+				dol_syslog(__METHOD__.' failed to add bank line on final account: '.$accountTo->error, LOG_ERR);
+				return -1;
+			}
+
+			$url = DOL_URL_ROOT.'/compta/bank/line.php?rowid=';
+			$label = '(banktransfert)';
+			$type = 'banktransfert';
+			if ($accountFrom->add_url_line($bankLineFromId, $bankLineToId, $url, $label, $type) <= 0) {
+				$db->rollback();
+				dol_syslog(__METHOD__.' failed to link bank lines (from)', LOG_ERR);
+				return -1;
+			}
+			if ($accountTo->add_url_line($bankLineToId, $bankLineFromId, $url, $label, $type) <= 0) {
+				$db->rollback();
+				dol_syslog(__METHOD__.' failed to link bank lines (to)', LOG_ERR);
+				return -1;
+			}
+
+			$db->commit();
+			$performedTransfer = true;
+		}
+
+		$link->fk_bank_account_dest = $finalAccountId;
+		$link->taler_wired = 1;
+		$link->wire_execution_time = $db->idate($executionTs);
+		if (!empty($statusData['wtid'])) {
+			$link->taler_wtid = (string) $statusData['wtid'];
+		}
+		if (!empty($statusData['exchange_url'])) {
+			$link->taler_exchange_url = (string) $statusData['exchange_url'];
+		}
+
+		$existingDetails = array();
+		if (!empty($link->wire_details_json)) {
+			$decoded = json_decode((string) $link->wire_details_json, true);
+			if (is_array($decoded)) {
+				$existingDetails = $decoded;
+			}
+		}
+		$wireMeta = array_merge($existingDetails,
+			array(
+			'details'         => $wireRawDetails,
+			'amount_str'      => $parsedWireAmount['amount_str'] ?? $link->order_amount_str ?? null,
+			'amount_numeric'  => $wireAmount,
+			'currency'        => $parsedWireAmount['currency'] ?? $link->order_currency ?? null,
+			'bank_line_from'  => $bankLineFromId ?? ($existingDetails['bank_line_from'] ?? null),
+			'bank_line_to'    => $bankLineToId ?? ($existingDetails['bank_line_to'] ?? null),
+			'performed_now'   => $performedTransfer,
+		));
+		$link->wire_details_json = json_encode($wireMeta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+		$link->taler_state = 50;
+		$link->merchant_status_raw = (string) ($statusData['status'] ?? $statusData['order_status'] ?? 'wired');
+		if (isset($statusData['refund_pending'])) {
+			$link->taler_refund_pending = (int) ((bool) $statusData['refund_pending']);
+		}
+		$link->last_status_check_at = $db->idate(dol_now());
+
+		$resUpdate = $link->update($user, 1);
+		if ($resUpdate <= 0) {
+			dol_syslog(__METHOD__.' failed to persist link '.$orderId.': '.($link->error ?: $db->lasterror()), LOG_ERR);
+			return -1;
+		}
+
+		dol_syslog(__METHOD__.' completed for order '.$orderId, LOG_INFO);
 		return 1;
 	}
 
@@ -1193,254 +1359,315 @@ class TalerOrderLink extends CommonObject
 	 */
 	public static function upsertFromDolibarr(DoliDB $db, Commande $cmd, User $user): int
 	{
-		// TODO: To create the order, we have to compose the json which is made as
-		// interface PostOrderRequest {
-		//  // The order must at least contain the minimal
-		//  // order detail, but can override all.
-		//  order: Order;
-		//
-		//  // If set, the backend will then set the refund deadline to the current
-		//  // time plus the specified delay.  If it's not set, refunds will not be
-		//  // possible.
-		//  refund_delay?: RelativeTime;
-		//
-		//  // Specifies the payment target preferred by the client. Can be used
-		//  // to select among the various (active) wire methods supported by the instance.
-		//  payment_target?: string;
-		//
-		//  // The session for which the payment is made (or replayed).
-		//  // Only set for session-based payments.
-		//  // Since protocol **v6**.
-		//  session_id?: string;
-		//
-		//  // Specifies that some products are to be included in the
-		//  // order from the inventory.  For these inventory management
-		//  // is performed (so the products must be in stock) and
-		//  // details are completed from the product data of the backend.
-		//  inventory_products?: MinimalInventoryProduct[];
-		//
-		//  // Specifies a lock identifier that was used to
-		//  // lock a product in the inventory.  Only useful if
-		//  // inventory_products is set.  Used in case a frontend
-		//  // reserved quantities of the individual products while
-		//  // the shopping cart was being built.  Multiple UUIDs can
-		//  // be used in case different UUIDs were used for different
-		//  // products (i.e. in case the user started with multiple
-		//  // shopping sessions that were combined during checkout).
-		//  lock_uuids?: string[];
-		//
-		//  // Should a token for claiming the order be generated?
-		//  // False can make sense if the ORDER_ID is sufficiently
-		//  // high entropy to prevent adversarial claims (like it is
-		//  // if the backend auto-generates one). Default is 'true'.
-		//  // Note: This is NOT related to tokens used for subscriptions or discounts.
-		//  create_token?: boolean;
-		//
-		//  // OTP device ID to associate with the order.
-		//  // This parameter is optional.
-		//  otp_id?: string;
-		//}
-		//The Order object represents the starting point for new ContractTerms. After validating and sanitizing all inputs, the merchant backend will add additional information to the order and create a new ContractTerms object that will be stored in the database.
-		//
-		//type Order = (OrderV1 | OrderV0) & OrderCommon;
-		//interface OrderV1 {
-		//  // Version 1 order support discounts and subscriptions.
-		//  // https://docs.taler.net/design-documents/046-mumimo-contracts.html
-		//  // @since protocol **vSUBSCRIBE**
-		//  version: 1;
-		//
-		//  // List of contract choices that the customer can select from.
-		//  // @since protocol **vSUBSCRIBE**
-		//  choices?: OrderChoice[];
-		//}
-		//interface OrderV0 {
-		//  // Optional, defaults to 0 if not set.
-		//  version?: 0;
-		//
-		//  // Total price for the transaction. The exchange will subtract deposit
-		//  // fees from that amount before transferring it to the merchant.
-		//  amount: Amount;
-		//
-		//  // Maximum total deposit fee accepted by the merchant for this contract.
-		//  // Overrides defaults of the merchant instance.
-		//  max_fee?: Amount;
-		//}
-		//interface OrderCommon {
-		//  // Human-readable description of the whole purchase.
-		//  summary: string;
-		//
-		//  // Map from IETF BCP 47 language tags to localized summaries.
-		//  summary_i18n?: { [lang_tag: string]: string };
-		//
-		//  // Unique identifier for the order. Only characters
-		//  // allowed are "A-Za-z0-9" and ".:_-".
-		//  // Must be unique within a merchant instance.
-		//  // For merchants that do not store proposals in their DB
-		//  // before the customer paid for them, the order_id can be used
-		//  // by the frontend to restore a proposal from the information
-		//  // encoded in it (such as a short product identifier and timestamp).
-		//  order_id?: string;
-		//
-		//  // URL where the same contract could be ordered again (if
-		//  // available). Returned also at the public order endpoint
-		//  // for people other than the actual buyer (hence public,
-		//  // in case order IDs are guessable).
-		//  public_reorder_url?: string;
-		//
-		//  // See documentation of fulfillment_url field in ContractTerms.
-		//  // Either fulfillment_url or fulfillment_message must be specified.
-		//  // When creating an order, the fulfillment URL can
-		//  // contain ${ORDER_ID} which will be substituted with the
-		//  // order ID of the newly created order.
-		//  fulfillment_url?: string;
-		//
-		//  // See documentation of fulfillment_message in ContractTerms.
-		//  // Either fulfillment_url or fulfillment_message must be specified.
-		//  fulfillment_message?: string;
-		//
-		//  // Map from IETF BCP 47 language tags to localized fulfillment
-		//  // messages.
-		//  fulfillment_message_i18n?: { [lang_tag: string]: string };
-		//
-		//  // Minimum age the buyer must have to buy.
-		//  minimum_age?: Integer;
-		//
-		//  // List of products that are part of the purchase.
-		//  products?: Product[];
-		//
-		//  // Time when this contract was generated. If null, defaults to current
-		//  // time of merchant backend.
-		//  timestamp?: Timestamp;
-		//
-		//  // After this deadline has passed, no refunds will be accepted.
-		//  // Overrides deadline calculated from refund_delay in
-		//  // PostOrderRequest.
-		//  refund_deadline?: Timestamp;
-		//
-		//  // After this deadline, the merchant won't accept payments for the contract.
-		//  // Overrides deadline calculated from default pay delay configured in
-		//  // merchant backend.
-		//  pay_deadline?: Timestamp;
-		//
-		//  // Transfer deadline for the exchange. Must be in the deposit permissions
-		//  // of coins used to pay for this order.
-		//  // Overrides deadline calculated from default wire transfer delay
-		//  // configured in merchant backend. Must be after refund deadline.
-		//  wire_transfer_deadline?: Timestamp;
-		//
-		//  // Base URL of the (public!) merchant backend API.
-		//  // Must be an absolute URL that ends with a slash.
-		//  // Defaults to the base URL this request was made to.
-		//  merchant_base_url?: string;
-		//
-		//  // Delivery location for (all!) products.
-		//  delivery_location?: Location;
-		//
-		//  // Time indicating when the order should be delivered.
-		//  // May be overwritten by individual products.
-		//  // Must be in the future.
-		//  delivery_date?: Timestamp;
-		//
-		//  // See documentation of auto_refund in ContractTerms.
-		//  // Specifies for how long the wallet should try to get an
-		//  // automatic refund for the purchase.
-		//  auto_refund?: RelativeTime;
-		//
-		//  // Extra data that is only interpreted by the merchant frontend.
-		//  // Useful when the merchant needs to store extra information on a
-		//  // contract without storing it separately in their database.
-		//  // Must really be an Object (not a string, integer, float or array).
-		//  extra?: Object;
-		//}
-		//The OrderChoice object describes a possible choice within an order. The choice is done by the wallet and consists of in- and outputs. In the example of buying an article, the merchant could present the customer with the choice to use a valid subscription token or pay using a gift voucher. Available since protocol vSUBSCRIBE.
-		//
-		//interface OrderChoice {
-		//  // Total price for the choice. The exchange will subtract deposit
-		//  // fees from that amount before transferring it to the merchant.
-		//  amount: Amount;
-		//
-		//  // Human readable description of the semantics of the choice
-		//  // within the contract to be shown to the user at payment.
-		//  description?: string;
-		//
-		//  // Map from IETF 47 language tags to localized descriptions.
-		//  description_i18n?: { [lang_tag: string]: string };
-		//
-		//  // Inputs that must be provided by the customer, if this choice is selected.
-		//  // Defaults to empty array if not specified.
-		//  inputs?: OrderInput[];
-		//
-		//  // Outputs provided by the merchant, if this choice is selected.
-		//  // Defaults to empty array if not specified.
-		//  outputs?: OrderOutput[];
-		//
-		//  // Maximum total deposit fee accepted by the merchant for this contract.
-		//  // Overrides defaults of the merchant instance.
-		//  max_fee?: Amount;
-		//}
-		//// For now, only token inputs are supported.
-		//type OrderInput = OrderInputToken;
-		//interface OrderInputToken {
-		//
-		//  // Token input.
-		//  type: "token";
-		//
-		//  // Token family slug as configured in the merchant backend. Slug is unique
-		//  // across all configured tokens of a merchant.
-		//  token_family_slug: string;
-		//
-		//  // How many units of the input are required.
-		//  // Defaults to 1 if not specified. Output with count == 0 are ignored by
-		//  // the merchant backend.
-		//  count?: Integer;
-		//
-		//}
-		//type OrderOutput = OrderOutputToken | OrderOutputTaxReceipt;
-		//interface OrderOutputToken {
-		//
-		//  // Token output.
-		//  type: "token";
-		//
-		//  // Token family slug as configured in the merchant backend. Slug is unique
-		//  // across all configured tokens of a merchant.
-		//  token_family_slug: string;
-		//
-		//  // How many units of the output are issued by the merchant.
-		//  // Defaults to 1 if not specified. Output with count == 0 are ignored by
-		//  // the merchant backend.
-		//  count?: Integer;
-		//
-		//  // When should the output token be valid. Can be specified if the
-		//  // desired validity period should be in the future (like selling
-		//  // a subscription for the next month). Optional. If not given,
-		//  // the validity is supposed to be "now" (time of order creation).
-		//  valid_at?: Timestamp;
-		//
-		//}
-		//interface OrderOutputTaxReceipt {
-		//
-		//  // Tax receipt output.
-		//  type: "tax-receipt";
-		//
-		//}
-		//The following MinimalInventoryProduct can be provided if the parts of the order are inventory-based, that is if the PostOrderRequest uses inventory_products. For such products, which must be in the backend’s inventory, the backend can automatically fill in the amount and other details about the product that are known to it from its products table. Note that the inventory_products will be appended to the list of products that the frontend already put into the order. So if the frontend can sell additional non-inventory products together with inventory_products. Note that the backend will NOT update the amount of the order, so the frontend must already have calculated the total price — including the inventory_products.
-		//
-		//// Note that if the frontend does give details beyond these,
-		//// it will override those details (including price or taxes)
-		//// that the backend would otherwise fill in via the inventory.
-		//interface MinimalInventoryProduct {
-		//
-		//  // Which product is requested (here mandatory!).
-		//  product_id: string;
-		//
-		//  // How many units of the product are requested.
-		//  quantity: Integer;
-		//}
-		// As v0 most probably be deprecated, we have to creat the v1 order, with no tokens, and so on
-		// As we have created the order and sent it to the taler backend, and as we have a token from the taler backend
-		// we can create the Facture at the Dolibarr side, with the status validated
-		// As paiement will be received we are following the upsertFromTalerOfPayment function
-		dol_syslog('TalerOrderLink::upsertFromDolibarr TODO', LOG_DEBUG);
+		dol_syslog('TalerOrderLink::upsertFromDolibarr.begin', LOG_DEBUG);
+
+		if (empty($cmd->id)) {
+			dol_syslog('TalerOrderLink::upsertFromDolibarr invalid commande object (missing id)', LOG_ERR);
+			return -1;
+		}
+
+		// Ensure command lines are loaded for price extraction
+		if (empty($cmd->lines) || !is_array($cmd->lines)) {
+			if (method_exists($cmd, 'fetch_lines')) {
+				$cmd->fetch_lines();
+			}
+		}
+
+		$cfgErr = null;
+		$config = TalerConfig::fetchSingletonVerified($db, $cfgErr);
+		if (!$config || empty($config->verification_ok)) {
+			dol_syslog('TalerOrderLink::upsertFromDolibarr missing verified config: '.($cfgErr ?: 'unknown'), LOG_ERR);
+			return -1;
+		}
+		// If sync direction is "from Taler" only, skip pushing orders outwards.
+		if (!empty($config->syncdirection)) {
+			dol_syslog('TalerOrderLink::upsertFromDolibarr skipped because config syncdirection forbids Dolibarr->Taler push', LOG_INFO);
+			return 0;
+		}
+
+		$instance = (string) $config->username;
+		try {
+			$client = new TalerMerchantClient($config->talermerchanturl, $config->talertoken, $instance);
+		} catch (Throwable $e) {
+			dol_syslog('TalerOrderLink::upsertFromDolibarr unable to instantiate merchant client: '.$e->getMessage(), LOG_ERR);
+			return -1;
+		}
+
+		global $conf;
+		$currency = !empty($cmd->multicurrency_code) ? strtoupper($cmd->multicurrency_code) : (!empty($conf->currency) ? strtoupper($conf->currency) : 'EUR');
+
+		// Build order summary and fallback fulfillment message
+		$summaryCandidates = array(
+			isset($cmd->note_public) ? dol_string_nohtmltag((string) $cmd->note_public, 0) : '',
+			isset($cmd->ref_client) ? dol_string_nohtmltag((string) $cmd->ref_client, 0) : '',
+			isset($cmd->ref) ? dol_string_nohtmltag((string) $cmd->ref, 0) : '',
+		);
+		$summary = '';
+		foreach ($summaryCandidates as $candidate) {
+			$candidate = trim($candidate);
+			if ($candidate !== '') {
+				$summary = $candidate;
+				break;
+			}
+		}
+		if ($summary === '') {
+			$summary = 'Dolibarr order #' . $cmd->id;
+		}
+		$summary = trim(dol_trunc($summary, 200, ' ', '…'));
+		$fulfillmentMessage = 'Dolibarr order ' . (isset($cmd->ref) && $cmd->ref !== '' ? $cmd->ref : ('#' . $cmd->id));
+
+		// Determine total amount (fallback to sum of lines)
+		$totalTtc = (float) price2num($cmd->total_ttc ?? 0.0, 'MT');
+		if ($totalTtc <= 0 && !empty($cmd->lines)) {
+			$lineTotal = 0.0;
+			foreach ($cmd->lines as $line) {
+				$lineTotal += (float) price2num($line->total_ttc ?? ($line->total_ht ?? 0), 'MT');
+			}
+			$totalTtc = (float) price2num($lineTotal, 'MT');
+		}
+
+		// Map lines into Taler order products
+		$productCache = array();
+		$products = array();
+		if (!empty($cmd->lines)) {
+			foreach ($cmd->lines as $line) {
+				$lineAmount = (float) price2num($line->total_ttc ?? ($line->total_ht ?? 0), 'MT');
+				$qtyRaw = isset($line->qty) ? (float) price2num($line->qty, 'MT') : 1.0;
+				$qty = ($qtyRaw !== 0.0) ? $qtyRaw : 1.0;
+				$unitAmount = $qty !== 0.0 ? $lineAmount / $qty : $lineAmount;
+				$descCandidates = array(
+					isset($line->label) ? $line->label : null,
+					isset($line->desc) ? $line->desc : null,
+					isset($line->product_label) ? $line->product_label : null,
+					isset($line->product_ref) ? $line->product_ref : null,
+				);
+				$lineDesc = '';
+				foreach ($descCandidates as $cand) {
+					if ($cand === null) {
+						continue;
+					}
+					$cand = trim(dol_string_nohtmltag((string) $cand, 0));
+					if ($cand !== '') {
+						$lineDesc = $cand;
+						break;
+					}
+				}
+				if ($lineDesc === '') {
+					$lineDesc = 'Line '.$line->rowid;
+				}
+
+				$productEntry = array(
+					'description' => $lineDesc,
+					'quantity'    => $qty,
+					'price'       => self::formatAmountString($currency, $unitAmount),
+				);
+
+				if (!empty($line->fk_product)) {
+					$productId = (int) $line->fk_product;
+					if (!array_key_exists($productId, $productCache)) {
+						$linkProd = new TalerProductLink($db);
+						if ($linkProd->fetchByProductId($productId) > 0 && !empty($linkProd->taler_product_id) && strcasecmp((string) $linkProd->taler_instance, $instance) === 0) {
+							$productCache[$productId] = $linkProd->taler_product_id;
+						} else {
+							$productCache[$productId] = null;
+						}
+					}
+					if (!empty($productCache[$productId])) {
+						$productEntry['product_id'] = $productCache[$productId];
+					}
+				}
+
+				$products[] = $productEntry;
+			}
+		}
+
+		// Prepare order identifier with conflict resolution
+		$candidateIds = array(
+			self::sanitizeOrderIdCandidate((string) ($cmd->ref_client ?? '')),
+			self::sanitizeOrderIdCandidate((string) ($cmd->ref ?? '')),
+			self::sanitizeOrderIdCandidate('CMD-'.$cmd->id),
+		);
+		$orderId = '';
+		foreach ($candidateIds as $cand) {
+			if ($cand !== '') {
+				$orderId = $cand;
+				break;
+			}
+		}
+		if ($orderId === '') {
+			$orderId = 'CMD-'.$cmd->id;
+		}
+
+		$link = new self($db);
+		$linkRowId = 0;
+		$sqlLink = 'SELECT rowid FROM '.MAIN_DB_PREFIX.$link->table_element.
+			' WHERE fk_commande = '.((int) $cmd->id).
+			' AND entity IN ('.getEntity($link->element, true).
+			') ORDER BY rowid DESC LIMIT 1';
+		$resLink = $db->query($sqlLink);
+		if ($resLink && ($objLink = $db->fetch_object($resLink))) {
+			$linkRowId = (int) $objLink->rowid;
+			$link->fetch($linkRowId);
+		}
+
+		if (!$linkRowId) {
+			// Ensure uniqueness of order id for this instance if the candidate is already linked elsewhere
+			$tmpLink = new self($db);
+			$finalOrderId = $orderId;
+			$attempt = 1;
+			while ($tmpLink->fetchByInstanceOrderId($instance, $finalOrderId) > 0 && (int) $tmpLink->fk_commande !== (int) $cmd->id) {
+				$attempt++;
+				$finalOrderId = self::sanitizeOrderIdCandidate($orderId.'-'.$attempt);
+				if ($finalOrderId === '') {
+					$finalOrderId = 'CMD-'.$cmd->id.'-'.$attempt;
+				}
+			}
+			$orderId = $finalOrderId;
+		}
+
+		$postOrder = array(
+			'order_id'             => $orderId,
+			'summary'              => $summary,
+			'amount'               => self::formatAmountString($currency, $totalTtc),
+			'fulfillment_message'  => $fulfillmentMessage,
+			'extra'                => array(
+				'dolibarr_order_id' => (int) $cmd->id,
+				'dolibarr_ref'      => (string) ($cmd->ref ?? ''),
+				'dolibarr_entity'   => (int) (!empty($cmd->entity) ? $cmd->entity : (int) $conf->entity),
+			),
+		);
+		if (!empty($products)) {
+			$postOrder['products'] = $products;
+		}
+		if (!empty($cmd->date_livraison)) {
+			$postOrder['delivery_date'] = dol_print_date($cmd->date_livraison, 'dayrfc');
+		}
+		if (!empty($cmd->date_lim_reglement)) {
+			$postOrder['pay_deadline'] = dol_print_date($cmd->date_lim_reglement, 'dayrfc');
+		}
+
+		$requestPayload = array('order' => $postOrder);
+
+		$response = array();
+		try {
+			$response = $client->createOrder($requestPayload);
+		} catch (Throwable $e) {
+			dol_syslog('TalerOrderLink::upsertFromDolibarr createOrder failed: '.$e->getMessage(), LOG_ERR);
+			return -1;
+		}
+
+		$orderIdCreated = (string) ($response['order_id'] ?? $orderId);
+		$statusData = array();
+		try {
+			$statusData = $client->getOrderStatus($orderIdCreated);
+		} catch (Throwable $e) {
+			dol_syslog('TalerOrderLink::upsertFromDolibarr warning: getOrderStatus failed '.$e->getMessage(), LOG_WARNING);
+			$statusData = array('order_id' => $orderIdCreated);
+		}
+		$statusData = self::normalizeToArray($statusData);
+
+		// Refresh or initialize link
+		if ($linkRowId && (strcasecmp((string) $link->taler_order_id, $orderIdCreated) !== 0)) {
+			$link->taler_order_id = $orderIdCreated;
+		}
+		if (!$linkRowId) {
+			if ($link->fetchByInstanceOrderId($instance, $orderIdCreated) > 0) {
+				// Existing link reused (possibly from earlier sync)
+			} else {
+				$link->taler_instance = $instance;
+				$link->taler_order_id = $orderIdCreated;
+				$link->entity = getEntity($link->element, 1);
+				$link->datec = dol_now();
+			}
+		}
+
+		$link->fk_commande = (int) $cmd->id;
+		$link->fk_soc = !empty($cmd->socid) ? (int) $cmd->socid : $link->fk_soc;
+		$link->order_summary = $summary;
+		$link->order_amount_str = self::formatAmountString($currency, $totalTtc);
+		$parsedAmount = self::extractAmount($link->order_amount_str);
+		if (!empty($parsedAmount['currency'])) {
+			$link->order_currency = (string) $parsedAmount['currency'];
+		}
+		if ($parsedAmount['value'] !== null) {
+			$link->order_value = (int) $parsedAmount['value'];
+		}
+		if ($parsedAmount['fraction'] !== null) {
+			$link->order_fraction = (int) $parsedAmount['fraction'];
+		}
+		$link->commande_ref_snap = isset($cmd->ref) ? (string) $cmd->ref : $link->commande_ref_snap;
+		$link->commande_datec = !empty($cmd->date) ? $db->idate($cmd->date) : (!empty($cmd->date_commande) ? $db->idate($cmd->date_commande) : $link->commande_datec);
+		if (!empty($cmd->date_valid)) {
+			$link->commande_validated_at = $db->idate($cmd->date_valid);
+		}
+		if (!empty($cmd->mode_reglement_id)) {
+			$link->fk_c_paiement = (int) $cmd->mode_reglement_id;
+		}
+		if (!empty($cmd->cond_reglement_id)) {
+			$link->fk_cond_reglement = (int) $cmd->cond_reglement_id;
+		}
+		if (!empty($cmd->fk_bank_account)) {
+			$link->fk_bank_account = (int) $cmd->fk_bank_account;
+		}
+		if (empty($link->fk_bank_account)) {
+			$link->fk_bank_account = self::resolveClearingAccountId();
+		}
+		if (empty($link->fk_bank_account_dest)) {
+			$link->fk_bank_account_dest = self::resolveFinalAccountId($config);
+		}
+		$link->intended_payment_code = 'TLR';
+		$link->idempotency_key = $response['token'] ?? $link->idempotency_key ?? ('dolibarr-'.$cmd->id);
+
+		// Transfer URLs and state from status data / response
+		if (!empty($statusData['taler_pay_uri'] ?? $statusData['pay_url'] ?? $response['taler_pay_uri'] ?? '')) {
+			$link->taler_pay_uri = (string) ($statusData['taler_pay_uri'] ?? $statusData['pay_url'] ?? $response['taler_pay_uri']);
+		}
+		if (!empty($statusData['order_status_url'] ?? $statusData['status_url'] ?? $response['order_status_url'] ?? '')) {
+			$link->taler_status_url = (string) ($statusData['order_status_url'] ?? $statusData['status_url'] ?? $response['order_status_url']);
+		}
+		if (!empty($statusData['refund_deadline'])) {
+			$rdTs = self::parseTimestamp($statusData['refund_deadline']);
+			if ($rdTs) {
+				$link->taler_refund_deadline = $db->idate($rdTs);
+			}
+		}
+		if (!empty($statusData['pay_deadline'])) {
+			$pdTs = self::parseTimestamp($statusData['pay_deadline']);
+			if ($pdTs) {
+				$link->taler_pay_deadline = $db->idate($pdTs);
+			}
+		}
+
+		$statusText = (string) ($statusData['status'] ?? $statusData['order_status'] ?? 'unpaid');
+		$stateMap = [
+			'unpaid'   => 10,
+			'claimable'=> 15,
+			'claimed'  => 20,
+			'paid'     => 30,
+			'delivered'=> 40,
+			'wired'    => 50,
+			'refunded' => 70,
+			'expired'  => 90,
+			'aborted'  => 91,
+		];
+		$link->merchant_status_raw = $statusText;
+		$link->taler_state = $stateMap[strtolower($statusText)] ?? 10;
+		$link->taler_wired = (int) ((bool) ($statusData['wired'] ?? false));
+		if (!empty($statusData['wtid'])) {
+			$link->taler_wtid = (string) $statusData['wtid'];
+		}
+		if (!empty($statusData['exchange_url'])) {
+			$link->taler_exchange_url = (string) $statusData['exchange_url'];
+		}
+		$link->last_status_check_at = $db->idate(dol_now());
+
+		$resPersist = $linkRowId ? $link->update($user, 1) : $link->create($user, 1);
+		if ($resPersist <= 0) {
+			dol_syslog('TalerOrderLink::upsertFromDolibarr failed to persist link: '.($link->error ?: $db->lasterror()), LOG_ERR);
+			return -1;
+		}
+
+		dol_syslog('TalerOrderLink::upsertFromDolibarr.end order_id='.$orderIdCreated, LOG_INFO);
 		return 1;
 	}
 
