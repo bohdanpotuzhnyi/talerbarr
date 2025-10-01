@@ -532,4 +532,82 @@ class TalerMerchantClient
 		$path = "orders/".rawurlencode($orderId)."/refund";
 		return $this->post($path, $refundRequest);
 	}
+
+	/* =======================================================================
+	 * Merchant: Webhooks
+	 * =======================================================================
+	 */
+
+	/**
+	 * List configured webhooks for the current instance.
+	 *
+	 * Required permission: webhooks-read
+	 *
+	 * @return array{webhooks: array<int, array{webhook_id:string,event_type:string}>}
+	 * @throws Exception On HTTP/JSON errors.
+	 */
+	public function listWebhooks(): array
+	{
+		return $this->get('webhooks');
+	}
+
+	/**
+	 * Fetch full details for a specific webhook.
+	 *
+	 * Required permission: webhooks-read
+	 *
+	 * @param string $webhookId Identifier of the webhook.
+	 * @return array<string, mixed>
+	 * @throws Exception On HTTP/JSON errors.
+	 */
+	public function getWebhook(string $webhookId): array
+	{
+		return $this->get('webhooks/'.rawurlencode($webhookId));
+	}
+
+	/**
+	 * Create a webhook.
+	 *
+	 * Required permission: webhooks-write
+	 * Returns 204 No Content on success.
+	 *
+	 * @param array<string, mixed> $webhook WebhookAddDetails payload.
+	 * @return void
+	 * @throws Exception On HTTP/JSON errors (including 409 conflicts).
+	 */
+	public function createWebhook(array $webhook): void
+	{
+		$this->post('webhooks', $webhook);
+	}
+
+	/**
+	 * Update an existing webhook.
+	 *
+	 * Required permission: webhooks-write
+	 * Returns 204 No Content on success.
+	 *
+	 * @param string               $webhookId Webhook identifier.
+	 * @param array<string, mixed> $patch     WebhookPatchDetails payload.
+	 * @return void
+	 * @throws Exception On HTTP/JSON errors (404 unknown, 409 conflict).
+	 */
+	public function updateWebhook(string $webhookId, array $patch): void
+	{
+		$this->patch('webhooks/'.rawurlencode($webhookId), $patch);
+	}
+
+	/**
+	 * Delete a webhook.
+	 *
+	 * Required permission: webhooks-write
+	 * Returns 204 No Content on success.
+	 *
+	 * @param string $webhookId Webhook identifier.
+	 * @return void
+	 * @throws Exception On HTTP errors (404 unknown webhook).
+	 */
+	public function deleteWebhook(string $webhookId): void
+	{
+		$this->delete('webhooks/'.rawurlencode($webhookId));
+	}
 }

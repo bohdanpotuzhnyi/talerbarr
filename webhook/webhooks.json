@@ -1,0 +1,67 @@
+{
+  "webhooks": [
+    {
+      "webhook_id": "talerbarr_pay",
+      "event_type": "pay",
+      "template": "pay.json",
+      "url_path": "/custom/talerbarr/webhook/webhook.php",
+      "http_method": "POST"
+    },
+    {
+      "webhook_id": "talerbarr_refund",
+      "event_type": "refund",
+      "template": "refund.json",
+      "url_path": "/custom/talerbarr/webhook/webhook.php",
+      "http_method": "POST"
+    },
+    {
+      "webhook_id": "talerbarr_order_settled",
+      "event_type": "order_settled",
+      "template": "order_settled.json",
+      "url_path": "/custom/talerbarr/webhook/webhook.php",
+      "http_method": "POST"
+    },
+    {
+      "webhook_id": "talerbarr_category_added",
+      "event_type": "category_added",
+      "template": "category_added.json",
+      "url_path": "/custom/talerbarr/webhook/webhook.php",
+      "http_method": "POST"
+    },
+    {
+      "webhook_id": "talerbarr_category_updated",
+      "event_type": "category_updated",
+      "template": "category_updated.json",
+      "url_path": "/custom/talerbarr/webhook/webhook.php",
+      "http_method": "POST"
+    },
+    {
+      "webhook_id": "talerbarr_category_deleted",
+      "event_type": "category_deleted",
+      "template": "category_deleted.json",
+      "url_path": "/custom/talerbarr/webhook/webhook.php",
+      "http_method": "POST"
+    },
+    {
+      "webhook_id": "talerbarr_inventory_added",
+      "event_type": "inventory_added",
+      "template": "inventory_added.json",
+      "url_path": "/custom/talerbarr/webhook/webhook.php",
+      "http_method": "POST"
+    },
+    {
+      "webhook_id": "talerbarr_inventory_updated",
+      "event_type": "inventory_updated",
+      "template": "inventory_updated.json",
+      "url_path": "/custom/talerbarr/webhook/webhook.php",
+      "http_method": "POST"
+    },
+    {
+      "webhook_id": "talerbarr_inventory_deleted",
+      "event_type": "inventory_deleted",
+      "template": "inventory_deleted.json",
+      "url_path": "/custom/talerbarr/webhook/webhook.php",
+      "http_method": "POST"
+    }
+  ]
+}

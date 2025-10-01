@@ -29,6 +29,7 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/geturl.lib.php';
 //require_once DOL_DOCUMENT_ROOT . '/societe/class/societe.class.php';
 //require_once DOL_DOCUMENT_ROOT . '/product/class/product.class.php';
 dol_include_once('/talerbarr/lib/talersync.lib.php');
+dol_include_once('/talerbarr/class/talermerchantclient.class.php');
 
 /**
  * Class for TalerConfig
@@ -75,6 +76,10 @@ class TalerConfig extends CommonObject
 	const STATUS_DRAFT = 0;
 	const STATUS_VALIDATED = 1;
 	const STATUS_CANCELED = 9;
+
+	private const WEBHOOK_ID_PREFIX = 'talerbarr_';
+	private const PLACEHOLDER_AUTH_HASH = '__AUTH_HASH__';
+	private const PLACEHOLDER_CALLBACK_URL = '__CALLBACK_URL__';
 
 	/**
 	 *  'type' field format:
@@ -248,6 +253,26 @@ class TalerConfig extends CommonObject
 		$result = $this->createCommon($user, $notrigger);
 
 		if ($result > 0) {
+			$verifyError = null;
+			$isValid = $this->verifyConfig($verifyError);
+			$this->verification_ok = $isValid;
+			$this->verification_error = $isValid ? null : $verifyError;
+
+			if (!$isValid) {
+				dol_syslog(__METHOD__.': configuration verification failed after create - '.($verifyError ?: 'unknown error'), LOG_ERR);
+				if (function_exists('setEventMessages')) {
+					setEventMessages($verifyError ?: 'Failed to verify Taler configuration; see Dolibarr logs for details.', null, 'errors');
+				}
+			} else {
+				$webhookError = $this->configureMerchantWebhooks();
+				if ($webhookError !== null) {
+					dol_syslog(__METHOD__.': '.$webhookError, LOG_ERR);
+					if (function_exists('setEventMessages')) {
+						setEventMessages($webhookError, null, 'errors');
+					}
+				}
+			}
+
 			TalerSyncUtil::launchBackgroundSync(true);
 		}
 		// uncomment lines below if you want to validate object after creation
@@ -485,6 +510,26 @@ class TalerConfig extends CommonObject
 		$result = $this->updateCommon($user, $notrigger);
 
 		if ($result > 0) {
+			$verifyError = null;
+			$isValid = $this->verifyConfig($verifyError);
+			$this->verification_ok = $isValid;
+			$this->verification_error = $isValid ? null : $verifyError;
+
+			if (!$isValid) {
+				dol_syslog(__METHOD__.': configuration verification failed after update - '.($verifyError ?: 'unknown error'), LOG_ERR);
+				if (function_exists('setEventMessages')) {
+					setEventMessages($verifyError ?: 'Failed to verify Taler configuration; see Dolibarr logs for details.', null, 'errors');
+				}
+			} else {
+				$webhookError = $this->configureMerchantWebhooks();
+				if ($webhookError !== null) {
+					dol_syslog(__METHOD__.': '.$webhookError, LOG_ERR);
+					if (function_exists('setEventMessages')) {
+						setEventMessages($webhookError, null, 'errors');
+					}
+				}
+			}
+
 			TalerSyncUtil::launchBackgroundSync(true);
 		}
 
@@ -1344,6 +1389,331 @@ class TalerConfig extends CommonObject
 
 		// Everything fine
 		return true;
+	}
+
+	/**
+	 * Provision (or refresh) all module-owned webhooks on the merchant backend.
+	 *
+	 * Reads webhook definitions from webhook/webhooks.json, deletes any existing
+	 * talerbarr_* webhooks, then recreates the set from the JSON file.
+	 *
+	 * @return string|null  null on success; otherwise a human-readable error message.
+	 */
+	private function configureMerchantWebhooks(): ?string
+	{
+		if (empty($this->talermerchanturl) || empty($this->username) || empty($this->talertoken)) {
+			return 'Missing merchant credentials; cannot provision webhooks.';
+		}
+
+		$payloads = $this->buildWebhookPayloads();
+		if (empty($payloads)) {
+			dol_syslog(__METHOD__.': no webhook definitions found – skipping provisioning step', LOG_INFO);
+			return null;
+		}
+
+		try {
+			$client = new TalerMerchantClient(
+				$this->talermerchanturl,
+				$this->talertoken,
+				$this->username
+			);
+		} catch (Throwable $e) {
+			dol_syslog(__METHOD__.': unable to initialise TalerMerchantClient - '.$e->getMessage(), LOG_ERR);
+			return 'Cannot initialise merchant client for webhook provisioning: '.$e->getMessage();
+		}
+
+		try {
+			$current = $client->listWebhooks();
+		} catch (Throwable $e) {
+			dol_syslog(__METHOD__.': failed to list existing webhooks - '.$e->getMessage(), LOG_ERR);
+			return 'Failed to list existing webhooks: '.$e->getMessage();
+		}
+
+		if (!empty($current['webhooks']) && is_array($current['webhooks'])) {
+			foreach ($current['webhooks'] as $existing) {
+				$wid = isset($existing['webhook_id']) ? (string) $existing['webhook_id'] : '';
+				if ($wid === '' || !str_starts_with($wid, self::WEBHOOK_ID_PREFIX)) {
+					continue;
+				}
+				try {
+					$client->deleteWebhook($wid);
+				} catch (Throwable $e) {
+					dol_syslog(__METHOD__.': failed to delete webhook '.$wid.' - '.$e->getMessage(), LOG_ERR);
+					return 'Failed to delete existing webhook '.$wid.': '.$e->getMessage();
+				}
+			}
+		}
+
+		foreach ($payloads as $payload) {
+			try {
+				$client->createWebhook($payload);
+			} catch (Throwable $e) {
+				dol_syslog(__METHOD__.': failed to create webhook '.$payload['webhook_id'].' - '.$e->getMessage(), LOG_ERR);
+				return 'Failed to create webhook '.$payload['webhook_id'].': '.$e->getMessage();
+			}
+		}
+
+		dol_syslog(__METHOD__.': provisioned '.count($payloads).' webhook(s)', LOG_INFO);
+		return null;
+	}
+
+	/**
+	 * Build webhook payloads from the module JSON definition.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private function buildWebhookPayloads(): array
+	{
+		$token = isset($this->talertoken) ? (string) $this->talertoken : '';
+		if ($token === '') {
+			dol_syslog(__METHOD__.': missing taler token – cannot build webhook headers', LOG_WARNING);
+			return [];
+		}
+
+		$defsFile = self::getWebhookDefinitionFile();
+		if (!is_readable($defsFile)) {
+			dol_syslog(__METHOD__.': webhook definition file not readable at '.$defsFile, LOG_WARNING);
+			return [];
+		}
+
+		$json = file_get_contents($defsFile);
+		if ($json === false) {
+			dol_syslog(__METHOD__.': unable to read webhook definition file '.$defsFile, LOG_ERR);
+			return [];
+		}
+
+		$decoded = json_decode($json, true);
+		if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
+			dol_syslog(__METHOD__.': invalid webhook JSON ('.json_last_error_msg().')', LOG_ERR);
+			return [];
+		}
+
+		$entries = [];
+		if (isset($decoded['webhooks']) && is_array($decoded['webhooks'])) {
+			$entries = $decoded['webhooks'];
+		} else {
+			$entries = $decoded;
+		}
+
+		$authHash = hash('sha256', $token);
+		$payloads = [];
+
+		foreach ($entries as $entry) {
+			if (!is_array($entry)) {
+				continue;
+			}
+
+			$webhookId = isset($entry['webhook_id']) ? trim((string) $entry['webhook_id']) : '';
+			$eventType = isset($entry['event_type']) ? trim((string) $entry['event_type']) : '';
+			if ($webhookId === '' || $eventType === '') {
+				continue;
+			}
+
+			$url = $this->resolveWebhookUrl($entry);
+			if (!$url) {
+				dol_syslog(__METHOD__.': skipping webhook '.$webhookId.' due to invalid URL definition', LOG_WARNING);
+				continue;
+			}
+
+			$templateData = [];
+			if (!empty($entry['template'])) {
+				$templateData = $this->loadWebhookTemplate((string) $entry['template']);
+				if ($templateData === null) {
+					dol_syslog(__METHOD__.': template '.$entry['template'].' not found or invalid for '.$webhookId, LOG_ERR);
+					continue;
+				}
+			}
+
+			$httpMethod = isset($entry['http_method']) ? strtoupper(trim((string) $entry['http_method'])) : 'POST';
+			if ($httpMethod === '') {
+				$httpMethod = 'POST';
+			}
+
+			$payload = [
+				'webhook_id'   => $webhookId,
+				'event_type'   => $eventType,
+				'url'          => $url,
+				'http_method'  => $httpMethod,
+			];
+
+			$headers = [];
+			if (!empty($templateData['headers']) && is_array($templateData['headers'])) {
+				$headers = array_merge($headers, $templateData['headers']);
+			}
+			if (!empty($entry['headers']) && is_array($entry['headers'])) {
+				$headers = array_merge($headers, $entry['headers']);
+			}
+			if (!empty($headers)) {
+				$normalizedHeaders = [];
+				foreach ($headers as $name => $value) {
+					if (!is_string($name) || $name === '') {
+						continue;
+					}
+					if (!is_scalar($value)) {
+						continue;
+					}
+					$headerValue = self::replaceWebhookPlaceholders((string) $value, $authHash, $url);
+					$normalizedHeaders[$name] = $headerValue;
+				}
+				if (!empty($normalizedHeaders)) {
+					$lines = [];
+					foreach ($normalizedHeaders as $name => $value) {
+						$lines[] = $name.': '.$value;
+					}
+					$payload['header_template'] = implode("\n", $lines);
+				}
+			}
+
+			$bodyTemplate = null;
+			if (array_key_exists('body_template', $templateData)) {
+				$tmpl = $templateData['body_template'];
+				if (is_string($tmpl) && $tmpl !== '') {
+					$bodyTemplate = $tmpl;
+				}
+			} elseif (isset($templateData['body'])) {
+				$body = $templateData['body'];
+				if (is_array($body)) {
+					$bodyTemplate = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+				} elseif (is_string($body) && $body !== '') {
+					$bodyTemplate = $body;
+				}
+			}
+
+			if (array_key_exists('body_template', $entry)) {
+				$entryBody = $entry['body_template'];
+				if (is_string($entryBody) && $entryBody !== '') {
+					$bodyTemplate = $entryBody;
+				}
+			} elseif (isset($entry['body'])) {
+				$entryBody = $entry['body'];
+				if (is_array($entryBody)) {
+					$bodyTemplate = json_encode($entryBody, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+				} elseif (is_string($entryBody) && $entryBody !== '') {
+					$bodyTemplate = $entryBody;
+				}
+			}
+
+			if (is_string($bodyTemplate) && $bodyTemplate !== '') {
+				$withPlaceholders = self::replaceWebhookPlaceholders($bodyTemplate, $authHash, $url);
+				$bodyDecoded = json_decode($withPlaceholders, true);
+				if (json_last_error() === JSON_ERROR_NONE && is_array($bodyDecoded)) {
+					$bodyDecoded['auth_signature'] = $authHash;
+					$payload['body_template'] = json_encode($bodyDecoded, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+				} else {
+					$payload['body_template'] = $withPlaceholders;
+				}
+			}
+
+			$payloads[] = $payload;
+		}
+
+		return $payloads;
+	}
+
+	/**
+	 * Replace placeholders (auth hash, callback URL) in template fragments.
+	 *
+	 * @param string $value     Template string potentially containing placeholders.
+	 * @param string $authHash  sha256 hash of the merchant token.
+	 * @param string $callback  Full webhook callback URL.
+	 * @return string
+	 */
+	private static function replaceWebhookPlaceholders(string $value, string $authHash, string $callback): string
+	{
+		return str_replace(
+			[self::PLACEHOLDER_AUTH_HASH, self::PLACEHOLDER_CALLBACK_URL],
+			[$authHash, $callback],
+			$value
+		);
+	}
+
+	/**
+	 * Resolve the target URL for a webhook definition entry.
+	 *
+	 * @param array<string, mixed> $entry Webhook definition chunk.
+	 * @return string|null
+	 */
+	private function resolveWebhookUrl(array $entry): ?string
+	{
+		$url = isset($entry['url']) ? trim((string) $entry['url']) : '';
+		if ($url !== '') {
+			return filter_var($url, FILTER_VALIDATE_URL) ? $url : null;
+		}
+
+		$path = isset($entry['url_path']) ? trim((string) $entry['url_path']) : '';
+		if ($path === '') {
+			return null;
+		}
+		if ($path[0] !== '/') {
+			$path = '/'.$path;
+		}
+		$resolved = dol_buildpath($path, 2);
+		return filter_var($resolved, FILTER_VALIDATE_URL) ? $resolved : null;
+	}
+
+	/**
+	 * Absolute path to webhook definition JSON file.
+	 *
+	 * @return string
+	 */
+	private static function getWebhookDefinitionFile(): string
+	{
+		return dirname(__DIR__).'/webhook/webhooks.json';
+	}
+
+	/**
+	 * Absolute path to the webhook templates directory.
+	 *
+	 * @return string
+	 */
+	private static function getWebhookTemplateDir(): string
+	{
+		return dirname(__DIR__).'/webhook/templates';
+	}
+
+	/**
+	 * Compute absolute path to a webhook template file (basename only).
+	 *
+	 * @param string $template Template filename (relative, e.g. "pay.json").
+	 * @return string
+	 */
+	private static function getWebhookTemplateFile(string $template): string
+	{
+		$clean = basename($template);
+		return self::getWebhookTemplateDir().'/'.$clean;
+	}
+
+	/**
+	 * Load and decode a webhook template JSON file.
+	 *
+	 * @param string $template Template filename.
+	 * @return array<string, mixed>|null  Decoded template, null if missing/invalid.
+	 */
+	private function loadWebhookTemplate(string $template): ?array
+	{
+		$template = trim($template);
+		if ($template === '') {
+			return null;
+		}
+
+		$file = self::getWebhookTemplateFile($template);
+		if (!is_readable($file)) {
+			return null;
+		}
+
+		$content = file_get_contents($file);
+		if ($content === false) {
+			dol_syslog(__METHOD__.': unable to read template file '.$file, LOG_ERR);
+			return null;
+		}
+
+		$data = json_decode($content, true);
+		if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
+			dol_syslog(__METHOD__.': invalid JSON in template '.$file.' ('.json_last_error_msg().')', LOG_ERR);
+			return null;
+		}
+
+		return $data;
 	}
 
 	/**

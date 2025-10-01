@@ -1,0 +1,12 @@
+{
+  "headers": {
+    "Content-Type": "application/json",
+    "X-Auth-Header": "__AUTH_HASH__"
+  },
+  "body": {
+    "event_type": "category_added",
+    "category_serial": "{{category_serial}}",
+    "category_name": "{{category_name}}",
+    "merchant_serial": "{{merchant_serial}}"
+  }
+}

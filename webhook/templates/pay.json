@@ -1,0 +1,10 @@
+{
+  "headers": {
+    "Content-Type": "application/json",
+    "X-Auth-Header": "__AUTH_HASH__"
+  },
+  "body": {
+    "event_type": "pay",
+    "order_id": "{{order_id}}"
+  }
+}
