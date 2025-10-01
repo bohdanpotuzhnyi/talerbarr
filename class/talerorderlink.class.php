@@ -193,6 +193,197 @@ class TalerOrderLink extends CommonObject
 	}
 
 	/**
+	 * Ensure the original order carries a public note with an accessible Taler link.
+	 *
+	 * @param Commande $order   Order to update.
+	 * @param string   $linkUrl Public status (or payment) URL to surface.
+	 * @return void
+	 */
+	private static function ensurePublicNoteHasPayLink(Commande $order, string $linkUrl): void
+	{
+		$linkUrl = trim($linkUrl);
+		if ($linkUrl === '' || empty($order->id)) {
+			return;
+		}
+
+		$existingNote = (string) ($order->note_public ?? '');
+		$escapedUrl = dol_escape_htmltag($linkUrl);
+		$noteLine = 'Taler payment status: <a href="' . $escapedUrl . '">' . $escapedUrl . '</a>';
+		$linePattern = '/^Taler payment (?:link|status):.*$/mi';
+
+		if (preg_match($linePattern, $existingNote)) {
+			if (preg_match($linePattern, $existingNote, $matches)) {
+				$matchedLine = trim((string) ($matches[0] ?? ''));
+				if ($matchedLine === $noteLine) {
+					return;
+				}
+			}
+			$updatedNote = (string) preg_replace($linePattern, $noteLine, $existingNote);
+		} else {
+			$decodedNote = html_entity_decode($existingNote, ENT_QUOTES | ENT_HTML5);
+			if (strpos($existingNote, $linkUrl) !== false || strpos($existingNote, $escapedUrl) !== false || strpos($decodedNote, $linkUrl) !== false) {
+				return;
+			}
+			$updatedNote = rtrim($existingNote);
+			if ($updatedNote !== '') {
+				$updatedNote .= "\n";
+			}
+			$updatedNote .= $noteLine;
+		}
+
+		if ($updatedNote === $existingNote) {
+			return;
+		}
+
+		$updateRes = $order->update_note_public($updatedNote);
+		if ($updateRes <= 0) {
+			dol_syslog('TalerOrderLink::ensurePublicNoteHasPayLink failed to update note: ' . ($order->error ?: 'unknown error'), LOG_WARNING);
+		}
+	}
+
+	/**
+	 * Synchronize invoice snapshot fields on the link object using the provided invoice.
+	 *
+	 * @param DoliDB         $db      Database connection for date formatting.
+	 * @param TalerOrderLink $link    Link being hydrated.
+	 * @param Facture        $invoice Invoice used as source of truth.
+	 * @return void
+	 */
+	private static function hydrateInvoiceSnapshotFromFacture(DoliDB $db, TalerOrderLink $link, Facture $invoice): void
+	{
+		if (empty($invoice->id)) {
+			return;
+		}
+
+		$link->fk_facture = (int) $invoice->id;
+		if (!empty($invoice->ref)) {
+			$link->facture_ref_snap = $invoice->ref;
+		}
+		if (!empty($invoice->date)) {
+			$link->facture_datef = $db->idate($invoice->date);
+		}
+		if (!empty($invoice->date_validation)) {
+			$link->facture_validated_at = $db->idate($invoice->date_validation);
+		} elseif (!empty($invoice->date_valid)) {
+			$link->facture_validated_at = $db->idate($invoice->date_valid);
+		}
+		if (!empty($invoice->cond_reglement_id)) {
+			$link->fk_cond_reglement = (int) $invoice->cond_reglement_id;
+		}
+	}
+
+	/**
+	 * Locate an existing Dolibarr invoice already linked to the provided order.
+	 *
+	 * @param DoliDB  $db    Database connector.
+	 * @param Commande $order Order whose invoice link we are searching for.
+	 * @return Facture|null  First matching invoice (validated preferred), null if none.
+	 */
+	private static function findInvoiceLinkedToOrder(DoliDB $db, Commande $order): ?Facture
+	{
+		$orderId = (int) ($order->id ?? 0);
+		if ($orderId <= 0) {
+			return null;
+		}
+
+		$candidateIds = array();
+		$sql = sprintf(
+			"SELECT fk_target AS facture_id FROM %selement_element WHERE fk_source = %d AND sourcetype = 'commande' AND targettype = 'facture' ORDER BY rowid DESC",
+			$db->prefix(),
+			$orderId
+		);
+		$resql = $db->query($sql);
+		if ($resql) {
+			while ($obj = $db->fetch_object($resql)) {
+				$candidateIds[] = (int) $obj->facture_id;
+			}
+			$db->free($resql);
+		} else {
+			dol_syslog(__METHOD__.' failed to fetch facture links: '.$db->lasterror(), LOG_WARNING);
+		}
+
+		$sqlReverse = sprintf(
+			"SELECT fk_source AS facture_id FROM %selement_element WHERE fk_target = %d AND targettype = 'commande' AND sourcetype = 'facture' ORDER BY rowid DESC",
+			$db->prefix(),
+			$orderId
+		);
+		$resReverse = $db->query($sqlReverse);
+		if ($resReverse) {
+			while ($obj = $db->fetch_object($resReverse)) {
+				$candidateIds[] = (int) $obj->facture_id;
+			}
+			$db->free($resReverse);
+		} else {
+			dol_syslog(__METHOD__.' failed to fetch reverse facture links: '.$db->lasterror(), LOG_WARNING);
+		}
+
+		if (empty($candidateIds)) {
+			dol_syslog(__METHOD__.' no linked invoices found for order '.$orderId, LOG_DEBUG);
+			return null;
+		}
+
+		$candidateIds = array_unique(array_filter($candidateIds));
+		dol_syslog(__METHOD__.' found candidate invoice ids '.implode(',', $candidateIds).' for order '.$orderId, LOG_DEBUG);
+		$fallbackInvoice = null;
+		foreach ($candidateIds as $invoiceId) {
+			$invoice = new Facture($db);
+			if ($invoice->fetch($invoiceId) <= 0) {
+				dol_syslog(__METHOD__.' failed to fetch invoice '.$invoiceId.' for order '.$orderId, LOG_DEBUG);
+				continue;
+			}
+			if ($invoice->status >= Facture::STATUS_VALIDATED) {
+				return $invoice;
+			}
+			if ($fallbackInvoice === null) {
+				$fallbackInvoice = $invoice;
+			}
+		}
+		dol_syslog(__METHOD__.' returning fallback invoice id '.(int) ($fallbackInvoice?->id ?? 0).' for order '.$orderId, LOG_DEBUG);
+
+		return $fallbackInvoice;
+	}
+
+	/**
+	 * Make sure the invoice/order linkage is present so the relationship is visible from the UI.
+	 *
+	 * @param DoliDB  $db      Database connection.
+	 * @param Facture $invoice Invoice to link.
+	 * @param Commande $order  Order to link to.
+	 * @return void
+	 */
+	private static function ensureInvoiceVisibleOnOrder(DoliDB $db, Facture $invoice, Commande $order): void
+	{
+		$invoiceId = (int) ($invoice->id ?? 0);
+		$orderId = (int) ($order->id ?? 0);
+		if ($invoiceId <= 0 || $orderId <= 0) {
+			return;
+		}
+
+		$sql = sprintf(
+			"SELECT rowid FROM %selement_element WHERE fk_source = %d AND sourcetype = 'commande' AND fk_target = %d AND targettype = 'facture' LIMIT 1",
+			$db->prefix(),
+			$orderId,
+			$invoiceId
+		);
+		$resql = $db->query($sql);
+		if ($resql) {
+			$existing = $db->fetch_object($resql);
+			$db->free($resql);
+			if ($existing) {
+				return;
+			}
+		} else {
+			dol_syslog(__METHOD__.' failed to inspect link presence: '.$db->lasterror(), LOG_WARNING);
+			return;
+		}
+
+		$resLink = $invoice->add_object_linked('commande', $orderId);
+		if ($resLink <= 0) {
+			dol_syslog(__METHOD__.' failed to create commande/facture link: ' . ($invoice->error ?: $db->lasterror()), LOG_WARNING);
+		}
+	}
+
+	/**
 	 * Helper returning the first non-empty scalar value.
 	 *
 	 * @param mixed ...$values Values to inspect in order.
@@ -340,6 +531,24 @@ class TalerOrderLink extends CommonObject
 	}
 
 	/**
+	 * Centralised logging helper for unexpected throwables.
+	 *
+	 * @param string    $context Describes the caller for easier troubleshooting.
+	 * @param \Throwable $throwable Captured exception/error instance.
+	 *
+	 * @return void
+	 */
+	private static function logThrowable(string $context, \Throwable $throwable): void
+	{
+		dol_syslog(
+			'TalerOrderLink::'.$context.' threw '.get_class($throwable)
+			.': '.$throwable->getMessage().' at '.$throwable->getFile().':'.$throwable->getLine(),
+			LOG_ERR
+		);
+		dol_syslog($throwable->getTraceAsString(), LOG_ERR);
+	}
+
+	/**
 	 * Retrieve Taler configuration row by instance username.
 	 *
 	 * @param DoliDB $db       Active database handler.
@@ -464,6 +673,35 @@ class TalerOrderLink extends CommonObject
 	}
 
 	/**
+	 * Build a concise human-readable summary for a Dolibarr customer order.
+	 *
+	 * @param Commande $cmd Source order instance.
+	 * @return string Summary trimmed to 200 characters.
+	 */
+	private static function buildOrderSummary(Commande $cmd): string
+	{
+		$summary = '';
+		$candidates = array(
+			isset($cmd->note_public) ? dol_string_nohtmltag((string) $cmd->note_public, 0) : '',
+			isset($cmd->ref_client) ? dol_string_nohtmltag((string) $cmd->ref_client, 0) : '',
+			isset($cmd->ref) ? dol_string_nohtmltag((string) $cmd->ref, 0) : '',
+		);
+		foreach ($candidates as $candidate) {
+			$candidate = trim((string) $candidate);
+			if ($candidate !== '') {
+				$summary = preg_replace('/\s+/u', ' ', $candidate) ?? $candidate;
+				break;
+			}
+		}
+
+		if ($summary === '') {
+			$summary = 'Dolibarr order #' . (isset($cmd->id) ? (string) $cmd->id : '');
+		}
+
+		return trim(dol_trunc($summary, 200, 'right', 'UTF-8', 0));
+	}
+
+	/**
 	 * Ensure a Dolibarr customer order exists and is validated.
 	 *
 	 * @param DoliDB         $db            Database connection.
@@ -580,6 +818,7 @@ class TalerOrderLink extends CommonObject
 		Commande        $commande,
 		array           $statusData
 	): ?Facture {
+		dol_syslog(__METHOD__.' existing fk_facture='.(int) ($link->fk_facture ?? 0).' for order '.$link->taler_order_id, LOG_DEBUG);
 		if (!empty($link->fk_facture)) {
 			$invoice = new Facture($db);
 			if ($invoice->fetch((int) $link->fk_facture) > 0) {
@@ -593,13 +832,15 @@ class TalerOrderLink extends CommonObject
 			dol_syslog(__METHOD__.' createFromOrder_failed '.$invoice->error, LOG_ERR);
 			return null;
 		}
-		$invoice->fetch($result);
+		if (!empty($invoice->id)) {
+			$invoice->fetch($invoice->id);
+		}
 		$invoice->note_public = trim(($invoice->note_public ?? '')."\n".'Taler payment: '.$link->taler_order_id);
 		$datePaidTs = self::parseTimestamp($statusData['last_payment'] ?? $statusData['creation_time'] ?? null);
 		if ($datePaidTs) {
 			$invoice->date = $datePaidTs;
 			$invoice->date_lim_reglement = $datePaidTs;
-			$invoice->update($invoice->id, $user, 1);
+			$invoice->update($user, 1);
 		}
 		$invoice->validate($user);
 		return $invoice;
@@ -648,6 +889,7 @@ class TalerOrderLink extends CommonObject
 			return null;
 		}
 		$paiement->id = $paymentId;
+		dol_syslog(__METHOD__.' created paiement '.$paymentId.' for invoice '.$invoice->id, LOG_DEBUG);
 		$bankLineId = $paiement->addPaymentToBank(
 			$user,
 			'payment',
@@ -1045,52 +1287,47 @@ class TalerOrderLink extends CommonObject
 			return -1;
 		}
 
-		$link->fk_facture = (int) $invoice->id;
-		if (!empty($invoice->ref)) {
-			$link->facture_ref_snap = $invoice->ref;
-		}
-		if (!empty($invoice->date)) {
-			$link->facture_datef = $db->idate($invoice->date);
-		}
-		if (!empty($invoice->date_validation)) {
-			$link->facture_validated_at = $db->idate($invoice->date_validation);
-		} elseif (!empty($invoice->date_valid)) {
-			$link->facture_validated_at = $db->idate($invoice->date_valid);
-		}
-		if (!empty($invoice->cond_reglement_id)) {
-			$link->fk_cond_reglement = (int) $invoice->cond_reglement_id;
-		}
+		self::hydrateInvoiceSnapshotFromFacture($db, $link, $invoice);
 
-		$paiement = self::ensurePayment($db, $user, $link, $invoice, $statusData);
+		$paiement = null;
+		$paymentModeId = self::resolvePaymentModeId();
+		$clearingAccountId = self::resolveClearingAccountId();
+		if ($paymentModeId !== null && $clearingAccountId !== null) {
+			$paiement = self::ensurePayment($db, $user, $link, $invoice, $statusData);
+		} else {
+			dol_syslog(__METHOD__.' skipping payment creation (paymentModeId='.(int) ($paymentModeId ?? 0).', clearingAccountId='.(int) ($clearingAccountId ?? 0).') for '.$orderId, LOG_INFO);
+		}
 		if (!$paiement) {
-			dol_syslog(__METHOD__.' cannot ensure payment for '.$orderId, LOG_ERR);
-			return -1;
-		}
+			dol_syslog(__METHOD__.' payment record unavailable for '.$orderId.' link_fk_facture='.(int) ($link->fk_facture ?? 0), LOG_DEBUG);
+			if ($paymentModeId !== null) {
+				$link->fk_c_paiement = (int) $paymentModeId;
+			}
+		} else {
+			$link->fk_paiement = (int) $paiement->id;
+			if (!empty($paiement->datepaye)) {
+				$link->paiement_datep = $db->idate($paiement->datepaye);
+			}
+			if (!empty($paiement->paiementid)) {
+				$link->fk_c_paiement = (int) $paiement->paiementid;
+			}
+			if (!empty($paiement->_taler_clearing_account_id)) {
+				$link->fk_bank_account = (int) $paiement->_taler_clearing_account_id;
+			} elseif (!empty($paiement->fk_account)) {
+				$link->fk_bank_account = (int) $paiement->fk_account;
+			}
+			if (!empty($paiement->_taler_bank_line_id)) {
+				$link->fk_bank = (int) $paiement->_taler_bank_line_id;
+			} elseif (!empty($paiement->fk_bank)) {
+				$link->fk_bank = (int) $paiement->fk_bank;
+			}
 
-		$link->fk_paiement = (int) $paiement->id;
-		if (!empty($paiement->datepaye)) {
-			$link->paiement_datep = $db->idate($paiement->datepaye);
-		}
-		if (!empty($paiement->paiementid)) {
-			$link->fk_c_paiement = (int) $paiement->paiementid;
-		}
-		if (!empty($paiement->_taler_clearing_account_id)) {
-			$link->fk_bank_account = (int) $paiement->_taler_clearing_account_id;
-		} elseif (!empty($paiement->fk_account)) {
-			$link->fk_bank_account = (int) $paiement->fk_account;
-		}
-		if (!empty($paiement->_taler_bank_line_id)) {
-			$link->fk_bank = (int) $paiement->_taler_bank_line_id;
-		} elseif (!empty($paiement->fk_bank)) {
-			$link->fk_bank = (int) $paiement->fk_bank;
-		}
-
-		$paidTs = self::parseTimestamp($statusData['last_payment'] ?? $statusData['paid_at'] ?? null);
-		if (!$paidTs && !empty($paiement->datepaye)) {
-			$paidTs = is_numeric($paiement->datepaye) ? (int) $paiement->datepaye : (int) strtotime((string) $paiement->datepaye);
-		}
-		if ($paidTs) {
-			$link->taler_paid_at = $db->idate($paidTs);
+			$paidTs = self::parseTimestamp($statusData['last_payment'] ?? $statusData['paid_at'] ?? null);
+			if (!$paidTs && !empty($paiement->datepaye)) {
+				$paidTs = is_numeric($paiement->datepaye) ? (int) $paiement->datepaye : (int) strtotime((string) $paiement->datepaye);
+			}
+			if ($paidTs) {
+				$link->taler_paid_at = $db->idate($paidTs);
+			}
 		}
 
 		if (empty($link->fk_bank_account_dest)) {
@@ -1404,23 +1641,7 @@ class TalerOrderLink extends CommonObject
 		$currency = 'KUDOS'; // TODO: revert to real currency once Taler backend supports EUR payouts
 
 		// Build order summary and fallback fulfillment message
-		$summaryCandidates = array(
-			isset($cmd->note_public) ? dol_string_nohtmltag((string) $cmd->note_public, 0) : '',
-			isset($cmd->ref_client) ? dol_string_nohtmltag((string) $cmd->ref_client, 0) : '',
-			isset($cmd->ref) ? dol_string_nohtmltag((string) $cmd->ref, 0) : '',
-		);
-		$summary = '';
-		foreach ($summaryCandidates as $candidate) {
-			$candidate = trim($candidate);
-			if ($candidate !== '') {
-				$summary = $candidate;
-				break;
-			}
-		}
-		if ($summary === '') {
-			$summary = 'Dolibarr order #' . $cmd->id;
-		}
-		$summary = trim(dol_trunc($summary, 200, ' ', '…'));
+		$summary = self::buildOrderSummary($cmd);
 		$fulfillmentMessage = 'Dolibarr order ' . (isset($cmd->ref) && $cmd->ref !== '' ? $cmd->ref : ('#' . $cmd->id));
 
 		// Determine total amount (fallback to sum of lines)
@@ -1668,10 +1889,80 @@ class TalerOrderLink extends CommonObject
 		}
 		$link->last_status_check_at = $db->idate(dol_now());
 
-		$resPersist = $linkRowId ? $link->update($user, 1) : $link->create($user, 1);
-		if ($resPersist <= 0) {
+		$publicLink = '';
+		if (!empty($link->taler_status_url)) {
+			$publicLink = (string) $link->taler_status_url;
+		} elseif (!empty($link->taler_pay_uri)) {
+			$publicLink = (string) $link->taler_pay_uri;
+		}
+		if ($publicLink !== '') {
+			try {
+				self::ensurePublicNoteHasPayLink($cmd, $publicLink);
+
+				$invoice = null;
+				if (!empty($link->fk_facture)) {
+					$invoiceCandidate = new Facture($db);
+					if ($invoiceCandidate->fetch((int) $link->fk_facture) > 0) {
+						$invoice = $invoiceCandidate;
+					}
+				}
+				if (!$invoice) {
+					$invoice = self::findInvoiceLinkedToOrder($db, $cmd);
+				}
+				if (!$invoice) {
+					$invoice = self::ensureInvoice($db, $user, $link, $cmd, $statusData);
+				}
+
+				if ($invoice) {
+					dol_syslog(__METHOD__.' invoice detected for order '.$cmd->id.' facture_id='.(int) ($invoice->id ?? 0).' before_snapshot_fk='.((int) ($link->fk_facture ?? 0)), LOG_DEBUG);
+					$beforeSnapshot = array(
+						'fk_facture'           => (int) ($link->fk_facture ?? 0),
+						'facture_ref_snap'     => (string) ($link->facture_ref_snap ?? ''),
+						'facture_datef'        => (string) ($link->facture_datef ?? ''),
+						'facture_validated_at' => (string) ($link->facture_validated_at ?? ''),
+						'fk_cond_reglement'    => (int) ($link->fk_cond_reglement ?? 0),
+					);
+
+					self::hydrateInvoiceSnapshotFromFacture($db, $link, $invoice);
+					self::ensureInvoiceVisibleOnOrder($db, $invoice, $cmd);
+					dol_syslog(__METHOD__.' invoice snapshot hydrated fk='.((int) ($link->fk_facture ?? 0)), LOG_DEBUG);
+
+					$afterSnapshot = array(
+						'fk_facture'           => (int) ($link->fk_facture ?? 0),
+						'facture_ref_snap'     => (string) ($link->facture_ref_snap ?? ''),
+						'facture_datef'        => (string) ($link->facture_datef ?? ''),
+						'facture_validated_at' => (string) ($link->facture_validated_at ?? ''),
+						'fk_cond_reglement'    => (int) ($link->fk_cond_reglement ?? 0),
+					);
+
+					if ($afterSnapshot !== $beforeSnapshot) {
+						dol_syslog(__METHOD__.' invoice snapshot changed, persisting', LOG_DEBUG);
+						$resInvoiceUpdate = $link->update($user, 1);
+						if ($resInvoiceUpdate <= 0) {
+							dol_syslog('TalerOrderLink::upsertFromDolibarr failed to persist invoice snapshot: ' . ($link->error ?: $db->lasterror()), LOG_WARNING);
+						} else {
+							dol_syslog(__METHOD__.' invoice snapshot persisted fk_facture='.((int) ($link->fk_facture ?? 0)), LOG_DEBUG);
+						}
+					}
+				}
+			} catch (\Throwable $e) {
+				self::logThrowable('upsertFromDolibarr.invoice', $e);
+				return -1;
+			}
+		}
+
+		dol_syslog(__METHOD__.' final link persist (rowid='.(int) $linkRowId.') fk_facture='.((int) ($link->fk_facture ?? 0)), LOG_DEBUG);
+		$persistResult = $linkRowId ? $link->update($user, 1) : $link->create($user, 1);
+		if ($persistResult <= 0) {
 			dol_syslog('TalerOrderLink::upsertFromDolibarr failed to persist link: '.($link->error ?: $db->lasterror()), LOG_ERR);
 			return -1;
+		}
+		dol_syslog(__METHOD__.' link persisted with fk_facture='.((int) ($link->fk_facture ?? 0)).' result='.$persistResult, LOG_DEBUG);
+		if (!$linkRowId && !empty($link->id)) {
+			$linkRowId = (int) $link->id;
+			if (empty($link->rowid)) {
+				$link->rowid = $linkRowId;
+			}
 		}
 
 		dol_syslog('TalerOrderLink::upsertFromDolibarr.end order_id='.$orderIdCreated, LOG_INFO);

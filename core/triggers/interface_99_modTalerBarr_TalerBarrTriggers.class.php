@@ -354,7 +354,16 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 			}
 		}
 
-		return TalerOrderLink::upsertFromDolibarr($this->db, $object, $user);
+		try {
+			return TalerOrderLink::upsertFromDolibarr($this->db, $object, $user);
+		} catch (\Throwable $e) {
+			dol_syslog(
+				'TalerOrderLink::upsertFromDolibarr exception during ORDER_VALIDATE: '
+				.$e->getMessage().' at '.$e->getFile().':'.$e->getLine(),
+				LOG_ERR
+			);
+			return -1;
+		}
 	}
 
 	/**
