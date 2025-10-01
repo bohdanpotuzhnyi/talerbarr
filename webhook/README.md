@@ -1,5 +1,7 @@
 # Webhook directory to listen for webhook from Taler
 
+## THIS IS JUST DEV NOTES
+
 2.11. Setting up a webhook
 To receive notifications when a purchase has been made or a refund was given to a wallet, you can set up webhooks in the GNU Taler merchant backend. Webhooks allow you to trigger HTTP(S) requests based on certain events. A webhook is thus simply an HTTP request that the GNU Taler merchant backend will make when a certain event (such as a payment) happens.
 
