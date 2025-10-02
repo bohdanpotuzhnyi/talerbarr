@@ -242,6 +242,57 @@ class TalerOrderLink extends CommonObject
 	}
 
 	/**
+	 * Ensure the invoice note contains an up-to-date public payment link.
+	 *
+	 * @param Facture $invoice Invoice whose public note should surface the payment URL.
+	 * @param string  $linkUrl Public status (or payment) URL to surface.
+	 * @return void
+	 */
+	private static function ensureInvoiceNoteHasPayLink(Facture $invoice, string $linkUrl): void
+	{
+		$linkUrl = trim($linkUrl);
+		if ($linkUrl === '' || empty($invoice->id)) {
+			return;
+		}
+
+		$existingNote = (string) ($invoice->note_public ?? '');
+		$escapedUrl = dol_escape_htmltag($linkUrl);
+		$noteLine = 'Taler payment status: <a href="' . $escapedUrl . '">' . $escapedUrl . '</a>';
+		$linePattern = '/^Taler payment (?:link|status):.*$/mi';
+
+		if (preg_match($linePattern, $existingNote)) {
+			if (preg_match($linePattern, $existingNote, $matches)) {
+				$matchedLine = trim((string) ($matches[0] ?? ''));
+				if ($matchedLine === $noteLine) {
+					return;
+				}
+			}
+			$updatedNote = (string) preg_replace($linePattern, $noteLine, $existingNote);
+		} else {
+			$decodedNote = html_entity_decode($existingNote, ENT_QUOTES | ENT_HTML5);
+			if (strpos($existingNote, $linkUrl) !== false || strpos($existingNote, $escapedUrl) !== false || strpos($decodedNote, $linkUrl) !== false) {
+				return;
+			}
+			$updatedNote = rtrim($existingNote);
+			if ($updatedNote !== '') {
+				$updatedNote .= "\n";
+			}
+			$updatedNote .= $noteLine;
+		}
+
+		if ($updatedNote === $existingNote) {
+			return;
+		}
+
+		$updateRes = $invoice->update_note_public($updatedNote);
+		if ($updateRes <= 0) {
+			dol_syslog('TalerOrderLink::ensureInvoiceNoteHasPayLink failed to update note: ' . ($invoice->error ?: 'unknown error'), LOG_WARNING);
+			return;
+		}
+		$invoice->note_public = $updatedNote;
+	}
+
+	/**
 	 * Synchronize invoice snapshot fields on the link object using the provided invoice.
 	 *
 	 * @param DoliDB         $db      Database connection for date formatting.
@@ -1289,6 +1340,37 @@ class TalerOrderLink extends CommonObject
 
 		self::hydrateInvoiceSnapshotFromFacture($db, $link, $invoice);
 
+		$latestStatusUrl = self::coalesceString(
+			$statusData['order_status_url'] ?? null,
+			$statusData['status_url'] ?? null,
+			$statusData['public_status_url'] ?? null
+		);
+		if ($latestStatusUrl !== '') {
+			$link->taler_status_url = $latestStatusUrl;
+		}
+
+		$latestPayUri = self::coalesceString(
+			$statusData['taler_pay_uri'] ?? null,
+			$statusData['pay_url'] ?? null,
+			$statusData['public_pay_url'] ?? null
+		);
+		if ($latestPayUri !== '') {
+			$link->taler_pay_uri = $latestPayUri;
+		}
+
+		$publicLink = self::coalesceString(
+			$latestStatusUrl,
+			$statusData['public_url'] ?? null,
+			$statusData['payment_url'] ?? null,
+			$latestPayUri,
+			$link->taler_status_url ?? null,
+			$link->taler_pay_uri ?? null
+		);
+		if ($publicLink !== '') {
+			self::ensurePublicNoteHasPayLink($commande, $publicLink);
+			self::ensureInvoiceNoteHasPayLink($invoice, $publicLink);
+		}
+
 		$paiement = null;
 		$paymentModeId = self::resolvePaymentModeId();
 		$clearingAccountId = self::resolveClearingAccountId();
@@ -1915,6 +1997,7 @@ class TalerOrderLink extends CommonObject
 
 				if ($invoice) {
 					dol_syslog(__METHOD__.' invoice detected for order '.$cmd->id.' facture_id='.(int) ($invoice->id ?? 0).' before_snapshot_fk='.((int) ($link->fk_facture ?? 0)), LOG_DEBUG);
+					self::ensureInvoiceNoteHasPayLink($invoice, $publicLink);
 					$beforeSnapshot = array(
 						'fk_facture'           => (int) ($link->fk_facture ?? 0),
 						'facture_ref_snap'     => (string) ($link->facture_ref_snap ?? ''),

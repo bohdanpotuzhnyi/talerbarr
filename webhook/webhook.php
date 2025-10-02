@@ -52,6 +52,7 @@ if (!$res) die("Include of main fails");
 // Load required classes
 dol_include_once('/talerbarr/class/talerconfig.class.php');
 dol_include_once('/talerbarr/class/talerproductlink.class.php');
+dol_include_once('/talerbarr/class/talerorderlink.class.php');
 
 /**
  * Emit a JSON error/success response and exit.
@@ -206,8 +207,32 @@ if (!$syncFromTaler) {
 
 switch ($type) {
 	case 'pay':
-	case 'refund':
+		$orderId = (string) ($payload['order_id'] ?? '');
+		dol_syslog('talerbarr webhook processing pay event for order '.$orderId, LOG_DEBUG);
+		$result = TalerOrderLink::upsertFromTalerOfPayment($db, $payload, $user);
+		if ($result < 0) {
+			talerbarrWebhookRespond(500, 'Failed to ingest payment event', ['order_id' => $orderId]);
+		}
+		if ($result === 0) {
+			talerbarrWebhookRespond(202, 'Payment event ignored', ['order_id' => $orderId]);
+		}
+		talerbarrWebhookRespond(202, 'Payment event processed', ['order_id' => $orderId]);
+		break;
+
 	case 'order_settled':
+		$orderId = (string) ($payload['order_id'] ?? '');
+		dol_syslog('talerbarr webhook processing order_settled event for order '.$orderId, LOG_DEBUG);
+		$result = TalerOrderLink::upsertFromTalerOfWireTransfer($db, $payload, $user);
+		if ($result < 0) {
+			talerbarrWebhookRespond(500, 'Failed to ingest wire transfer event', ['order_id' => $orderId]);
+		}
+		if ($result === 0) {
+			talerbarrWebhookRespond(202, 'Wire transfer event ignored', ['order_id' => $orderId]);
+		}
+		talerbarrWebhookRespond(202, 'Wire transfer event processed', ['order_id' => $orderId]);
+		break;
+
+	case 'refund':
 	case 'category_added':
 	case 'category_updated':
 	case 'category_deleted':
