@@ -120,11 +120,9 @@ class modTalerBarr extends DolibarrModules
 			// Set here all hooks context managed by module. To find available hook context, make a "grep -r '>initHooks(' *" on source code. You can also set hook context to 'all'
 			/* BEGIN MODULEBUILDER HOOKSCONTEXTS */
 			'hooks' => array(
-				//   'data' => array(
-				//       'hookcontext1',
-				//       'hookcontext2',
-				//   ),
-				//   'entity' => '0',
+				'data' => array(
+					'invoicecard',
+				),
 			),
 			/* END MODULEBUILDER HOOKSCONTEXTS */
 			// Set this to 1 if features of module are opened to external users

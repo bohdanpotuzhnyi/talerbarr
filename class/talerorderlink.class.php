@@ -176,6 +176,72 @@ class TalerOrderLink extends CommonObject
 	}
 
 	/**
+	 * Fetch link row using invoice id and/or commande id.
+	 *
+	 * @param int $invoiceId  Invoice identifier (llx_facture.rowid).
+	 * @param int $commandeId Commande identifier (llx_commande.rowid).
+	 *
+	 * @return int >0 if found, 0 if not found, <0 on error.
+	 */
+	public function fetchByInvoiceOrOrder(int $invoiceId, int $commandeId = 0): int
+	{
+		$invoiceId = (int) $invoiceId;
+		$commandeId = (int) $commandeId;
+		$this->log('fetchByInvoiceOrOrder.begin', ['invoice_id' => $invoiceId, 'commande_id' => $commandeId]);
+
+		if ($invoiceId > 0) {
+			$sql = sprintf(
+				"SELECT rowid FROM %s%s WHERE fk_facture = %d AND entity IN (%s) ORDER BY rowid DESC LIMIT 1",
+				MAIN_DB_PREFIX,
+				$this->table_element,
+				$invoiceId,
+				getEntity($this->element, true)
+			);
+			$resql = $this->db->query($sql);
+			if (!$resql) {
+				$this->error = $this->db->lasterror();
+				$this->log('fetchByInvoiceOrOrder.sql_error_invoice', ['error' => $this->error], LOG_ERR);
+				return -1;
+			}
+			if ($obj = $this->db->fetch_object($resql)) {
+				$rowid = (int) $obj->rowid;
+				$this->db->free($resql);
+				$res = $this->fetch($rowid);
+				$this->log('fetchByInvoiceOrOrder.end', ['rowid' => $rowid, 'res' => $res, 'by' => 'invoice']);
+				return $res;
+			}
+			$this->db->free($resql);
+		}
+
+		if ($commandeId > 0) {
+			$sql = sprintf(
+				"SELECT rowid FROM %s%s WHERE fk_commande = %d AND entity IN (%s) ORDER BY rowid DESC LIMIT 1",
+				MAIN_DB_PREFIX,
+				$this->table_element,
+				$commandeId,
+				getEntity($this->element, true)
+			);
+			$resql = $this->db->query($sql);
+			if (!$resql) {
+				$this->error = $this->db->lasterror();
+				$this->log('fetchByInvoiceOrOrder.sql_error_commande', ['error' => $this->error], LOG_ERR);
+				return -1;
+			}
+			if ($obj = $this->db->fetch_object($resql)) {
+				$rowid = (int) $obj->rowid;
+				$this->db->free($resql);
+				$res = $this->fetch($rowid);
+				$this->log('fetchByInvoiceOrOrder.end', ['rowid' => $rowid, 'res' => $res, 'by' => 'commande']);
+				return $res;
+			}
+			$this->db->free($resql);
+		}
+
+		$this->log('fetchByInvoiceOrOrder.end', ['rowid' => null, 'res' => 0]);
+		return 0;
+	}
+
+	/**
 	 * Convert mixed (array|object) payload into associative array.
 	 *
 	 * @param object|array|null $value Mixed payload to normalize.
