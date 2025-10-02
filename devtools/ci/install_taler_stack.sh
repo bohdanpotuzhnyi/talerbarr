@@ -124,6 +124,7 @@ main() {
   fi
 
   if command -v taler-merchant-rproxy >/dev/null 2>&1; then
+    # OF COURSE IT WILL FAIL ON THIS STEP
     log "taler-merchant-rproxy installed"
   fi
 
