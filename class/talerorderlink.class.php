@@ -1924,21 +1924,33 @@ class TalerOrderLink extends CommonObject
 
 		$requestPayload = array('order' => $postOrder);
 
-		$response = array();
-		try {
-			$response = $client->createOrder($requestPayload);
-		} catch (Throwable $e) {
-			dol_syslog('TalerOrderLink::upsertFromDolibarr createOrder failed: '.$e->getMessage(), LOG_ERR);
-			return -1;
-		}
-
-		$orderIdCreated = (string) ($response['order_id'] ?? $orderId);
+		$orderIdCreated = '';
 		$statusData = array();
-		try {
-			$statusData = $client->getOrderStatus($orderIdCreated);
-		} catch (Throwable $e) {
-			dol_syslog('TalerOrderLink::upsertFromDolibarr warning: getOrderStatus failed '.$e->getMessage(), LOG_WARNING);
-			$statusData = array('order_id' => $orderIdCreated);
+		if (!empty($link->taler_order_id)) {
+			$orderIdCreated = (string) $link->taler_order_id;
+			dol_syslog(__METHOD__.' skipping Taler createOrder because link already carries order '.$orderIdCreated, LOG_DEBUG);
+			try {
+				$statusData = $client->getOrderStatus($orderIdCreated);
+			} catch (Throwable $e) {
+				dol_syslog(__METHOD__.' warning: getOrderStatus failed '.$e->getMessage(), LOG_WARNING);
+				$statusData = array('order_id' => $orderIdCreated);
+			}
+		} else {
+			$response = array();
+			try {
+				$response = $client->createOrder($requestPayload);
+			} catch (Throwable $e) {
+				dol_syslog('TalerOrderLink::upsertFromDolibarr createOrder failed: '.$e->getMessage(), LOG_ERR);
+				return -1;
+			}
+
+			$orderIdCreated = (string) ($response['order_id'] ?? $orderId);
+			try {
+				$statusData = $client->getOrderStatus($orderIdCreated);
+			} catch (Throwable $e) {
+				dol_syslog('TalerOrderLink::upsertFromDolibarr warning: getOrderStatus failed '.$e->getMessage(), LOG_WARNING);
+				$statusData = array('order_id' => $orderIdCreated);
+			}
 		}
 		$statusData = self::normalizeToArray($statusData);
 
