@@ -101,7 +101,7 @@ install_gnunet() {
   ensure_packages \
     build-essential autoconf automake libtool pkg-config gettext texinfo \
     libunistring-dev libidn2-0-dev libmicrohttpd-dev libglpk-dev libjansson-dev \
-    libgnurl-dev libcurl4-gnutls-dev libgcrypt20-dev libsqlite3-dev libev-dev \
+    libcurl4-gnutls-dev libgcrypt20-dev libsqlite3-dev libev-dev \
     libevent-dev libprotobuf-c-dev protobuf-c-compiler libopus-dev libogg-dev \
     libltdl-dev nettle-dev meson ninja-build python3-pip python3-setuptools \
     python3-wheel
@@ -145,7 +145,7 @@ main() {
 
   ensure_packages \
     git build-essential autoconf automake libtool pkg-config gettext autopoint \
-    libmicrohttpd-dev libjansson-dev libgnutls28-dev libgnurl-dev libsodium-dev \
+    libmicrohttpd-dev libjansson-dev libgnutls28-dev libsodium-dev \
     libcurl4-gnutls-dev libpq-dev libsqlite3-dev libqrencode-dev libgcrypt20-dev \
     libunistring-dev libidn2-0-dev libmagic-dev zlib1g-dev ca-certificates \
     libev-dev libevent-dev libprotobuf-c-dev protobuf-c-compiler
