@@ -4,6 +4,8 @@
 
 set -euo pipefail
 
+export PATH="$HOME/.local/bin:$PATH"
+
 log() {
   printf '[taler-ci] %s\n' "$*"
 }
@@ -36,6 +38,33 @@ ensure_packages() {
   if [[ ${#packages[@]} -gt 0 ]]; then
     apt_install "${packages[@]}"
   fi
+}
+
+ensure_meson_toolchain() {
+  local required_meson_version="1.0.0"
+
+  if ! command -v meson >/dev/null 2>&1; then
+    log "Meson not found; attempting installation"
+  fi
+
+  local meson_version=""
+  if command -v meson >/dev/null 2>&1; then
+    meson_version=$(meson --version || printf '')
+  fi
+
+  if [[ -z $meson_version ]] || ! dpkg --compare-versions "$meson_version" ge "$required_meson_version"; then
+    log "Ensuring Meson >= $required_meson_version via pip"
+    pip3 install --user --upgrade "meson>=$required_meson_version"
+    hash -r
+    meson_version=$(meson --version || printf '')
+  fi
+
+  if [[ -z $meson_version ]] || ! dpkg --compare-versions "$meson_version" ge "$required_meson_version"; then
+    log "Meson version requirement not satisfied (have: ${meson_version:-unknown})"
+    return 1
+  fi
+
+  log "Meson version $meson_version available"
 }
 
 build_project() {
@@ -74,17 +103,41 @@ install_gnunet() {
     libunistring-dev libidn2-0-dev libmicrohttpd-dev libglpk-dev libjansson-dev \
     libgnurl-dev libcurl4-gnutls-dev libgcrypt20-dev libsqlite3-dev libev-dev \
     libevent-dev libprotobuf-c-dev protobuf-c-compiler libopus-dev libogg-dev \
-    libltdl-dev nettle-dev
+    libltdl-dev nettle-dev meson ninja-build python3-pip python3-setuptools \
+    python3-wheel
+
+  ensure_meson_toolchain
 
   mkdir -p "$TALER_BUILD_ROOT"
 
   local gnunet_args=()
-  if [[ -n ${GNUNET_CONFIGURE_FLAGS:-} ]]; then
+  if [[ -n ${GNUNET_MESON_FLAGS:-} ]]; then
+    # shellcheck disable=SC2206
+    gnunet_args=(${GNUNET_MESON_FLAGS})
+  elif [[ -n ${GNUNET_CONFIGURE_FLAGS:-} ]]; then
+    log "GNUNET_CONFIGURE_FLAGS detected; using as Meson options (deprecated)."
     # shellcheck disable=SC2206
     gnunet_args=(${GNUNET_CONFIGURE_FLAGS})
   fi
 
-  build_project "GNUnet" "$GNUNET_REPO" "$GNUNET_REF" "$TALER_BUILD_ROOT/gnunet" "${gnunet_args[@]}"
+  log "Preparing GNUnet in $TALER_BUILD_ROOT/gnunet (ref $GNUNET_REF)"
+  if [[ ! -d $TALER_BUILD_ROOT/gnunet ]]; then
+    git clone --depth "$TALER_CLONE_DEPTH" "$GNUNET_REPO" "$TALER_BUILD_ROOT/gnunet"
+  fi
+  (
+    cd "$TALER_BUILD_ROOT/gnunet"
+    git fetch --depth "$TALER_CLONE_DEPTH" origin "$GNUNET_REF"
+    git checkout -B ci-build FETCH_HEAD
+    if [[ -x ./bootstrap ]]; then
+      ./bootstrap
+    fi
+    local build_dir="build"
+    rm -rf "$build_dir"
+    meson setup --prefix="$TALER_PREFIX" "$build_dir" "${gnunet_args[@]}"
+    meson compile -C "$build_dir" -j "$TALER_BUILD_JOBS"
+    sudo env "PATH=$PATH" meson install -C "$build_dir"
+  )
+  sudo ldconfig
 }
 
 main() {
