@@ -96,6 +96,9 @@ before_install:
     sudo rm -fr ~/.phpenv
     sudo rm -fr /root/.phpenv
     sudo add-apt-repository -y ppa:ondrej/php
+    echo "Adding curl 8+ apt repository"
+    sudo add-apt-repository -y ppa:curl/curl
+    sudo apt-get update
     echo TRAVIS_PHP_VERSION=$TRAVIS_PHP_VERSION
 
   - |
@@ -109,7 +112,12 @@ before_install:
 
   - |
     echo Install packages for PHP
-    sudo apt-get install -y pgloader memcached
+    sudo apt-get install -y curl pgloader memcached
+    CURL_VERSION=$(curl --version | head -n1 | awk '{print $2}')
+    if [ "${CURL_VERSION%%.*}" -lt 8 ]; then
+      echo "Curl version $CURL_VERSION is too old; expected >= 8"
+      exit 1
+    fi
     if [ "$TRAVIS_PHP_VERSION" = '7.1' ]; then
       sudo apt install unzip apache2 php7.1 php7.1-cli php7.1-curl php7.1-mysql php7.1-pgsql php7.1-gd php7.1-imap php7.1-intl php7.1-ldap php7.1-xml php7.1-mbstring php7.1-xml php7.1-zip libapache2-mod-php7.1
     fi
