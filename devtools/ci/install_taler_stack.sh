@@ -40,6 +40,47 @@ ensure_packages() {
   fi
 }
 
+pip_install_user() {
+  local package=$1
+  if pip3 install --user --break-system-packages "$package"; then
+    return 0
+  fi
+
+  log "pip3 failed with --break-system-packages; retrying without flag"
+  pip3 install --user "$package"
+}
+
+ensure_python_module() {
+  local module=$1
+  local apt_package=${2:-}
+  local pip_package=${3:-$module}
+
+  if python3 -c "import ${module}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [[ -n $apt_package ]]; then
+    log "Python module ${module} missing; installing ${apt_package} via apt"
+    ensure_packages "$apt_package"
+    if python3 -c "import ${module}" >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+
+  log "Python module ${module} still missing; falling back to pip"
+  ensure_packages python3-pip python3-setuptools python3-wheel
+  if ! pip_install_user "${pip_package}"; then
+    return 1
+  fi
+  if python3 -c "import ${module}" >/dev/null 2>&1; then
+    log "Python module ${module} available"
+    return 0
+  fi
+
+  log "Failed to ensure Python module ${module}"
+  return 1
+}
+
 ensure_meson_toolchain() {
   local required_meson_version="1.0.0"
 
@@ -149,6 +190,8 @@ main() {
     libcurl4-gnutls-dev libpq-dev libsqlite3-dev libqrencode-dev libgcrypt20-dev \
     libunistring-dev libidn2-0-dev libmagic-dev zlib1g-dev ca-certificates \
     libev-dev libevent-dev libprotobuf-c-dev protobuf-c-compiler python3-jinja2
+
+  ensure_python_module jinja2 python3-jinja2 "Jinja2>=3.0"
 
   install_gnunet
 
