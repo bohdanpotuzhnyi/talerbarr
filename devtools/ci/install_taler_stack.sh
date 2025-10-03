@@ -133,11 +133,6 @@ build_project() {
 }
 
 install_gnunet() {
-  log "Attempting to install GNUnet from packages"
-  if apt_install gnunet libgnunet-dev; then
-    return 0
-  fi
-
   log "Falling back to building GNUnet from source"
   ensure_packages \
     build-essential autoconf automake libtool pkg-config gettext texinfo \
