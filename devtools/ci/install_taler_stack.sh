@@ -148,7 +148,10 @@ main() {
     libmicrohttpd-dev libjansson-dev libgnutls28-dev libsodium-dev \
     libcurl4-gnutls-dev libpq-dev libsqlite3-dev libqrencode-dev libgcrypt20-dev \
     libunistring-dev libidn2-0-dev libmagic-dev zlib1g-dev ca-certificates \
-    libev-dev libevent-dev libprotobuf-c-dev protobuf-c-compiler python3-jinja2
+    libev-dev libevent-dev libprotobuf-c-dev protobuf-c-compiler python3-pip
+
+  log "Ensuring Python Jinja2 module via pip"
+  sudo pip3 install --break-system-packages Jinja2
 
   install_gnunet
 
