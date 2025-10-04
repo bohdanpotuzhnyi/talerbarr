@@ -215,11 +215,10 @@ main() {
   build_project "Taler Merchant" "$TALER_MERCHANT_REPO" "$TALER_MERCHANT_REF" \
     "$TALER_BUILD_ROOT/merchant" "${merchant_args[@]}"
 
-  # exec of this must happen, I can't see it...
   taler-merchant-dbconfig
 
   taler-merchant-rproxy-setup
-    
+
   log "GNU Taler stack installation complete"
 }
 
