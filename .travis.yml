@@ -115,8 +115,26 @@ before_install:
     sudo apt-get install -y curl pgloader memcached
     CURL_VERSION=$(curl --version | head -n1 | awk '{print $2}')
     if [ "${CURL_VERSION%%.*}" -lt 8 ]; then
-      echo "Curl version $CURL_VERSION is too old; expected >= 8"
-      exit 1
+      echo "Curl version $CURL_VERSION is too old; building curl 8.7.1 from source"
+      sudo apt-get install -y build-essential autoconf automake libtool pkg-config \
+        libssl-dev zlib1g-dev libnghttp2-dev libidn2-0-dev
+      CURL_BUILD_DIR=$(mktemp -d)
+      curl -fsSL https://curl.se/download/curl-8.7.1.tar.xz -o "$CURL_BUILD_DIR/curl.tar.xz"
+      tar -xf "$CURL_BUILD_DIR/curl.tar.xz" -C "$CURL_BUILD_DIR"
+      (
+        cd "$CURL_BUILD_DIR"/curl-8.7.1
+        ./configure --with-openssl --prefix=/usr/local
+        make -j$(command -v nproc >/dev/null 2>&1 && nproc || echo 2)
+        sudo make install
+      )
+      rm -rf "$CURL_BUILD_DIR"
+      sudo ldconfig
+      hash -r
+      CURL_VERSION=$(curl --version | head -n1 | awk '{print $2}')
+      if [ "${CURL_VERSION%%.*}" -lt 8 ]; then
+        echo "Failed to provision curl >= 8 (current: $CURL_VERSION)"
+        exit 1
+      fi
     fi
     if [ "$TRAVIS_PHP_VERSION" = '7.1' ]; then
       sudo apt install unzip apache2 php7.1 php7.1-cli php7.1-curl php7.1-mysql php7.1-pgsql php7.1-gd php7.1-imap php7.1-intl php7.1-ldap php7.1-xml php7.1-mbstring php7.1-xml php7.1-zip libapache2-mod-php7.1
