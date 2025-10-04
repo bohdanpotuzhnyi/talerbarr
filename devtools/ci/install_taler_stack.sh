@@ -13,6 +13,7 @@ log() {
 # Default locations allow callers to override when needed.
 readonly TALER_PREFIX="${TALER_PREFIX:-/usr/local}"
 readonly TALER_BUILD_ROOT="${TALER_BUILD_ROOT:-$HOME/taler-build}"
+readonly TALER_LOG_DIR="${TALER_LOG_DIR:-$TALER_BUILD_ROOT/logs}"
 readonly TALER_BUILD_JOBS="${TALER_BUILD_JOBS:-$(command -v nproc >/dev/null 2>&1 && nproc || printf '2')}"
 readonly TALER_MERCHANT_REPO="${TALER_MERCHANT_REPO:-https://git.taler.net/merchant.git}"
 readonly TALER_EXCHANGE_REPO="${TALER_EXCHANGE_REPO:-https://git.taler.net/exchange.git}"
@@ -145,6 +146,7 @@ install_gnunet() {
   ensure_meson_toolchain
 
   mkdir -p "$TALER_BUILD_ROOT"
+  mkdir -p "$TALER_LOG_DIR"
 
   local gnunet_args=()
   if [[ -n ${GNUNET_MESON_FLAGS:-} ]]; then
@@ -213,16 +215,11 @@ main() {
   build_project "Taler Merchant" "$TALER_MERCHANT_REPO" "$TALER_MERCHANT_REF" \
     "$TALER_BUILD_ROOT/merchant" "${merchant_args[@]}"
 
-  if command -v taler-merchant-dbconfig >/dev/null 2>&1; then
-    log "Ensuring merchant database helpers are available"
-    sudo taler-merchant-dbconfig --help >/dev/null 2>&1 || true
-  fi
+  # exec of this must happen, I can't see it...
+  taler-merchant-dbconfig
 
-  if command -v taler-merchant-rproxy >/dev/null 2>&1; then
-    # OF COURSE IT WILL FAIL ON THIS STEP
-    log "taler-merchant-rproxy installed"
-  fi
-
+  taler-merchant-rproxy-setup
+    
   log "GNU Taler stack installation complete"
 }
 
