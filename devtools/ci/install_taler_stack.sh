@@ -14,7 +14,7 @@ log() {
 readonly TALER_PREFIX="${TALER_PREFIX:-/usr/local}"
 readonly TALER_BUILD_ROOT="${TALER_BUILD_ROOT:-$HOME/taler-build}"
 readonly TALER_BUILD_JOBS="${TALER_BUILD_JOBS:-$(command -v nproc >/dev/null 2>&1 && nproc || printf '2')}"
-readonly TALER_MERCHANT_REPO="${TALER_MERCHANT_REPO:-https://git.taler.net/taler-merchant.git}"
+readonly TALER_MERCHANT_REPO="${TALER_MERCHANT_REPO:-https://git.taler.net/merchant.git}"
 readonly TALER_EXCHANGE_REPO="${TALER_EXCHANGE_REPO:-https://git.taler.net/exchange.git}"
 readonly TALER_MERCHANT_REF="${TALER_MERCHANT_REF:-master}"
 readonly TALER_EXCHANGE_REF="${TALER_EXCHANGE_REF:-master}"
@@ -211,7 +211,7 @@ main() {
     "$TALER_BUILD_ROOT/exchange" "${exchange_args[@]}"
 
   build_project "Taler Merchant" "$TALER_MERCHANT_REPO" "$TALER_MERCHANT_REF" \
-    "$TALER_BUILD_ROOT/taler-merchant" "${merchant_args[@]}"
+    "$TALER_BUILD_ROOT/merchant" "${merchant_args[@]}"
 
   if command -v taler-merchant-dbconfig >/dev/null 2>&1; then
     log "Ensuring merchant database helpers are available"
