@@ -184,7 +184,11 @@ main() {
     libmicrohttpd-dev libjansson-dev libgnutls28-dev libsodium-dev \
     libcurl4-gnutls-dev libpq-dev libsqlite3-dev libqrencode-dev libgcrypt20-dev \
     libunistring-dev libidn2-0-dev libmagic-dev zlib1g-dev ca-certificates \
-    libev-dev libevent-dev libprotobuf-c-dev protobuf-c-compiler python3-jinja2
+    libev-dev libevent-dev libprotobuf-c-dev protobuf-c-compiler python3-jinja2 \
+    gcc-12 g++-12
+
+  echo "Using gcc-12 and g++-12 for building Taler components"
+  export CC=gcc-12 CXX=g++-12
 
   ensure_python_module jinja2 python3-jinja2 "Jinja2>=3.0"
 
