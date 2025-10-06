@@ -215,9 +215,9 @@ main() {
   build_project "Taler Merchant" "$TALER_MERCHANT_REPO" "$TALER_MERCHANT_REF" \
     "$TALER_BUILD_ROOT/merchant" "${merchant_args[@]}"
 
-  taler-merchant-dbconfig
+  sudo env "PATH=$PATH" taler-merchant-dbconfig
 
-  taler-merchant-rproxy-setup
+  sudo env "PATH=$PATH" taler-merchant-rproxy-setup
 
   log "GNU Taler stack installation complete"
 }
