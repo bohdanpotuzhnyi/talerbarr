@@ -304,6 +304,11 @@ provision_sandcastle() {
     git fetch --depth "${TALER_CLONE_DEPTH}" origin "${ref}"
     git checkout -B ci-build FETCH_HEAD
 
+    local head_commit head_subject
+    head_commit=$(git rev-parse --short HEAD 2>/dev/null || printf 'unknown')
+    head_subject=$(git show -s --format=%s HEAD 2>/dev/null || printf 'unknown commit')
+    log "sandcastle-ng HEAD ${head_commit} (${head_subject}) from ref '${ref}'"
+
     local overrides_dir="${checkout_dir}/overrides"
     local resolved_override="${requested_override}"
     if [[ -n $resolved_override && ! -f "${overrides_dir}/${resolved_override}" ]]; then
