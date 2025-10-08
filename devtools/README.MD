@@ -20,3 +20,18 @@ npm install
 # Install and activate pre-commit hooks
 pre-commit install --install-hooks --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
 ```
+
+## GNU Taler Sandcastle Provisioning
+
+The CI helper script at `devtools/ci/install_taler_stack.sh` supports two bootstrap modes:
+
+- `TALER_STACK_MODE=build` (default) compiles the GNU Taler exchange/merchant stack from source.
+- `TALER_STACK_MODE=sandcastle` provisions services via the [`sandcastle-ng`](https://git.taler.net/sandcastle-ng.git) container, building the image with Podman and waiting for systemd inside the container to become ready.
+
+Additional environment variables customise the container workflow:
+
+- `SANDCASTLE_OVERRIDE_NAME` selects a configuration override (defaults to `ci`).
+- `SANDCASTLE_BUILD_ARGS` / `SANDCASTLE_RUN_ARGS` supply extra arguments to `sandcastle-build` and `sandcastle-run`.
+- `SANDCASTLE_REPO`, `SANDCASTLE_REF`, and `SANDCASTLE_ROOT` control where the repository is cloned.
+
+The Travis configuration enables sandcastle mode by default so module integration tests run against a self-contained GNU Taler deployment.

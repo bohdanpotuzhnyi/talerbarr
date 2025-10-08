@@ -178,7 +178,120 @@ install_gnunet() {
   sudo ldconfig
 }
 
+podman_container_running() {
+  local name=$1
+
+  sudo podman ps --filter "name=${name}" --filter status=running --format '{{.Names}}' | grep -q "^${name}$"
+}
+
+wait_for_sandcastle_ready() {
+  local container_name=$1
+  local attempts="${SANDCASTLE_WAIT_ATTEMPTS:-60}"
+  local delay="${SANDCASTLE_WAIT_DELAY:-5}"
+
+  log "Waiting for sandcastle container '${container_name}' to report ready state"
+  while (( attempts > 0 )); do
+    if podman_container_running "${container_name}"; then
+      local systemd_status
+      systemd_status=$(sudo podman exec "${container_name}" systemctl is-system-running 2>/dev/null || printf 'unknown')
+      case "${systemd_status}" in
+        running|degraded)
+          log "Sandcastle systemd status: ${systemd_status}"
+          return 0
+          ;;
+        starting|initializing|"maintenance mode")
+          log "Sandcastle still starting (systemd status: ${systemd_status}); retrying..."
+          ;;
+        *)
+          log "Sandcastle systemd status '${systemd_status}' not ready yet; retrying..."
+          ;;
+      esac
+    else
+      log "Sandcastle container '${container_name}' not running yet; waiting..."
+    fi
+    sleep "${delay}"
+    ((attempts--))
+  done
+
+  log "Timed out waiting for sandcastle container '${container_name}' to become ready"
+  sudo podman ps -a || true
+  sudo podman logs "${container_name}" 2>/dev/null || true
+  sudo podman exec "${container_name}" journalctl -xe 2>/dev/null | tail -n 50 || true
+  return 1
+}
+
+provision_sandcastle() {
+  log "Provisioning GNU Taler services via sandcastle-ng container"
+  ensure_packages git podman
+
+  local container_name="${SANDCASTLE_CONTAINER_NAME:-taler-sandcastle}"
+  local repo="${SANDCASTLE_REPO:-https://git.taler.net/sandcastle-ng.git}"
+  local ref="${SANDCASTLE_REF:-master}"
+  local checkout_dir="${SANDCASTLE_ROOT:-$TALER_BUILD_ROOT/sandcastle-ng}"
+  local override_name="${SANDCASTLE_OVERRIDE_NAME:-ci}"
+
+  # shellcheck disable=SC2206
+  local build_args=(${SANDCASTLE_BUILD_ARGS:-})
+  # shellcheck disable=SC2206
+  local run_args=(${SANDCASTLE_RUN_ARGS:-})
+
+  mkdir -p "$TALER_BUILD_ROOT"
+  if [[ ! -d $checkout_dir ]]; then
+    log "Cloning sandcastle-ng repository (${repo} @ ${ref})"
+    git clone --depth "${TALER_CLONE_DEPTH}" "${repo}" "${checkout_dir}"
+  fi
+  (
+    cd "${checkout_dir}"
+    log "Updating sandcastle-ng repository"
+    git fetch --depth "${TALER_CLONE_DEPTH}" origin "${ref}"
+    git checkout -B ci-build FETCH_HEAD
+
+    if ! podman_container_running "${container_name}"; then
+      log "Building sandcastle container image"
+      sudo env "PATH=$PATH" ./sandcastle-build "${build_args[@]}"
+
+      log "Launching sandcastle container '${container_name}'"
+      local -a env_passthrough=(
+        "PATH=$PATH"
+        "SANDCASTLE_OVERRIDE_NAME=${override_name}"
+      )
+      if [[ -n ${SANDCASTLE_SETUP_NAME:-} ]]; then
+        env_passthrough+=("SANDCASTLE_SETUP_NAME=${SANDCASTLE_SETUP_NAME}")
+      fi
+      if [[ -n ${EXTERNAL_PORT:-} ]]; then
+        env_passthrough+=("EXTERNAL_PORT=${EXTERNAL_PORT}")
+      fi
+      if [[ -n ${EXTERNAL_IP:-} ]]; then
+        env_passthrough+=("EXTERNAL_IP=${EXTERNAL_IP}")
+      fi
+      if [[ -n ${USE_INSECURE_SANDBOX_PASSWORDS:-} ]]; then
+        env_passthrough+=("USE_INSECURE_SANDBOX_PASSWORDS=${USE_INSECURE_SANDBOX_PASSWORDS}")
+      fi
+      sudo env "${env_passthrough[@]}" ./sandcastle-run "${run_args[@]}"
+    else
+      log "Reusing already running sandcastle container '${container_name}'"
+    fi
+  )
+
+  wait_for_sandcastle_ready "${container_name}"
+  log "Sandcastle provisioning finished"
+}
+
 main() {
+  local mode="${TALER_STACK_MODE:-build}"
+  case "${mode}" in
+    sandcastle)
+      provision_sandcastle
+      return
+      ;;
+    build)
+      ;;
+    *)
+      log "Unsupported TALER_STACK_MODE '${mode}' (expected 'build' or 'sandcastle')"
+      return 1
+      ;;
+  esac
+
   log "Starting GNU Taler stack bootstrap"
 
   ensure_packages \

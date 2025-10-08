@@ -29,6 +29,7 @@ env:
     # Set to true for very verbose output
     - DEBUG=true
     - COMPOSER_ALLOW_SUPERUSER=1
+    - TALER_STACK_MODE=sandcastle
 
 cache:
   directories:
@@ -665,6 +666,13 @@ after_script:
     echo "After script - Output last lines of apache error.log"
     sudo ls /var/log/apache2
     sudo tail -n 200 /var/log/apache2/travis_error_log
+    echo "After script - Stop sandcastle container if present"
+    if command -v podman >/dev/null 2>&1; then
+      if sudo podman ps -a --format '{{.Names}}' | grep -q '^taler-sandcastle$'; then
+        sudo podman stop taler-sandcastle || true
+        sudo podman rm taler-sandcastle || true
+      fi
+    fi
 
 after_success:
   - |
