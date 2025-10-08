@@ -37,4 +37,6 @@ Additional environment variables customise the container workflow:
 - `SANDCASTLE_REPO`, `SANDCASTLE_REF`, and `SANDCASTLE_ROOT` control where the repository is cloned.
 - `TALER_PODMAN_SYSTEM_OVERRIDE` customises the root-level containers.conf drop-in created alongside the user override.
 
+If the requested override is missing, the helper automatically tries `ci`, then `demo`, and finally the first available override file. Set `SANDCASTLE_OVERRIDE_NAME` to an empty string to opt out of this fallback and launch without an override.
+
 The Travis configuration enables sandcastle mode by default so module integration tests run against a self-contained GNU Taler deployment.

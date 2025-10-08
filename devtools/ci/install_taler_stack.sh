@@ -277,11 +277,16 @@ provision_sandcastle() {
   ensure_packages git podman
   ensure_podman_override
 
+  local override_env_explicit=0
+  if [[ "${SANDCASTLE_OVERRIDE_NAME+x}" == "x" ]]; then
+    override_env_explicit=1
+  fi
+
   local container_name="${SANDCASTLE_CONTAINER_NAME:-taler-sandcastle}"
   local repo="${SANDCASTLE_REPO:-https://git.taler.net/sandcastle-ng.git}"
   local ref="${SANDCASTLE_REF:-master}"
   local checkout_dir="${SANDCASTLE_ROOT:-$TALER_BUILD_ROOT/sandcastle-ng}"
-  local override_name="${SANDCASTLE_OVERRIDE_NAME:-ci}"
+  local requested_override="${SANDCASTLE_OVERRIDE_NAME:-ci}"
 
   # shellcheck disable=SC2206
   local build_args=(${SANDCASTLE_BUILD_ARGS:-})
@@ -299,6 +304,44 @@ provision_sandcastle() {
     git fetch --depth "${TALER_CLONE_DEPTH}" origin "${ref}"
     git checkout -B ci-build FETCH_HEAD
 
+    local overrides_dir="${checkout_dir}/overrides"
+    local resolved_override="${requested_override}"
+    if [[ -n $resolved_override && ! -f "${overrides_dir}/${resolved_override}" ]]; then
+      log "Requested sandcastle override '${resolved_override}' not found in ${overrides_dir}"
+      resolved_override=""
+      if (( override_env_explicit == 1 )); then
+        log "Environment provided sandcastle override but file is missing; continuing without override"
+      fi
+    fi
+
+    if [[ -z $resolved_override && -d "$overrides_dir" ]]; then
+      if (( override_env_explicit == 0 )); then
+        local candidate
+        for candidate in ci demo; do
+          if [[ -f "${overrides_dir}/${candidate}" ]]; then
+            resolved_override="$candidate"
+            break
+          fi
+        done
+        if [[ -z $resolved_override ]]; then
+          candidate=$(find "${overrides_dir}" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort | head -n 1 || printf '')
+          if [[ -n $candidate ]]; then
+            resolved_override="$candidate"
+          fi
+        fi
+
+        if [[ -n $resolved_override ]]; then
+          log "Falling back to sandcastle override '${resolved_override}'"
+        else
+          log "No sandcastle overrides found; proceeding without override"
+        fi
+      else
+        log "Sandcastle override fallback disabled by environment; proceeding without override"
+      fi
+    elif [[ -n $resolved_override ]]; then
+      log "Using sandcastle override '${resolved_override}'"
+    fi
+
     if ! podman_container_running "${container_name}"; then
       log "Building sandcastle container image"
       local -a env_passthrough_build=("PATH=$PATH" "CONTAINERS_CONF_OVERRIDE=$PODMAN_OVERRIDE_CONF")
@@ -308,8 +351,10 @@ provision_sandcastle() {
       local -a env_passthrough=(
         "PATH=$PATH"
         "CONTAINERS_CONF_OVERRIDE=$PODMAN_OVERRIDE_CONF"
-        "SANDCASTLE_OVERRIDE_NAME=${override_name}"
       )
+      if [[ -n $resolved_override ]]; then
+        env_passthrough+=("SANDCASTLE_OVERRIDE_NAME=${resolved_override}")
+      fi
       if [[ -n ${SANDCASTLE_SETUP_NAME:-} ]]; then
         env_passthrough+=("SANDCASTLE_SETUP_NAME=${SANDCASTLE_SETUP_NAME}")
       fi
