@@ -25,8 +25,10 @@ pre-commit install --install-hooks --hook-type pre-commit --hook-type commit-msg
 
 The CI helper script at `devtools/ci/install_taler_stack.sh` supports two bootstrap modes:
 
-- `TALER_STACK_MODE=build` (default) compiles the GNU Taler exchange/merchant stack from source.
-- `TALER_STACK_MODE=sandcastle` provisions services via the [`sandcastle-ng`](https://git.taler.net/sandcastle-ng.git) container, building the image with Podman and waiting for systemd inside the container to become ready.
+- `TALER_STACK_MODE=sandcastle` (default) provisions services via the [`sandcastle-ng`](https://git.taler.net/sandcastle-ng.git) container, building the image with Podman and waiting for systemd inside the container to become ready.
+- `TALER_STACK_MODE=build` compiles the GNU Taler exchange/merchant stack from source.
+
+When using sandcastle in CI environments without systemd for cgroup management, set `TALER_PODMAN_OVERRIDE_CONF` to a writable path (Travis uses `/tmp/taler-podman-containers.conf`). The helper script writes a minimal Podman override there to force `cgroupfs` and a file-based events logger so builds succeed under Podman.
 
 Additional environment variables customise the container workflow:
 

@@ -30,6 +30,7 @@ env:
     - DEBUG=true
     - COMPOSER_ALLOW_SUPERUSER=1
     - TALER_STACK_MODE=sandcastle
+    - TALER_PODMAN_OVERRIDE_CONF=/tmp/taler-podman-containers.conf
 
 cache:
   directories:
@@ -668,9 +669,13 @@ after_script:
     sudo tail -n 200 /var/log/apache2/travis_error_log
     echo "After script - Stop sandcastle container if present"
     if command -v podman >/dev/null 2>&1; then
-      if sudo podman ps -a --format '{{.Names}}' | grep -q '^taler-sandcastle$'; then
-        sudo podman stop taler-sandcastle || true
-        sudo podman rm taler-sandcastle || true
+      podman_env_cmd=(sudo env)
+      if [ -n "${TALER_PODMAN_OVERRIDE_CONF:-}" ]; then
+        podman_env_cmd+=("CONTAINERS_CONF_OVERRIDE=${TALER_PODMAN_OVERRIDE_CONF}")
+      fi
+      if "${podman_env_cmd[@]}" podman ps -a --format '{{.Names}}' | grep -q '^taler-sandcastle$'; then
+        "${podman_env_cmd[@]}" podman stop taler-sandcastle || true
+        "${podman_env_cmd[@]}" podman rm taler-sandcastle || true
       fi
     fi
 

@@ -22,6 +22,7 @@ readonly TALER_EXCHANGE_REF="${TALER_EXCHANGE_REF:-master}"
 readonly GNUNET_REPO="${GNUNET_REPO:-https://git.gnunet.org/gnunet.git}"
 readonly GNUNET_REF="${GNUNET_REF:-master}"
 readonly TALER_CLONE_DEPTH="${TALER_CLONE_DEPTH:-1}"
+readonly PODMAN_OVERRIDE_CONF="${TALER_PODMAN_OVERRIDE_CONF:-$TALER_BUILD_ROOT/podman-containers.conf}"
 
 apt_updated=0
 apt_install() {
@@ -109,6 +110,43 @@ ensure_meson_toolchain() {
   log "Meson version $meson_version available"
 }
 
+podman_override_ready=0
+ensure_podman_override() {
+  if [[ $podman_override_ready -eq 1 ]]; then
+    return
+  fi
+
+  local override_target="$PODMAN_OVERRIDE_CONF"
+  local override_dir
+  override_dir=$(dirname "$override_target")
+
+  if [[ ! -d $override_dir ]]; then
+    if ! mkdir -p "$override_dir"; then
+      sudo mkdir -p "$override_dir"
+    fi
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  cat <<'EOF' >"$tmpfile"
+[engine]
+cgroup_manager="cgroupfs"
+events_logger="file"
+EOF
+
+  if ! cp "$tmpfile" "$override_target"; then
+    sudo cp "$tmpfile" "$override_target"
+  fi
+  rm -f "$tmpfile"
+
+  podman_override_ready=1
+}
+
+podman_cmd() {
+  ensure_podman_override
+  sudo env "CONTAINERS_CONF_OVERRIDE=$PODMAN_OVERRIDE_CONF" podman "$@"
+}
+
 build_project() {
   local name=$1
   local repo=$2
@@ -181,7 +219,7 @@ install_gnunet() {
 podman_container_running() {
   local name=$1
 
-  sudo podman ps --filter "name=${name}" --filter status=running --format '{{.Names}}' | grep -q "^${name}$"
+  podman_cmd ps --filter "name=${name}" --filter status=running --format '{{.Names}}' | grep -q "^${name}$"
 }
 
 wait_for_sandcastle_ready() {
@@ -193,7 +231,7 @@ wait_for_sandcastle_ready() {
   while (( attempts > 0 )); do
     if podman_container_running "${container_name}"; then
       local systemd_status
-      systemd_status=$(sudo podman exec "${container_name}" systemctl is-system-running 2>/dev/null || printf 'unknown')
+      systemd_status=$(podman_cmd exec "${container_name}" systemctl is-system-running 2>/dev/null || printf 'unknown')
       case "${systemd_status}" in
         running|degraded)
           log "Sandcastle systemd status: ${systemd_status}"
@@ -214,15 +252,16 @@ wait_for_sandcastle_ready() {
   done
 
   log "Timed out waiting for sandcastle container '${container_name}' to become ready"
-  sudo podman ps -a || true
-  sudo podman logs "${container_name}" 2>/dev/null || true
-  sudo podman exec "${container_name}" journalctl -xe 2>/dev/null | tail -n 50 || true
+  podman_cmd ps -a || true
+  podman_cmd logs "${container_name}" 2>/dev/null || true
+  podman_cmd exec "${container_name}" journalctl -xe 2>/dev/null | tail -n 50 || true
   return 1
 }
 
 provision_sandcastle() {
   log "Provisioning GNU Taler services via sandcastle-ng container"
   ensure_packages git podman
+  ensure_podman_override
 
   local container_name="${SANDCASTLE_CONTAINER_NAME:-taler-sandcastle}"
   local repo="${SANDCASTLE_REPO:-https://git.taler.net/sandcastle-ng.git}"
@@ -248,11 +287,13 @@ provision_sandcastle() {
 
     if ! podman_container_running "${container_name}"; then
       log "Building sandcastle container image"
-      sudo env "PATH=$PATH" ./sandcastle-build "${build_args[@]}"
+      local -a env_passthrough_build=("PATH=$PATH" "CONTAINERS_CONF_OVERRIDE=$PODMAN_OVERRIDE_CONF")
+      sudo env "${env_passthrough_build[@]}" ./sandcastle-build "${build_args[@]}"
 
       log "Launching sandcastle container '${container_name}'"
       local -a env_passthrough=(
         "PATH=$PATH"
+        "CONTAINERS_CONF_OVERRIDE=$PODMAN_OVERRIDE_CONF"
         "SANDCASTLE_OVERRIDE_NAME=${override_name}"
       )
       if [[ -n ${SANDCASTLE_SETUP_NAME:-} ]]; then
@@ -277,21 +318,7 @@ provision_sandcastle() {
   log "Sandcastle provisioning finished"
 }
 
-main() {
-  local mode="${TALER_STACK_MODE:-build}"
-  case "${mode}" in
-    sandcastle)
-      provision_sandcastle
-      return
-      ;;
-    build)
-      ;;
-    *)
-      log "Unsupported TALER_STACK_MODE '${mode}' (expected 'build' or 'sandcastle')"
-      return 1
-      ;;
-  esac
-
+provision_build() {
   log "Starting GNU Taler stack bootstrap"
 
   ensure_packages \
@@ -333,6 +360,22 @@ main() {
   sudo env "PATH=$PATH" taler-merchant-rproxy-setup
 
   log "GNU Taler stack installation complete"
+}
+
+main() {
+  local mode="${TALER_STACK_MODE:-sandcastle}"
+  case "${mode}" in
+    sandcastle)
+      provision_sandcastle
+      ;;
+    build)
+      provision_build
+      ;;
+    *)
+      log "Unsupported TALER_STACK_MODE '${mode}' (expected 'build' or 'sandcastle')"
+      return 1
+      ;;
+  esac
 }
 
 main "$@"
