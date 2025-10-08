@@ -132,6 +132,7 @@ ensure_podman_override() {
 [engine]
 cgroup_manager="cgroupfs"
 events_logger="file"
+runtime="runc"
 EOF
 
   if ! cp "$tmpfile" "$override_target"; then
