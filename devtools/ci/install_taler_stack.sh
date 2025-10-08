@@ -23,6 +23,7 @@ readonly GNUNET_REPO="${GNUNET_REPO:-https://git.gnunet.org/gnunet.git}"
 readonly GNUNET_REF="${GNUNET_REF:-master}"
 readonly TALER_CLONE_DEPTH="${TALER_CLONE_DEPTH:-1}"
 readonly PODMAN_OVERRIDE_CONF="${TALER_PODMAN_OVERRIDE_CONF:-$TALER_BUILD_ROOT/podman-containers.conf}"
+readonly PODMAN_SYSTEM_OVERRIDE="${TALER_PODMAN_SYSTEM_OVERRIDE:-/etc/containers/containers.conf.d/99-taler-sandcastle.conf}"
 
 apt_updated=0
 apt_install() {
@@ -137,6 +138,18 @@ EOF
 
   if ! cp "$tmpfile" "$override_target"; then
     sudo cp "$tmpfile" "$override_target"
+  fi
+  chmod 644 "$override_target" 2>/dev/null || sudo chmod 644 "$override_target"
+
+  local system_override="$PODMAN_SYSTEM_OVERRIDE"
+  if [[ -n $system_override ]]; then
+    local system_dir
+    system_dir=$(dirname "$system_override")
+    if [[ ! -d $system_dir ]]; then
+      sudo mkdir -p "$system_dir"
+    fi
+    sudo cp "$tmpfile" "$system_override"
+    sudo chmod 644 "$system_override"
   fi
   rm -f "$tmpfile"
 
