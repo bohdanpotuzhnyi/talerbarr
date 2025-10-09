@@ -279,11 +279,11 @@ wait_for_sandcastle_ready() {
       local systemd_status
       systemd_status=$(podman_cmd exec "${container_name}" systemctl is-system-running 2>/dev/null || printf 'unknown')
       case "${systemd_status}" in
-        running|degraded)
+        running|running*|degraded|degraded*)
           log "Sandcastle systemd status: ${systemd_status}"
           return 0
           ;;
-        starting|initializing|"maintenance mode")
+        starting|starting*|initializing|initializing*|"maintenance mode")
           log "Sandcastle still starting (systemd status: ${systemd_status}); retrying..."
           ;;
         *)
