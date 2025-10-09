@@ -35,6 +35,7 @@ Additional environment variables customise the container workflow:
 - `SANDCASTLE_OVERRIDE_NAME` selects a configuration override (defaults to `ci`).
 - `SANDCASTLE_BUILD_ARGS` / `SANDCASTLE_RUN_ARGS` supply extra arguments to `sandcastle-build` and `sandcastle-run`.
 - `SANDCASTLE_REPO`, `SANDCASTLE_REF`, and `SANDCASTLE_ROOT` control where the repository is cloned.
+- `TALER_DISABLE_DONAU` (defaults to `1`) stops and masks Donau services inside the container once systemd is up. Set to `0`/`no` to leave Donau running.
 - `TALER_PODMAN_SYSTEM_OVERRIDE` customises the root-level containers.conf drop-in created alongside the user override.
 
 If the requested override is missing, the helper automatically tries `ci`, then `demo`, and finally the first available override file. Set `SANDCASTLE_OVERRIDE_NAME` to an empty string to opt out of this fallback and launch without an override.

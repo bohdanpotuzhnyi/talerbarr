@@ -24,6 +24,7 @@ readonly GNUNET_REF="${GNUNET_REF:-master}"
 readonly TALER_CLONE_DEPTH="${TALER_CLONE_DEPTH:-1}"
 readonly PODMAN_OVERRIDE_CONF="${TALER_PODMAN_OVERRIDE_CONF:-$TALER_BUILD_ROOT/podman-containers.conf}"
 readonly PODMAN_SYSTEM_OVERRIDE="${TALER_PODMAN_SYSTEM_OVERRIDE:-/etc/containers/containers.conf.d/99-taler-sandcastle.conf}"
+readonly TALER_DISABLE_DONAU="${TALER_DISABLE_DONAU:-1}"
 
 apt_updated=0
 apt_install() {
@@ -236,6 +237,37 @@ podman_container_running() {
   podman_cmd ps --filter "name=${name}" --filter status=running --format '{{.Names}}' | grep -q "^${name}$"
 }
 
+disable_donau_services() {
+  local container_name=$1
+  case "${TALER_DISABLE_DONAU}" in
+    0|false|no|NO|False|No)
+      log "TALER_DISABLE_DONAU=${TALER_DISABLE_DONAU}; skipping Donau shutdown"
+      return 0
+      ;;
+  esac
+
+  log "Disabling Donau services in sandcastle container '${container_name}'"
+  local units
+  units=$(podman_cmd exec "${container_name}" bash -lc \
+    "systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '\\$1 ~ /donau/ {print \\$1}'" \
+    || printf '')
+
+  if [[ -z ${units//[$' \n\t']} ]]; then
+    log "No Donau-related systemd services detected"
+    return 0
+  fi
+
+  local unit
+  for unit in $units; do
+    log "Stopping and masking ${unit}"
+    podman_cmd exec "${container_name}" systemctl stop "${unit}" >/dev/null 2>&1 || true
+    podman_cmd exec "${container_name}" systemctl disable "${unit}" >/dev/null 2>&1 || true
+    podman_cmd exec "${container_name}" systemctl mask "${unit}" >/dev/null 2>&1 || true
+  done
+
+  log "Donau services disabled"
+}
+
 wait_for_sandcastle_ready() {
   local container_name=$1
   local attempts="${SANDCASTLE_WAIT_ATTEMPTS:-60}"
@@ -284,7 +316,7 @@ provision_sandcastle() {
 
   local container_name="${SANDCASTLE_CONTAINER_NAME:-taler-sandcastle}"
   local repo="${SANDCASTLE_REPO:-https://git.taler.net/sandcastle-ng.git}"
-  local ref="${SANDCASTLE_REF:-master}"
+  local ref="${SANDCASTLE_REF:-dev/bohdan-potuzhnyi/talerbarr}"
   local checkout_dir="${SANDCASTLE_ROOT:-$TALER_BUILD_ROOT/sandcastle-ng}"
   local requested_override="${SANDCASTLE_OVERRIDE_NAME:-ci}"
 
@@ -379,6 +411,7 @@ provision_sandcastle() {
   )
 
   wait_for_sandcastle_ready "${container_name}"
+  disable_donau_services "${container_name}"
   log "Sandcastle provisioning finished"
 }
 
