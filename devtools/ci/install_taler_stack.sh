@@ -188,6 +188,7 @@ build_project() {
 
 install_gnunet() {
   log "Falling back to building GNUnet from source"
+  log "THIS IS NOT SUPPOSED TO BE USED"
   ensure_packages \
     build-essential autoconf automake libtool pkg-config gettext texinfo \
     libunistring-dev libidn2-0-dev libmicrohttpd-dev libglpk-dev libjansson-dev \
