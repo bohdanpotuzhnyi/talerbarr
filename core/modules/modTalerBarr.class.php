@@ -623,6 +623,10 @@ class modTalerBarr extends DolibarrModules
 			return -1;
 		}
 
+		if ($this->ensureDefaultCustomer() < 0) {
+			return -1;
+		}
+
 		return $this->_init($sql, $options);
 	}
 
@@ -810,6 +814,79 @@ class modTalerBarr extends DolibarrModules
 
 		require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 		dolibarr_set_const($this->db, $constName, $rowid, 'chaine', 0, '', $entity);
+
+		return 1;
+	}
+
+	/**
+	 * Ensure a default customer exists for walk-in Taler sales.
+	 *
+	 * @return int 1 if OK, <0 if error
+	 */
+	private function ensureDefaultCustomer(): int
+	{
+		global $conf, $user;
+
+		require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+		require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
+		require_once DOL_DOCUMENT_ROOT.'/user/class/user.class.php';
+
+		$entity = (int) $conf->entity;
+		$constName = 'TALERBARR_DEFAULT_SOCID';
+		$desiredName = 'Taler walk-in customers';
+
+		$defaultSocId = (int) getDolGlobalInt($constName);
+		if ($defaultSocId > 0) {
+			$socCheck = new Societe($this->db);
+			if ($socCheck->fetch($defaultSocId) > 0 && (int) $socCheck->entity === $entity) {
+				return 1;
+			}
+			dolibarr_del_const($this->db, $constName, $entity);
+			$defaultSocId = 0;
+		}
+
+		if (!$defaultSocId) {
+			$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."societe WHERE entity = ".$entity." AND nom = '".$this->db->escape($desiredName)."'";
+			$res = $this->db->query($sql);
+			if ($res) {
+				if ($obj = $this->db->fetch_object($res)) {
+					$defaultSocId = (int) $obj->rowid;
+				}
+				$this->db->free($res);
+			}
+		}
+
+		if (!$defaultSocId) {
+			$soc = new Societe($this->db);
+			$soc->name = $desiredName;
+			$soc->client = 3; // Customer and prospect
+			$soc->fournisseur = 0;
+			$soc->status = 1;
+			$soc->entity = $entity;
+			$soc->code_client = -1; // Auto-generate
+
+			$userForCreate = ($user instanceof User && $user->id > 0) ? $user : null;
+			if (!$userForCreate) {
+				$userForCreate = new User($this->db);
+				$userForCreate->id = 0;
+			}
+
+			$this->db->begin();
+			$resCreate = $soc->create($userForCreate);
+			if ($resCreate <= 0) {
+				$this->db->rollback();
+				$this->error = $soc->error ?: $this->db->lasterror();
+				return -1;
+			}
+			$this->db->commit();
+
+			$defaultSocId = (int) $soc->id;
+		}
+
+		dolibarr_set_const($this->db, $constName, $defaultSocId, 'chaine', 0, '', $entity);
+
+		$sql = 'UPDATE '.MAIN_DB_PREFIX."talerbarr_talerconfig SET fk_default_customer = ".$defaultSocId." WHERE entity = ".$entity." AND (fk_default_customer IS NULL OR fk_default_customer = 0)";
+		$this->db->query($sql);
 
 		return 1;
 	}

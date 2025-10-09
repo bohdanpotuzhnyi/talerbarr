@@ -93,6 +93,9 @@ if (!$cfg || !$cfg->verification_ok) {
 $rawBody = file_get_contents('php://input');
 $payload = json_decode((string) $rawBody, true);
 if (json_last_error() !== JSON_ERROR_NONE) {
+	$jsonErr = json_last_error_msg();
+	$bodyPreview = dol_trunc((string) $rawBody, 1024, '...');
+	dol_syslog('talerbarr webhook failed to decode JSON: '.$jsonErr.' body='.$bodyPreview, LOG_WARNING);
 	$payload = null;
 }
 
@@ -161,6 +164,7 @@ $user = new User($db);
 $authorId = (int) ($cfg->fk_user_creat ?? 0);
 if ($authorId > 0 && $user->fetch($authorId) > 0) {
 	// ok – $user is the author of the config
+	$user->getrights();
 } else {
 	// fallback: anonymous/system
 	$user->id    = 0;
@@ -192,6 +196,7 @@ $syncFromTaler = ($syncDirection === '1');
 
 if (!$syncFromTaler) {
 	switch ($type) {
+		case 'order_created':
 		case 'refund':
 		case 'category_added':
 		case 'category_updated':
@@ -206,6 +211,64 @@ if (!$syncFromTaler) {
 }
 
 switch ($type) {
+	case 'order_created':
+		$orderId = (string) ($payload['order_id'] ?? '');
+		dol_syslog('talerbarr webhook processing order_created event for order '.$orderId, LOG_DEBUG);
+
+		if ($orderId === '') {
+			talerbarrWebhookRespond(400, 'Missing order identifier');
+		}
+
+			$contractPayload = $payload['contract'] ?? ($payload['contract_terms'] ?? null);
+		if ($contractPayload === null) {
+			dol_syslog('talerbarr webhook missing contract payload for order '.$orderId, LOG_ERR);
+			talerbarrWebhookRespond(400, 'Missing contract payload', ['order_id' => $orderId]);
+		}
+
+			$contractData = [];
+		if (is_string($contractPayload) && $contractPayload !== '') {
+			$decoded = json_decode($contractPayload, true);
+			if (json_last_error() !== JSON_ERROR_NONE) {
+				$decoded = json_decode(html_entity_decode($contractPayload, ENT_QUOTES | ENT_HTML5), true);
+			}
+			if (json_last_error() !== JSON_ERROR_NONE) {
+				$decoded = json_decode(stripslashes($contractPayload), true);
+			}
+			if (json_last_error() !== JSON_ERROR_NONE) {
+				$decoded = json_decode(html_entity_decode(stripslashes($contractPayload), ENT_QUOTES | ENT_HTML5), true);
+			}
+			if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+				$contractData = $decoded;
+			} else {
+				dol_syslog('talerbarr webhook received invalid contract JSON for order '.$orderId.' ('.json_last_error_msg().') payload='.dol_trunc($contractPayload, 512, '...'), LOG_ERR);
+				talerbarrWebhookRespond(400, 'Invalid contract JSON payload', ['order_id' => $orderId]);
+			}
+		} elseif (is_array($contractPayload)) {
+			$contractData = $contractPayload;
+		} elseif (is_object($contractPayload)) {
+			$contractData = json_decode(json_encode($contractPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), true) ?: [];
+		}
+
+		if (!isset($payload['merchant_instance']) && isset($payload['instance_id'])) {
+			$payload['merchant_instance'] = (string) $payload['instance_id'];
+		}
+
+		$statusPayload = $payload;
+		if (!empty($contractData)) {
+			$statusPayload['contract'] = $contractData;
+			$statusPayload['contract_terms'] = $contractData;
+		}
+
+		$result = TalerOrderLink::upsertFromTalerOnOrderCreation($db, $statusPayload, $user, $contractData);
+		if ($result < 0) {
+			talerbarrWebhookRespond(500, 'Failed to ingest order creation event', ['order_id' => $orderId]);
+		}
+		if ($result === 0) {
+			talerbarrWebhookRespond(202, 'Order creation event ignored', ['order_id' => $orderId]);
+		}
+		talerbarrWebhookRespond(202, 'Order creation event processed', ['order_id' => $orderId]);
+		break;
+
 	case 'pay':
 		$orderId = (string) ($payload['order_id'] ?? '');
 		dol_syslog('talerbarr webhook processing pay event for order '.$orderId, LOG_DEBUG);

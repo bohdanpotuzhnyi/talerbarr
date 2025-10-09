@@ -1,0 +1,7 @@
+{
+  "headers": {
+    "Content-Type": "application/json",
+    "X-Auth-Header": "__AUTH_HASH__"
+  },
+  "body_template": "{\"event_type\":\"order_created\",\"order_id\":\"{{order_id}}\",\"instance_id\":\"{{instance_id}}\",\"contract\":\"{{contract}}\"}"
+}

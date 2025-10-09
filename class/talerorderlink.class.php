@@ -676,18 +676,32 @@ class TalerOrderLink extends CommonObject
 	{
 		$cfg = new TalerConfig($db);
 		$sql = 'SELECT rowid FROM '.MAIN_DB_PREFIX.$cfg->table_element.
-			" WHERE username = '".$db->escape($instance)."'".
-			' AND entity IN ('.getEntity('talerconfig', true).')';
+			" WHERE username = '".$db->escape($instance)."'";
+
+		// Only filter by entity when the configuration table actually supports it
+		if (!empty($cfg->ismultientitymanaged)) {
+			if ($cfg->ismultientitymanaged === 1) {
+				$sql .= ' AND entity IN ('.getEntity('talerconfig', true).')';
+			} elseif (is_string($cfg->ismultientitymanaged) && preg_match('#^(\w+)@(\w+)$#', $cfg->ismultientitymanaged, $m)) {
+				$sql .= ' AND '.$m[1].' IN (SELECT rowid FROM '.MAIN_DB_PREFIX.$m[2].' WHERE entity IN ('.getEntity('talerconfig', true).'))';
+			}
+		}
+
 		$resql = $db->query($sql);
 		if (!$resql) {
 			dol_syslog(__METHOD__.' sql_error '.$db->lasterror(), LOG_ERR);
 			return null;
 		}
+		$rowid = null;
 		if ($obj = $db->fetch_object($resql)) {
-			if ($cfg->fetch((int) $obj->rowid) > 0) {
-				return $cfg;
-			}
+			$rowid = (int) $obj->rowid;
 		}
+		$db->free($resql);
+
+		if ($rowid && $cfg->fetch($rowid) > 0) {
+			return $cfg;
+		}
+
 		return null;
 	}
 
@@ -1155,10 +1169,19 @@ class TalerOrderLink extends CommonObject
 
 		$isNew = ($loaded === 0);
 		if ($isNew) {
-			$link->entity        = (int) getEntity($link->element, 1);
+			if ($config && !empty($config->entity)) {
+				$link->entity = (int) $config->entity;
+			} else {
+				$link->entity = (int) getEntity($link->element, 1);
+			}
 			$link->taler_instance = $instance;
 			$link->taler_order_id = $orderId;
 			$link->datec          = dol_now();
+			if ($config && !empty($config->fk_default_customer)) {
+				$link->fk_soc = (int) $config->fk_default_customer;
+			}
+		} elseif (empty($link->fk_soc) && $config && !empty($config->fk_default_customer)) {
+			$link->fk_soc = (int) $config->fk_default_customer;
 		}
 
 		// Snapshot amount & summary

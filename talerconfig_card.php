@@ -510,7 +510,9 @@ if ($action == 'create') {
 	// Not including unwanted(output fields)
 	unset($object->fields['status']);
 	unset($object->fields['syncdirection']);
+	unset($object->fields['entity']);
 	unset($object->fields['fk_bank_account']);
+	unset($object->fields['fk_default_customer']);
 	print '<style>.field_expiration{display:none !important;}</style>';
 	print '<style>.field_talertoken{display:none !important;}</style>';
 
@@ -537,10 +539,28 @@ if ($action == 'create') {
 
 	// --- manual fk_bank_account row ---
 	$fk_account = GETPOSTINT('fk_bank_account');
+	if (!$fk_account && !GETPOSTISSET('fk_bank_account') && !empty($object->fk_bank_account)) {
+		$fk_account = (int) $object->fk_bank_account;
+	}
 	print '<tr class="field_fk_bank_account">';
 	print '  <td class="fieldrequired">'.$langs->trans("BankAccount").'</td><td>';
 	print img_picto('', 'bank_account', 'class="pictofixedwidth"');
 	print $form->select_comptes($fk_account, 'fk_bank_account', 0, '', 1, '', 0, 'maxwidth250 widthcentpercentminusx', 1);
+	print '</td></tr>';
+
+	$defaultCustomerId = GETPOSTINT('fk_default_customer');
+	if (!$defaultCustomerId && !GETPOSTISSET('fk_default_customer')) {
+		if (!empty($object->fk_default_customer)) {
+			$defaultCustomerId = (int) $object->fk_default_customer;
+		} else {
+			$defaultCustomerId = (int) getDolGlobalInt('TALERBARR_DEFAULT_SOCID');
+		}
+	}
+	print '<tr class="field_fk_default_customer">';
+	print '  <td class="fieldrequired">'.$langs->trans("TalerDefaultCustomer").'</td><td>';
+	print img_picto('', 'company', 'class="pictofixedwidth"');
+	$customerFilter = '((s.client:IN:1,2,3) AND (s.status:=:1))';
+	print $form->select_company($defaultCustomerId, 'fk_default_customer', $customerFilter, 1, '', 0, array(), 0, 'maxwidth300 widthcentpercentminusx');
 	print '</td></tr>';
 
 	// style for the switch
@@ -608,7 +628,9 @@ if (($id || $ref) && $action == 'edit') {
 
 	unset($object->fields['status']);
 	unset($object->fields['syncdirection']);
+	unset($object->fields['entity']);
 	unset($object->fields['fk_bank_account']);
+	unset($object->fields['fk_default_customer']);
 	print '<style>.field_expiration{display:none !important;}</style>';
 	print '<style>.field_talertoken{display:none !important;}</style>';
 
@@ -635,10 +657,28 @@ if (($id || $ref) && $action == 'edit') {
 
 	// --- manual fk_bank_account row ---
 	$fk_account = GETPOSTINT('fk_bank_account');
+	if (!$fk_account && !GETPOSTISSET('fk_bank_account') && !empty($object->fk_bank_account)) {
+		$fk_account = (int) $object->fk_bank_account;
+	}
 	print '<tr class="field_fk_bank_account">';
 	print '  <td class="fieldrequired">'.$langs->trans("BankAccount").'</td><td>';
 	print img_picto('', 'bank_account', 'class="pictofixedwidth"');
 	print $form->select_comptes($fk_account, 'fk_bank_account', 0, '', 1, '', 0, 'maxwidth250 widthcentpercentminusx', 1);
+	print '</td></tr>';
+
+	$defaultCustomerId = GETPOSTINT('fk_default_customer');
+	if (!$defaultCustomerId && !GETPOSTISSET('fk_default_customer')) {
+		if (!empty($object->fk_default_customer)) {
+			$defaultCustomerId = (int) $object->fk_default_customer;
+		} else {
+			$defaultCustomerId = (int) getDolGlobalInt('TALERBARR_DEFAULT_SOCID');
+		}
+	}
+	print '<tr class="field_fk_default_customer">';
+	print '  <td class="fieldrequired">'.$langs->trans("TalerDefaultCustomer").'</td><td>';
+	print img_picto('', 'company', 'class="pictofixedwidth"');
+	$customerFilter = '((s.client:IN:1,2,3) AND (s.status:=:1))';
+	print $form->select_company($defaultCustomerId, 'fk_default_customer', $customerFilter, 1, '', 0, array(), 0, 'maxwidth300 widthcentpercentminusx');
 	print '</td></tr>';
 
 	// style for the switch
@@ -792,20 +832,30 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	print '<table class="border centpercent tableforfield">'."\n";
 
 	// Common attributes
+	unset($object->fields['entity']);
 	unset($object->fields['fk_bank_account']);
+	unset($object->fields['fk_default_customer']);
 	//$keyforbreak='fieldkeytoswitchonsecondcolumn';	// We change column just before this field
 	//unset($object->fields['fk_project']);				// Hide field already shown in banner
 	//unset($object->fields['fk_soc']);					// Hide field already shown in banner
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_view.tpl.php';
 
 	require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';
+	require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
 
 	$acc = new Account($db);
 	if ($object->fk_bank_account && $acc->fetch($object->fk_bank_account) > 0) {
 		print '<tr class="field_fk_bank_account">';
 		print '  <td>'.$langs->trans("BankAccount").'</td><td>';
-		//print img_picto('', 'bank_account', 'class="pictofixedwidth"').' ';
 		print $acc->getNomUrl(1);
+		print '</td></tr>';
+	}
+
+	$defaultCustomer = new Societe($db);
+	if ($object->fk_default_customer && $defaultCustomer->fetch($object->fk_default_customer) > 0) {
+		print '<tr class="field_fk_default_customer">';
+		print '  <td>'.$langs->trans("TalerDefaultCustomer").'</td><td>';
+		print $defaultCustomer->getNomUrl(1, 'customer');
 		print '</td></tr>';
 	}
 

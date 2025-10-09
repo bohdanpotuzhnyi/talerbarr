@@ -8,6 +8,13 @@
       "http_method": "POST"
     },
     {
+      "webhook_id": "talerbarr_order_created",
+      "event_type": "order_created",
+      "template": "order_created.json",
+      "url_path": "/custom/talerbarr/webhook/webhook.php",
+      "http_method": "POST"
+    },
+    {
       "webhook_id": "talerbarr_refund",
       "event_type": "refund",
       "template": "refund.json",

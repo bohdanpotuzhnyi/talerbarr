@@ -65,6 +65,7 @@ SyncFrom = Sync from
 TalerConfigIsValid = Valid Taler Config Is Found
 Username = Username
 DeleteTalerConfig = Deleting TalerBarr configuration
+TalerDefaultCustomer = Default customer for Taler orders
 
 
 #
