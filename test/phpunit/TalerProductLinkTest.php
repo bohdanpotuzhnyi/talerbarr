@@ -134,6 +134,10 @@ if (!class_exists('TalerMerchantClient')) {
  */
 class TalerProductLinkTest extends CommonClassTest
 {
+	private const DEFAULT_TALER_INSTANCE = 'sandbox';
+	private const DEFAULT_TALER_BASEURL = 'http://127.0.0.1:16000/';
+	private const DEFAULT_TALER_TOKEN = 'secret-token:sandbox';
+
 	/** @var DoliDB|null */
 	private static ?DoliDB $db = null;
 	/** @var User|null */
@@ -207,11 +211,11 @@ class TalerProductLinkTest extends CommonClassTest
 		self::ensureTalerTables();
 
 		// 2) only now create the config row
-		self::$instance              = getenv('TALER_USER') ?: 'phpunit-ci';
+		self::$instance              = self::DEFAULT_TALER_INSTANCE;
 		self::$cfg                   = new TalerConfig($db);
 		self::$cfg->entity           = $conf->entity;
-		self::$cfg->talermerchanturl = getenv('TALER_BASEURL') ?: 'http://stub.local/';
-		self::$cfg->talertoken       = getenv('TALER_TOKEN')   ?: 'dummy';
+		self::$cfg->talermerchanturl = self::DEFAULT_TALER_BASEURL;
+		self::$cfg->talertoken       = self::DEFAULT_TALER_TOKEN;
 		self::$cfg->username         = self::$instance;
 		self::$cfg->syncdirection    = 0;
 		self::$cfg->verification_ok  = 1;
