@@ -137,6 +137,7 @@ class TalerProductLinkTest extends CommonClassTest
 	private const DEFAULT_TALER_INSTANCE = 'sandbox';
 	private const DEFAULT_TALER_BASEURL = 'http://127.0.0.1:16000/';
 	private const DEFAULT_TALER_TOKEN = 'secret-token:sandbox';
+	private const DEFAULT_TALER_PASSWORD = 'sandbox';
 
 	/** @var DoliDB|null */
 	private static ?DoliDB $db = null;
@@ -211,11 +212,22 @@ class TalerProductLinkTest extends CommonClassTest
 		self::ensureTalerTables();
 
 		// 2) only now create the config row
-		self::$instance              = self::DEFAULT_TALER_INSTANCE;
+		self::$instance              = getenv('TALER_USER') ?: self::DEFAULT_TALER_INSTANCE;
 		self::$cfg                   = new TalerConfig($db);
 		self::$cfg->entity           = $conf->entity;
-		self::$cfg->talermerchanturl = self::DEFAULT_TALER_BASEURL;
-		self::$cfg->talertoken       = self::DEFAULT_TALER_TOKEN;
+		self::$cfg->talermerchanturl = self::normalizeBaseUrl(getenv('TALER_BASEURL') ?: self::DEFAULT_TALER_BASEURL);
+
+		$tokenValue = getenv('TALER_TOKEN') ?: '';
+		if ($tokenValue === '') {
+			$mInt = self::mintToken(self::$cfg->talermerchanturl, self::$instance);
+			if ($mInt !== null) {
+				$tokenValue = $mInt['token'];
+				if ($mInt['expiration'] !== null) {
+					self::$cfg->expiration = $mInt['expiration'];
+				}
+			}
+		}
+		self::$cfg->talertoken = $tokenValue !== '' ? $tokenValue : self::DEFAULT_TALER_TOKEN;
 		self::$cfg->username         = self::$instance;
 		self::$cfg->syncdirection    = 0;
 		self::$cfg->verification_ok  = 1;
@@ -235,6 +247,134 @@ class TalerProductLinkTest extends CommonClassTest
 		$db->begin();
 
 		print __METHOD__." END\n";
+	}
+
+	/**
+	 * Ensure merchant base URL ends with a single slash.
+	 *
+	 * @param string $url Raw input
+	 * @return string
+	 */
+	private static function normalizeBaseUrl(string $url): string
+	{
+		$trimmed = rtrim(trim($url), '/');
+		return ($trimmed === '') ? self::DEFAULT_TALER_BASEURL : $trimmed.'/';
+	}
+
+	/**
+	 * Try to mint an access token using the merchant's token endpoint,
+	 * mirroring the behaviour of the admin UI.
+	 *
+	 * @param string $baseUrl Merchant base URL (trailing slash required)
+	 * @param string $instance Instance identifier
+	 * @return array{token:string,expiration:?int}|null
+	 */
+	private static function mintToken(string $baseUrl, string $instance): ?array
+	{
+		$password = getenv('TALER_PASSWORD') ?: self::DEFAULT_TALER_PASSWORD;
+		if ($password === '') {
+			return null;
+		}
+
+		$endpoint = rtrim($baseUrl, '/');
+		if (strcasecmp($instance, 'admin') === 0) {
+			$endpoint .= '/private/token';
+		} else {
+			$endpoint .= '/instances/'.rawurlencode($instance).'/private/token';
+		}
+
+		$payload = json_encode([
+			'scope'    => 'all:refreshable',
+			'duration' => ['d_us' => 'forever'],
+		]);
+
+		$headers = [
+			'Accept: application/json',
+			'Content-Type: application/json',
+			'Authorization: Basic '.base64_encode($instance.':'.$password),
+		];
+
+		$res = getURLContent(
+			$endpoint,
+			'POST',
+			$payload ?: '',
+			1,
+			$headers,
+			['http', 'https'],
+			2,
+			-1,
+			5,
+			30
+		);
+
+		$http = isset($res['http_code']) ? (int) $res['http_code'] : 0;
+		if ($http !== 200) {
+			print __METHOD__." WARN unable to mint merchant token http=".$http." url=".$endpoint."\n";
+			return null;
+		}
+
+		$content = $res['content'] ?? '';
+		if ($content === '') {
+			print __METHOD__." WARN empty merchant token response\n";
+			return null;
+		}
+
+		$data = json_decode($content, true);
+		if (!is_array($data)) {
+			print __METHOD__." WARN invalid merchant token JSON\n";
+			return null;
+		}
+
+		$token = '';
+		if (!empty($data['access_token']) && is_string($data['access_token'])) {
+			$token = $data['access_token'];
+		} elseif (!empty($data['token']) && is_string($data['token'])) {
+			$token = $data['token'];
+		}
+		if ($token === '') {
+			print __METHOD__." WARN merchant token response missing fields\n";
+			return null;
+		}
+
+		$expiration = null;
+		if (isset($data['expiration']['t_s'])) {
+			if ($data['expiration']['t_s'] === 'never') {
+				$expiration = self::maxExpirationTimestamp();
+			} elseif (is_numeric($data['expiration']['t_s'])) {
+				$expiration = self::clampExpiration((int) $data['expiration']['t_s']);
+			}
+		}
+
+		return [
+			'token'      => $token,
+			'expiration' => $expiration,
+		];
+	}
+
+	/**
+	 * Clamp expiration timestamps to MySQL/Dolibarr supported range.
+	 *
+	 * @param int $ts Timestamp
+	 * @return int
+	 */
+	private static function clampExpiration(int $ts): int
+	{
+		return min($ts, self::maxExpirationTimestamp());
+	}
+
+	/**
+	 * Upper bound that fits into Dolibarr's DATETIME range.
+	 *
+	 * @return int
+	 */
+	private static function maxExpirationTimestamp(): int
+	{
+		static $max = null;
+		if ($max === null) {
+			$dt = DateTime::createFromFormat('Y-m-d H:i:s', '2037-12-31 23:59:59', new DateTimeZone('UTC'));
+			$max = $dt ? (int) floor($dt->getTimestamp()) : (int) strtotime('2037-12-31 23:59:59 UTC');
+		}
+		return $max;
 	}
 
 	/* ---------- 1)  push flow: Dolibarr → Taler -------------------------- */
