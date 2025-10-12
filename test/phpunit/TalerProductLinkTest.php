@@ -212,12 +212,12 @@ class TalerProductLinkTest extends CommonClassTest
 		self::ensureTalerTables();
 
 		// 2) only now create the config row
-		self::$instance              = getenv('TALER_USER') ?: self::DEFAULT_TALER_INSTANCE;
+		self::$instance              = self::DEFAULT_TALER_INSTANCE;
 		self::$cfg                   = new TalerConfig($db);
 		self::$cfg->entity           = $conf->entity;
-		self::$cfg->talermerchanturl = self::normalizeBaseUrl(getenv('TALER_BASEURL') ?: self::DEFAULT_TALER_BASEURL);
+		self::$cfg->talermerchanturl = self::normalizeBaseUrl(self::DEFAULT_TALER_BASEURL);
 
-		$tokenValue = getenv('TALER_TOKEN') ?: '';
+		$tokenValue = '';
 		if ($tokenValue === '') {
 			$mInt = self::mintToken(self::$cfg->talermerchanturl, self::$instance);
 			if ($mInt !== null) {
@@ -271,7 +271,7 @@ class TalerProductLinkTest extends CommonClassTest
 	 */
 	private static function mintToken(string $baseUrl, string $instance): ?array
 	{
-		$password = getenv('TALER_PASSWORD') ?: self::DEFAULT_TALER_PASSWORD;
+		$password = self::DEFAULT_TALER_PASSWORD;
 		if ($password === '') {
 			return null;
 		}
