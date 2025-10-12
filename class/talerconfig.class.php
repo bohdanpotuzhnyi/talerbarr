@@ -160,8 +160,6 @@ class TalerConfig extends CommonObject
 	public $fk_default_customer;
 	// END MODULEBUILDER PROPERTIES
 
-	public String $talerMerchantInstanceUrl;
-
 	// If this object has a subtable with lines
 
 	// /**
@@ -1377,8 +1375,6 @@ class TalerConfig extends CommonObject
 
 		// 3) Build instance base path
 		$instanceBase = self::buildInstanceBase($baseUrl, $username); // ends with slash
-
-		$this->talerMerchantInstanceUrl = $instanceBase . '/';
 
 		// 4) categories endpoint with Authorization header
 		if (dol_strlen($token) === 0) {
