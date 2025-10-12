@@ -160,7 +160,7 @@ class TalerConfig extends CommonObject
 	public $fk_default_customer;
 	// END MODULEBUILDER PROPERTIES
 
-	private string $talerMerchantInstanceUrl;
+	public String $talerMerchantInstanceUrl;
 
 	// If this object has a subtable with lines
 
@@ -1396,6 +1396,8 @@ class TalerConfig extends CommonObject
 			$error = 'Credentials check failed on /categories (HTTP '.$httpcode.')';
 			return false;
 		}
+
+		//TODO: Might be a very good idea, to predefine TalerMerchantClient which can be re-used in next requests
 
 		// Everything fine
 		return true;
