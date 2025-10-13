@@ -159,6 +159,8 @@ class TalerConfig extends CommonObject
 	public $fk_bank_account;
 	public $fk_default_customer;
 	// END MODULEBUILDER PROPERTIES
+	private TalerMerchantClient $talerMerchantClient;
+
 
 	// If this object has a subtable with lines
 
@@ -1350,50 +1352,36 @@ class TalerConfig extends CommonObject
 			return false;
 		}
 
+		try {
+			$this->talerMerchantClient = new TalerMerchantClient($baseUrl, $token, $username);
+		} catch (\InvalidArgumentException $e) {
+			$error = $e->getMessage();
+			return false;
+		} catch (\Exception $e) {
+			$error = 'Unable to initialise merchant client - '.$e->getMessage();
+			return false;
+		}
+
 		// 1.1) /config must be reachable
 		$cfgUrl = rtrim($baseUrl, '/').'/config';
-		$httpcode = 0; $err = '';
-		if (!self::isUrlOk($cfgUrl, /*headers*/['Accept: application/json'], $httpcode, $err)) {
-			$error = 'Cannot reach '.$cfgUrl.' (HTTP '.$httpcode.')'.($err ? ' - '.$err : '');
-			return false;
-		}
-		if ($httpcode !== 200) {
-			$error = 'Unexpected HTTP code from /config: '.$httpcode.' url: '.$cfgUrl.' err: '.$err;
+		try {
+			$this->talerMerchantClient->getBackendConfig();
+		} catch (\Exception $e) {
+			$error = 'Cannot reach '.$cfgUrl.' - '.$e->getMessage();
 			return false;
 		}
 
-		// 2) username must be URL-friendly
-		// allow letters, digits, underscore and hyphen (common URL-safe instance id)
-		if ($username === '') {
-			$error = 'Username must not be empty';
-			return false;
-		}
-		if (!preg_match('~^[A-Za-z0-9][A-Za-z0-9_-]*$~', $username)) {
-			$error = 'Username must be URL-safe (letters, digits, _ and -)';
-			return false;
-		}
-
-		// 3) Build instance base path
+		// 2) Build instance base path (for error reporting)
 		$instanceBase = self::buildInstanceBase($baseUrl, $username); // ends with slash
 
-		// 4) categories endpoint with Authorization header
-		if (dol_strlen($token) === 0) {
-			$error = 'Missing merchant secret token in config';
-			return false;
-		}
-		$authHeader = 'Authorization: Bearer '.$token;
+		// 3) categories endpoint with Authorization header
 		$categoriesUrl = $instanceBase.'categories';
-		$httpcode = 0; $err = '';
-		if (!self::isUrlOk($categoriesUrl, ['Accept: application/json', $authHeader], $httpcode, $err)) {
-			$error = 'Cannot reach '.$categoriesUrl.' (HTTP '.$httpcode.')'.($err ? ' - '.$err : '');
+		try {
+			$this->talerMerchantClient->listCategories();
+		} catch (\Exception $e) {
+			$error = 'Credentials check failed on '.$categoriesUrl.' - '.$e->getMessage();
 			return false;
 		}
-		if ($httpcode !== 200) {
-			$error = 'Credentials check failed on /categories (HTTP '.$httpcode.')';
-			return false;
-		}
-
-		//TODO: Might be a very good idea, to predefine TalerMerchantClient which can be re-used in next requests
 
 		// Everything fine
 		return true;

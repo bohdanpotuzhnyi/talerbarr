@@ -37,10 +37,16 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/geturl.lib.php';
  */
 class TalerMerchantClient
 {
-	/** @var string Base URL of the merchant backend, always ending with a single slash. */
-	private $base;
+	private const USERNAME_REGEX = '~^[A-Za-z0-9][A-Za-z0-9_-]*$~';
+
+	/** @var string Base URL of the merchant backend as entered by the user (no trailing slash). */
+	private string $rootUrl;
+	/** @var string Fully qualified API base (always ending with a trailing slash). */
+	private string $apiBase;
 	/** @var string OAuth2 bearer token used for Authorization header. */
-	private $token;
+	private string $token;
+	/** @var string Instance identifier carried around for debugging/logging. */
+	private string $instance;
 
 	/**
 	 * Constructor.
@@ -51,14 +57,27 @@ class TalerMerchantClient
 	 */
 	public function __construct(string $baseUrl, string $token, string $instance = 'admin')
 	{
-		$baseUrl = rtrim(trim($baseUrl), '/');
-		if (!preg_match('~/private/?$~', $baseUrl)) {
-			$baseUrl .= ($instance === 'admin')
-				? '/private/'
-				: '/instances/'.rawurlencode($instance).'/private/';
+		$normalized = rtrim(trim($baseUrl), '/');
+		$this->rootUrl = $normalized;
+
+		$instance = trim($instance);
+		if ($instance === '') {
+			throw new \InvalidArgumentException('Username must not be empty');
 		}
-		$this->base = $baseUrl;
-		$this->token = $token;
+		if (!preg_match(self::USERNAME_REGEX, $instance)) {
+			throw new \InvalidArgumentException('Username must be URL-safe (letters, digits, _ and -)');
+		}
+		$this->instance = $instance;
+
+		if (!preg_match('~/private/?$~', $normalized)) {
+			$this->apiBase = ($instance === 'admin')
+				? $normalized.'/private/'
+				: $normalized.'/instances/'.rawurlencode($instance).'/private/';
+		} else {
+			$this->apiBase = $normalized.'/';
+		}
+
+		$this->token = trim($token);
 	}
 
 	/**
@@ -148,7 +167,11 @@ class TalerMerchantClient
 	 */
 	private function request(string $verb, string $path, ?array $body = null, ?array $query = null, int $timeoutSeconds = 30): array
 	{
-		$url = $this->base.ltrim($path, '/');
+		if ($this->token === '') {
+			throw new \InvalidArgumentException('Missing merchant secret token in config');
+		}
+
+		$url = $this->apiBase.ltrim($path, '/');
 		if (!empty($query)) {
 			$q = http_build_query($query);
 			$url .= (!str_contains($url, '?') ? '?' : '&').$q;
@@ -609,5 +632,51 @@ class TalerMerchantClient
 	public function deleteWebhook(string $webhookId): void
 	{
 		$this->delete('webhooks/'.rawurlencode($webhookId));
+	}
+
+	/**
+	 * Fetch merchant /config from the root backend URL.
+	 *
+	 * @return array<string, mixed>
+	 * @throws Exception On HTTP/JSON errors.
+	 */
+	public function getBackendConfig(): array
+	{
+		$url = $this->rootUrl.'/config';
+
+		$res = getURLContent(
+			$url,
+			'GET',
+			'',
+			1,
+			['Accept: application/json'],
+			array('http', 'https'),
+			2,
+			-1,
+			5,
+			30
+		);
+
+		$http = isset($res['http_code']) ? (int) $res['http_code'] : 0;
+		$netErr = '';
+		if (!empty($res['curl_error_no'])) {
+			$netErr = ' cURL#'.$res['curl_error_no'].(!empty($res['curl_error_msg']) ? ' '.$res['curl_error_msg'] : '');
+		}
+		$bodyTxt = isset($res['content']) ? (string) $res['content'] : '';
+
+		if ($http < 200 || $http >= 300) {
+			throw new Exception("HTTP {$http} for GET {$url}: ".($bodyTxt !== '' ? $bodyTxt : 'Transport/HTTP error'.$netErr));
+		}
+
+		if ($bodyTxt === '') {
+			return [];
+		}
+
+		$decoded = json_decode($bodyTxt, true);
+		if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
+			throw new Exception('Failed to decode JSON response: '.json_last_error_msg());
+		}
+
+		return $decoded ?? [];
 	}
 }
