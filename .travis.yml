@@ -624,6 +624,8 @@ script:
         $ins = "// ---- talerbarr --------------------------------------------------------------\n"
              . "require_once DOL_DOCUMENT_ROOT.\x27/custom/talerbarr/test/phpunit/TalerProductLinkTest.php\x27;\n"
              . "\$suite->addTestSuite(\x27TalerProductLinkTest\x27);\n";
+             . "require_once DOL_DOCUMENT_ROOT.\x27/custom/talerbarr/test/phpunit/TalerOrderLinkStaticTest.php\x27;\n"
+             . "\$suite->addTestSuite(\x27TalerOrderLinkStaticTest\x27);\n";
       } s/return \$suite;/ $ins\nreturn \$suite;/s' -i "$ALLTESTS"
 
       echo "Patch applied. Showing tail of AllTests.php for verification:"
