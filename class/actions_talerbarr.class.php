@@ -106,7 +106,7 @@ class ActionsTalerBarr extends CommonHookActions
 		}
 
 		try {
-			$client = new TalerMerchantClient((string) $config->talermerchanturl, (string) $config->talertoken, $instance);
+			$client = $config->talerMerchantClient();
 			$statusPayload = $client->getOrderStatus((string) $link->taler_order_id);
 			if (!is_array($statusPayload)) {
 				$statusPayload = (array) $statusPayload;

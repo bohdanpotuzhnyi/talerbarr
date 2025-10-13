@@ -1801,7 +1801,7 @@ class TalerOrderLink extends CommonObject
 
 		$instance = (string) $config->username;
 		try {
-			$client = new TalerMerchantClient($config->talermerchanturl, $config->talertoken, $instance);
+			$client = $config->talerMerchantClient();
 		} catch (Throwable $e) {
 			dol_syslog('TalerOrderLink::upsertFromDolibarr unable to instantiate merchant client: '.$e->getMessage(), LOG_ERR);
 			return -1;

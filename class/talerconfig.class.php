@@ -1408,11 +1408,7 @@ class TalerConfig extends CommonObject
 		}
 
 		try {
-			$client = new TalerMerchantClient(
-				$this->talermerchanturl,
-				$this->talertoken,
-				$this->username
-			);
+			$client = $this->talerMerchantClient;
 		} catch (Throwable $e) {
 			dol_syslog(__METHOD__.': unable to initialise TalerMerchantClient - '.$e->getMessage(), LOG_ERR);
 			return 'Cannot initialise merchant client for webhook provisioning: '.$e->getMessage();
@@ -1786,6 +1782,16 @@ class TalerConfig extends CommonObject
 		}
 
 		return ($httpcode > 0); // true if we got an HTTP code back
+	}
+
+	/**
+	 * Getter for talerMerhcantClient
+	 *
+	 * @return TalerMerchantClient
+	 */
+	public function talerMerchantClient(): TalerMerchantClient
+	{
+		return $this->talerMerchantClient;
 	}
 }
 

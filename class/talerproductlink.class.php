@@ -1240,7 +1240,7 @@ class TalerProductLink extends CommonObject
 			return null;
 		}
 		try {
-			return new TalerMerchantClient($cfg->talermerchanturl, $cfg->talertoken, $cfg->username);
+			return $cfg->talerMerchantClient();
 		} catch (Throwable $e) {
 			$err = 'Could not create merchant client: '.$e->getMessage();
 			return null;

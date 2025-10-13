@@ -188,11 +188,7 @@ if ($direction === 'push') {
  * 2) PULL  (Taler → Dolibarr)
  * ---------------------------------------------------------- */
 try {
-	$client = new TalerMerchantClient(
-		$cfg->talermerchanturl,
-		$cfg->talertoken,
-		$cfg->username
-	);
+	$client = $cfg->talerMerchantClient();
 } catch (Throwable $e) {
 	writeStatus([
 		'phase'=>'abort',
