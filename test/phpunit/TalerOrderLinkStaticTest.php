@@ -10,10 +10,8 @@ global $conf, $user, $db, $langs;
 require_once dirname(__FILE__, 6) . '/htdocs/master.inc.php';
 require_once dirname(__FILE__, 6) . '/test/phpunit/CommonClassTest.class.php';
 require_once DOL_DOCUMENT_ROOT . '/core/lib/admin.lib.php';
-
 require_once DOL_DOCUMENT_ROOT . '/custom/talerbarr/class/talerorderlink.class.php';
 require_once DOL_DOCUMENT_ROOT . '/custom/talerbarr/class/talerconfig.class.php';
-
 require_once DOL_DOCUMENT_ROOT . '/commande/class/commande.class.php';
 require_once DOL_DOCUMENT_ROOT . '/compta/facture/class/facture.class.php';
 
