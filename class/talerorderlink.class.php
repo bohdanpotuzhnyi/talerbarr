@@ -66,8 +66,8 @@ class TalerOrderLink extends CommonObject
 		'entity'        => array('type' => 'integer', 'label' => 'Entity',       'visible' => 0, 'notnull' => 1, 'default' => 1, 'index' => 1, 'position' => 5),
 
 		// Taler identities
-		'taler_instance'        => array('type' => 'varchar(64)',  'label' => 'TalerInstance',    'visible' => 1, 'notnull' => 1, 'index' => 1, 'position' => 10),
-		'taler_order_id'        => array('type' => 'varchar(128)', 'label' => 'TalerOrderId',     'visible' => 1, 'notnull' => 1, 'index' => 1, 'position' => 11),
+		'taler_instance'        => array('type' => 'varchar(64)',  'label' => 'TalerInstance',    'visible' => 1, 'enabled' => 1, 'notnull' => 1, 'index' => 1, 'position' => 10),
+		'taler_order_id'        => array('type' => 'varchar(128)', 'label' => 'TalerOrderId',     'visible' => 1, 'enabled' => 1, 'notnull' => 1, 'index' => 1, 'position' => 11),
 		'taler_session_id'      => array('type' => 'varchar(128)', 'label' => 'TalerSessionId',   'visible' => 0, 'notnull' => 0, 'position' => 12),
 		'taler_pay_uri'         => array('type' => 'varchar(255)', 'label' => 'TalerPayURI',      'visible' => 1, 'notnull' => 0, 'position' => 13),
 		'taler_status_url'      => array('type' => 'varchar(255)', 'label' => 'TalerStatusURL',   'visible' => 1, 'notnull' => 0, 'position' => 14),
@@ -76,7 +76,7 @@ class TalerOrderLink extends CommonObject
 
 		// Snapshot amount & summary
 		'order_summary'     => array('type' => 'varchar(255)', 'label' => 'Summary',          'visible' => 1, 'notnull' => 0, 'position' => 20),
-		'order_amount_str'  => array('type' => 'varchar(64)',  'label' => 'AmountStr',        'visible' => 1, 'notnull' => 0, 'position' => 21),
+		'order_amount_str'  => array('type' => 'varchar(64)',  'label' => 'AmountStr',        'visible' => 1, 'enabled' => 1, 'notnull' => 0, 'position' => 21),
 		'order_currency'    => array('type' => 'varchar(16)',  'label' => 'Currency',         'visible' => 0, 'notnull' => 0, 'position' => 22),
 		'order_value'       => array('type' => 'integer',      'label' => 'MajorUnits',       'visible' => 0, 'notnull' => 0, 'position' => 23),
 		'order_fraction'    => array('type' => 'integer',      'label' => 'Fraction1e8',      'visible' => 0, 'notnull' => 0, 'position' => 24),
@@ -116,8 +116,8 @@ class TalerOrderLink extends CommonObject
 		'wire_details_json'   => array('type' => 'text',         'label' => 'WireDetails',    'visible' => -1, 'notnull' => 0, 'position' => 74),
 
 		// State machine
-		'taler_state'          => array('type' => 'integer',  'label' => 'State',          'visible' => 1, 'notnull' => 0, 'position' => 80),
-		'merchant_status_raw'  => array('type' => 'varchar(64)', 'label' => 'BackendState', 'visible' => 0, 'notnull' => 0, 'position' => 86),
+		'taler_state'          => array('type' => 'integer',  'label' => 'TalerState', 'visible' => 1, 'enabled' => 1, 'notnull' => 0, 'position' => 80),
+		'merchant_status_raw'  => array('type' => 'varchar(64)', 'label' => 'BackendState', 'visible' => 0, 'enabled' => 1, 'notnull' => 0, 'position' => 86),
 		'taler_claimed_at'     => array('type' => 'datetime', 'label' => 'ClaimedAt',      'visible' => 0, 'notnull' => 0, 'position' => 81),
 		'taler_paid_at'        => array('type' => 'datetime', 'label' => 'PaidAt',         'visible' => 0, 'notnull' => 0, 'position' => 82),
 		'taler_refunded_total' => array('type' => 'varchar(64)', 'label' => 'RefundedTotal', 'visible' => 0, 'notnull' => 0, 'position' => 83),
@@ -1048,6 +1048,12 @@ class TalerOrderLink extends CommonObject
 		// Hide rowid unless technical ids displayed
 		if (!getDolGlobalInt('MAIN_SHOW_TECHNICAL_ID')) {
 			$this->fields['rowid']['visible'] = 0;
+		}
+		// Drop fields disabled by conditions
+		foreach ($this->fields as $k => $v) {
+			if (isset($v['enabled']) && empty($v['enabled'])) {
+				unset($this->fields[$k]);
+			}
 		}
 	}
 

@@ -364,6 +364,39 @@ class modTalerBarr extends DolibarrModules
 		$this->menu[$r++] = array(
 			'fk_menu'  => 'fk_mainmenu=talerbarr',
 			'type'     => 'left',
+			'titre'    => 'TalerOrder',
+			'prefix'   => img_picto('', 'object_order', 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'talerbarr',
+			'leftmenu' => 'talerorder',
+			'url'      => '',
+			'langs'    => 'talerbarr@talerbarr',
+			'position' => 1000 + $r,
+			'enabled'  => 'isModEnabled("talerbarr")',
+			'perms'    => '1',
+			'target'   => '',
+			'user'     => 2,
+		);
+
+		/* Order links list */
+		$this->menu[$r++] = array(
+			'fk_menu'  => 'fk_mainmenu=talerbarr,fk_leftmenu=talerorder',
+			'type'     => 'left',
+			'titre'    => 'TalerOrderLinkList',
+			'prefix'   => img_picto('', $this->picto, 'class="paddingright pictofixedwidth valignmiddle"'),
+			'mainmenu' => 'talerbarr',
+			'leftmenu' => 'talerorderlink_list',
+			'url'      => '/talerbarr/talerorderlink_list.php',
+			'langs'    => 'talerbarr@talerbarr',
+			'position' => 1000 + $r,
+			'enabled'  => 'isModEnabled("talerbarr")',
+			'perms'    => '1',
+			'target'   => '',
+			'user'     => 2,
+		);
+
+		$this->menu[$r++] = array(
+			'fk_menu'  => 'fk_mainmenu=talerbarr',
+			'type'     => 'left',
 			'titre'    => 'TalerInventory',
 			'prefix'   => img_picto('', 'product', 'class="paddingright pictofixedwidth valignmiddle"'),
 			'mainmenu' => 'talerbarr',

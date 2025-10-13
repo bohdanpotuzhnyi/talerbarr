@@ -72,7 +72,27 @@ TalerDefaultCustomer = Default customer for Taler orders
 # Taler Inventory
 #
 TalerInventory = Taler Inventory
+TalerOrder = Orders
+TalerOrderLinkList = Orders
+TalerOrderLinks = Taler Orders
 TalerProductLinkList = Products
 TalerProductLinks = Taler Products
 TalerCategoryMapList = Categories
 TalerCategoryMaps = Taler Categories
+
+#
+# Taler Orders
+#
+TalerInstance = Taler Instance
+TalerOrderId = Taler Order ID
+AmountStr = Amount
+# TalerOrderLink state labels
+Unpaid = Unpaid
+Claimed = Claimed
+Paid = Paid
+Delivered = Delivered
+Wired = Wired
+Refunded = Refunded
+Expired = Expired
+Aborted = Aborted
+State = State
