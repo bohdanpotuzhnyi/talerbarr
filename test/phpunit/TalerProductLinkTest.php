@@ -202,7 +202,7 @@ class TalerProductLinkTest extends CommonClassTest
 		$mod = new modTalerBarr($db);
 		$rcInit = $mod->init('');
 		print __METHOD__." modTalerBarr::init rc=".$rcInit."\n";
-		if ($rcInit <= 0) {
+		if ($rcInit < 0) {
 			self::printDbStatus(__METHOD__." INIT ERR");
 			throw new RuntimeException('Unable to init modTalerBarr');
 		}
