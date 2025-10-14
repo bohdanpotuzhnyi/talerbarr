@@ -562,7 +562,7 @@ class TalerOrderLink extends CommonObject
 			if (isset($amount['amount'])) {
 				return self::extractAmount($amount['amount']);
 			}
-			$currency = (string) ($amount['currency'] ?? '');
+			$currency = strtoupper((string) ($amount['currency'] ?? ''));
 			$value    = isset($amount['value']) ? (int) $amount['value'] : null;
 			$fraction = isset($amount['fraction']) ? (int) $amount['fraction'] : null;
 			$amountStr = $currency;
