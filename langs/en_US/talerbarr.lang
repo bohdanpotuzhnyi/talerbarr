@@ -39,6 +39,27 @@ SyncStartedInBackground=Synchronisation started in background
 Phase=Phase
 Direction=Direction
 Date=Date
+SyncDirectionDolibarrToTaler=Dolibarr -> Taler (push)
+SyncDirectionTalerToDolibarr=Taler -> Dolibarr (pull)
+SyncTokenExpires=Token expires
+SyncBankAccount=Settlement account
+SyncVerificationStatus=Verification status
+SyncVerificationOk=Valid
+SyncVerificationFailed=Verification failed
+SyncPhaseStart=Initialising synchronisation
+SyncPhasePushProducts=Pushing products to Taler
+SyncPhasePushOrders=Pushing orders to Taler
+SyncPhasePullProducts=Fetching products from Taler
+SyncPhasePullOrders=Fetching orders from Taler
+SyncPhaseStaleRecovery=Recovered from stale lock
+SyncPhaseDone=Synchronisation completed
+SyncPhaseAbort=Synchronisation aborted
+SyncMetricsProducts=Products
+SyncMetricsOrders=Orders
+SyncMetricProcessed=Processed
+SyncMetricTotal=Total
+SyncMetricSynced=Synced
+SyncMetricSkippedPaid=Skipped (already paid)
 
 #
 # Sample page

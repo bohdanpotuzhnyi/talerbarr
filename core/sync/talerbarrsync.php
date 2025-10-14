@@ -80,7 +80,9 @@ if (php_sapi_name() !== 'cli') {
 
 dol_include_once('/talerbarr/class/talerconfig.class.php');
 dol_include_once('/talerbarr/class/talerproductlink.class.php');
+dol_include_once('/talerbarr/class/talerorderlink.class.php');
 dol_include_once('/talerbarr/class/talermerchantclient.class.php');
+dol_include_once('/commande/class/commande.class.php');
 
 $lockFile   = DOL_DATA_ROOT.'/talerbarr/sync.lock';
 $statusFile = DOL_DATA_ROOT.'/talerbarr/sync.status.json';
@@ -162,25 +164,136 @@ if (empty($user->id)) {
  * 1) PUSH  (Dolibarr → Taler)
  * ---------------------------------------------------------- */
 if ($direction === 'push') {
-	$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX."product
+	$db = $GLOBALS['db'];
+
+	// ---------------------------------------------------------
+	// Products
+	// ---------------------------------------------------------
+	$productSql = "SELECT rowid FROM ".MAIN_DB_PREFIX."product
             WHERE entity IN (".getEntity('product').")";
-	$res = $GLOBALS['db']->query($sql);
-	$total = $GLOBALS['db']->num_rows($res);
-	$done  = 0;
+	$productRes = $db->query($productSql);
+	$productTotal = $productRes ? $db->num_rows($productRes) : 0;
+	$productProcessed = 0;
+	$productSynced    = 0;
 
-	while ($obj = $GLOBALS['db']->fetch_object($res)) {
-		$prod = new Product($GLOBALS['db']);
-		if ($prod->fetch((int) $obj->rowid) <= 0) continue;
+	while ($productRes && ($obj = $db->fetch_object($productRes))) {
+		$productProcessed++;
 
-		// 1. mirror / create link row
-		$r = TalerProductLink::upsertFromDolibarr($GLOBALS['db'], $prod, $user, $cfg);
-		if ($r<0) { $done++; continue; }
+		$prod = new Product($db);
+		if ($prod->fetch((int) $obj->rowid) <= 0) {
+			if ($productProcessed % 25 === 0) {
+				writeStatus(['phase'=>'push-products','direction'=>'push','processed'=>$productProcessed,'total'=>$productTotal]);
+			}
+			continue;
+		}
 
-		$done++;
-		if ($done % 25 === 0) writeStatus(['phase'=>'push','processed'=>$done,'total'=>$total]);
+		$resUpsert = TalerProductLink::upsertFromDolibarr($db, $prod, $user, $cfg);
+		if ($resUpsert >= 0) {
+			$productSynced++;
+		}
+
+		if ($productProcessed % 25 === 0) {
+			writeStatus(['phase'=>'push-products','direction'=>'push','processed'=>$productProcessed,'total'=>$productTotal]);
+		}
 	}
-	writeStatus(['phase'=>'done','direction'=>'push','processed'=>$done,'total'=>$total]);
-	dol_syslog("TalerBarrSync: finished {$direction} with $done items", LOG_NOTICE);
+	if ($productRes) {
+		$db->free($productRes);
+	}
+
+	// ---------------------------------------------------------
+	// Orders (only unpaid ones)
+	// ---------------------------------------------------------
+	$orderTotal      = 0;
+	$orderProcessed  = 0;
+	$orderSynced     = 0;
+	$orderSyncedPaid = 0;
+
+	$orderSql = "SELECT c.rowid, c.total_ttc, c.facture, c.paye, c.fk_statut
+            FROM ".MAIN_DB_PREFIX."commande AS c
+            WHERE c.entity IN (".getEntity('commande').")
+              AND c.facture = 0
+              AND c.fk_statut IN (".Commande::STATUS_VALIDATED.",".Commande::STATUS_SHIPMENTONPROCESS.",".Commande::STATUS_CLOSED.")";
+	$orderRes = $db->query($orderSql);
+	$orderTotal = $orderRes ? $db->num_rows($orderRes) : 0;
+
+	if ($orderTotal > 0) {
+		writeStatus(['phase'=>'push-orders','direction'=>'push','processed'=>0,'total'=>$orderTotal]);
+	}
+
+	while ($orderRes && ($obj = $db->fetch_object($orderRes))) {
+		$orderProcessed++;
+
+		$cmd = new Commande($db);
+		if ($cmd->fetch((int) $obj->rowid) <= 0) {
+			if ($orderProcessed % 10 === 0) {
+				writeStatus(['phase'=>'push-orders','direction'=>'push','processed'=>$orderProcessed,'total'=>$orderTotal]);
+			}
+			continue;
+		}
+
+		$totalTtc = (float) ($cmd->total_ttc ?? 0.0);
+		if ($totalTtc <= 0.0) {
+			if ($orderProcessed % 10 === 0) {
+				writeStatus(['phase'=>'push-orders','direction'=>'push','processed'=>$orderProcessed,'total'=>$orderTotal]);
+			}
+			continue;
+		}
+
+		$link = new TalerOrderLink($db);
+		$linkRes = $link->fetchByInvoiceOrOrder(0, (int) $cmd->id);
+		if ($linkRes > 0 && (int) ($link->taler_state ?? 0) >= 30) {
+			$orderSyncedPaid++;
+			if ($orderProcessed % 10 === 0) {
+				writeStatus(['phase'=>'push-orders','direction'=>'push','processed'=>$orderProcessed,'total'=>$orderTotal]);
+			}
+			continue;
+		}
+
+		$resOrder = TalerOrderLink::upsertFromDolibarr($db, $cmd, $user);
+		if ($resOrder >= 0) {
+			$orderSynced++;
+		}
+
+		if ($orderProcessed % 10 === 0) {
+			writeStatus(['phase'=>'push-orders','direction'=>'push','processed'=>$orderProcessed,'total'=>$orderTotal]);
+		}
+	}
+	if ($orderRes) {
+		$db->free($orderRes);
+	}
+
+	$finalProcessed = $productProcessed + $orderProcessed;
+	$finalTotal     = $productTotal + $orderTotal;
+
+	writeStatus([
+		'phase'      => 'done',
+		'direction'  => 'push',
+		'processed'  => $finalProcessed,
+		'total'      => $finalTotal,
+		'products'   => [
+			'processed' => $productProcessed,
+			'synced'    => $productSynced,
+			'total'     => $productTotal,
+		],
+		'orders'     => [
+			'processed' => $orderProcessed,
+			'synced'    => $orderSynced,
+			'skipped_paid' => $orderSyncedPaid,
+			'total'     => $orderTotal,
+		],
+	]);
+
+	dol_syslog(
+		sprintf(
+			"TalerBarrSync: finished %s with %d/%d products and %d/%d orders",
+			$direction,
+			$productSynced,
+			$productTotal,
+			$orderSynced,
+			$orderTotal
+		),
+		LOG_NOTICE
+	);
 	exit(0);
 }
 
@@ -202,6 +315,7 @@ try {
 	exit(2);
 }
 
+$db     = $GLOBALS['db'];
 $limit  = 1_000;
 $offset = 0;
 $done   = 0;
@@ -243,7 +357,7 @@ do {
 
 		$done++;
 		if ($done % 25 === 0) {
-			writeStatus(['phase'=>'pull','processed'=>$done,'total'=>null]);
+			writeStatus(['phase'=>'pull-products','direction'=>'pull','processed'=>$done,'total'=>null]);
 		}
 	}
 
@@ -252,6 +366,150 @@ do {
 	$offset = ((int) $last['product_serial']) + 1;
 } while ($count === $limit);
 
-writeStatus(['phase'=>'done','direction'=>'pull','processed'=>$done,'total'=>$total]);
-dol_syslog("TalerBarrSync: finished {$direction} with $done items", LOG_NOTICE);
+$productProcessed = $done;
+$productTotal     = $total;
+
+if ($productProcessed > 0) {
+	writeStatus([
+		'phase'      => 'pull-products',
+		'direction'  => 'pull',
+		'processed'  => $productProcessed,
+		'total'      => $productTotal > 0 ? $productTotal : null,
+	]);
+}
+
+// -------------------------------------------------------------
+// Orders (Taler → Dolibarr)
+// -------------------------------------------------------------
+$orderLimit       = 200;
+$orderOffset      = 0;
+$orderProcessed   = 0;
+$orderSynced      = 0;
+$orderTotalKnown  = null;
+$orderCount       = 0;
+
+do {
+	try {
+		$orderParams = ['limit' => $orderLimit];
+		if ($orderOffset > 0) {
+			$orderParams['offset'] = $orderOffset;
+		}
+		$orderPage  = $client->listOrders($orderParams);
+		$orderItems = $orderPage['orders'] ?? [];
+	} catch (Throwable $e) {
+		writeStatus(['phase'=>'abort','direction'=>'pull','error'=>$e->getMessage()]);
+		fwrite(STDERR, "API error: ".$e->getMessage()."\n");
+		exit(2);
+	}
+
+	$orderCount = count($orderItems);
+	if ($orderCount === 0) {
+		if ($orderOffset === 0) {
+			writeStatus(['phase'=>'pull-orders','direction'=>'pull','processed'=>0,'total'=>0]);
+		}
+		break;
+	}
+
+	if ($orderTotalKnown === null) {
+		if (isset($orderPage['total'])) {
+			$orderTotalKnown = (int) $orderPage['total'];
+		} elseif (isset($orderPage['count'])) {
+			$orderTotalKnown = (int) $orderPage['count'];
+		}
+	}
+
+	foreach ($orderItems as $orderSummary) {
+		$orderProcessed++;
+
+		$orderId = (string) ($orderSummary['order_id'] ?? $orderSummary['orderId'] ?? '');
+		if ($orderId === '') {
+			if ($orderProcessed % 10 === 0) {
+				writeStatus(['phase'=>'pull-orders','direction'=>'pull','processed'=>$orderProcessed,'total'=>$orderTotalKnown]);
+			}
+			continue;
+		}
+
+		try {
+			$statusPayload = $client->getOrderStatus($orderId);
+			if (!isset($statusPayload['order_id']) || $statusPayload['order_id'] === '' || $statusPayload['order_id'] === null) {
+				$statusPayload['order_id'] = $orderId;
+			}
+			if (!isset($statusPayload['orderId']) || $statusPayload['orderId'] === '' || $statusPayload['orderId'] === null) {
+				$statusPayload['orderId'] = $orderId;
+			}
+		} catch (Throwable $e) {
+			writeStatus([
+				'phase'     => 'abort',
+				'direction' => 'pull',
+				'error'     => $e->getMessage()."\nOrder id: ".$orderId,
+			]);
+			fwrite(STDERR, "API error: ".$e->getMessage()."\n");
+			exit(2);
+		}
+
+		$contractTerms = $statusPayload['contract_terms'] ?? ($orderSummary['contract_terms'] ?? []);
+		if (is_array($contractTerms)) {
+			if (empty($contractTerms['order_id']) && isset($statusPayload['order_id'])) {
+				$contractTerms['order_id'] = $statusPayload['order_id'];
+			} elseif (empty($contractTerms['orderId']) && isset($statusPayload['order_id'])) {
+				$contractTerms['orderId'] = $statusPayload['order_id'];
+			}
+		}
+		$resCreate = TalerOrderLink::upsertFromTalerOnOrderCreation(
+			$db,
+			$statusPayload,
+			$user,
+			$contractTerms
+		);
+		if ($resCreate >= 0) {
+			$orderSynced++;
+		}
+
+		$statusKey = strtolower((string) ($statusPayload['order_status'] ?? $statusPayload['status'] ?? ''));
+		if ($statusKey === 'wired' || (!empty($statusPayload['wired']) && $statusKey !== 'refunded')) {
+			TalerOrderLink::upsertFromTalerOfWireTransfer($db, $statusPayload, $user);
+		} elseif (in_array($statusKey, ['paid', 'delivered', 'refunded'], true)) {
+			TalerOrderLink::upsertFromTalerOfPayment($db, $statusPayload, $user);
+		}
+
+		if ($orderProcessed % 10 === 0) {
+			writeStatus(['phase'=>'pull-orders','direction'=>'pull','processed'=>$orderProcessed,'total'=>$orderTotalKnown]);
+		}
+	}
+
+	$orderOffset += $orderCount;
+} while ($orderCount === $orderLimit);
+
+$orderTotalForStatus = $orderTotalKnown;
+if ($orderTotalForStatus === null) {
+	$orderTotalForStatus = $orderProcessed;
+}
+
+$finalProcessed = $productProcessed + $orderProcessed;
+$finalTotal     = $productTotal + $orderTotalForStatus;
+
+writeStatus([
+	'phase'      => 'done',
+	'direction'  => 'pull',
+	'processed'  => $finalProcessed,
+	'total'      => $finalTotal,
+	'products'   => [
+		'processed' => $productProcessed,
+		'total'     => $productTotal,
+	],
+	'orders'     => [
+		'processed' => $orderProcessed,
+		'synced'    => $orderSynced,
+		'total'     => $orderTotalKnown,
+	],
+]);
+dol_syslog(
+	sprintf(
+		"TalerBarrSync: finished %s with %d products and %d orders",
+		$direction,
+		$productProcessed,
+		$orderProcessed
+	),
+	LOG_NOTICE
+);
 exit(0);

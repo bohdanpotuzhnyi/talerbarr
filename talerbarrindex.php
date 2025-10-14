@@ -69,6 +69,8 @@ if (!$res) {
  * @var User $user
  */
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
+dol_include_once('/societe/class/societe.class.php');
+dol_include_once('/compta/bank/class/account.class.php');
 
 // Load translation files required by the page
 $langs->loadLangs(array("talerbarr@talerbarr"));
@@ -179,6 +181,56 @@ if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->ver
 	$safeUser = dol_escape_htmltag($singleton->username);
 	$editUrl  = dol_buildpath('/talerbarr/talerconfig_card.php', 1).'?id='.(int) $singleton->id.'&action=edit';
 
+	$directionKey = ((string) $singleton->syncdirection === '1') ? 'pull' : 'push';
+	$directionLabel = $directionKey === 'pull'
+		? $langs->trans('SyncDirectionTalerToDolibarr')
+		: $langs->trans('SyncDirectionDolibarrToTaler');
+	$directionDisplay = dol_escape_htmltag($directionLabel);
+
+	$tokenExpiry = '';
+	if (!empty($singleton->expiration)) {
+		$expiresTs = is_numeric($singleton->expiration) ? (int) $singleton->expiration : strtotime((string) $singleton->expiration);
+		if ($expiresTs > 0) {
+			$tokenExpiry = dol_print_date($expiresTs, 'dayhour');
+		}
+	}
+	$tokenExpiryHtml = $tokenExpiry !== '' ? dol_escape_htmltag($tokenExpiry) : '<span class="opacitymedium">'.$langs->trans('NotDefined').'</span>';
+
+	$bankHtml = '<span class="opacitymedium">'.$langs->trans('NotDefined').'</span>';
+	if (!empty($singleton->fk_bank_account)) {
+		$account = new Account($db);
+		if ($account->fetch((int) $singleton->fk_bank_account) > 0) {
+			$bankHtml = $account->getNomUrl(1);
+		}
+	}
+
+	$customerHtml = '<span class="opacitymedium">'.$langs->trans('NotDefined').'</span>';
+	if (!empty($singleton->fk_default_customer)) {
+		$thirdparty = new Societe($db);
+		if ($thirdparty->fetch((int) $singleton->fk_default_customer) > 0) {
+			$customerHtml = $thirdparty->getNomUrl(1);
+		}
+	}
+
+	$verificationHtml = '<span class="badge badge-status1">'.$langs->trans('SyncVerificationFailed').'</span>';
+	if (!empty($singleton->verification_ok)) {
+		$verificationHtml = '<span class="badge badge-status4">'.$langs->trans('SyncVerificationOk').'</span>';
+	} elseif (!empty($singleton->verification_error)) {
+		$verificationHtml .= ' <span class="opacitymedium">'.dol_escape_htmltag($singleton->verification_error).'</span>';
+	} elseif (!empty($errmsg)) {
+		$verificationHtml .= ' <span class="opacitymedium">'.dol_escape_htmltag($errmsg).'</span>';
+	}
+
+	$configRows = array(
+		$langs->trans('TalerMerchantURL') => '<a href="'.$safeUrl.'" target="_blank" rel="noopener">'.$safeUrl.'</a>',
+		$langs->trans('TalerInstance') => $safeUser,
+		$langs->trans('SyncDirection') => $directionDisplay,
+		$langs->trans('SyncTokenExpires') => $tokenExpiryHtml,
+		$langs->trans('SyncBankAccount') => $bankHtml,
+		$langs->trans('TalerDefaultCustomer') => $customerHtml,
+		$langs->trans('SyncVerificationStatus') => $verificationHtml,
+	);
+
 	print '<div class="div-table-responsive-no-min">';
 	print '<table class="noborder centpercent">';
 
@@ -195,9 +247,10 @@ if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->ver
 
 	// Details block
 	print '<td>';
-	print '<div style="font-size:15px; font-weight:bold; margin-bottom:6px;">'.$langs->trans("TalerConfigIsValid").'</div>';
-	print '<div><strong>'.$langs->trans("URL").':</strong> <a href="'.dol_escape_htmltag($safeUrl).'" target="_blank" rel="noopener">'.$safeUrl.'</a></div>';
-	print '<div><strong>'.$langs->trans("Instance").':</strong> '.$safeUser.'</div>';
+	//print '<div style="font-size:15px; font-weight:bold; margin-bottom:6px;">'.$langs->trans("TalerConfigIsValid").'</div>';
+	foreach ($configRows as $label => $value) {
+		print '<div class="marginbottomonly"><strong>'.dol_escape_htmltag($label).':</strong> '.$value.'</div>';
+	}
 	print '</td>';
 
 	// Action button
@@ -239,17 +292,100 @@ print '<td>';
 if (!$status) {
 	print $langs->trans("NoSyncYet");
 } else {
-	$ts        = dol_print_date($db->jdate($status['ts']), 'dayhour');
-	$direction = $status['direction'] ?? '?';
-	$phase     = $status['phase'];
-
-	$progress  = '';
-	if (!empty($status['total'])) {
-		$progress = ' &nbsp;('.((int) $status['processed']).'/'.((int) $status['total']).')';
+	$phaseKey = isset($status['phase']) ? (string) $status['phase'] : '';
+	$phaseMap = array(
+		'start' => $langs->trans('SyncPhaseStart'),
+		'push-products' => $langs->trans('SyncPhasePushProducts'),
+		'push-orders' => $langs->trans('SyncPhasePushOrders'),
+		'pull-products' => $langs->trans('SyncPhasePullProducts'),
+		'pull-orders' => $langs->trans('SyncPhasePullOrders'),
+		'stale-recovery' => $langs->trans('SyncPhaseStaleRecovery'),
+		'done' => $langs->trans('SyncPhaseDone'),
+		'abort' => $langs->trans('SyncPhaseAbort'),
+	);
+	$phaseLabel = isset($phaseMap[$phaseKey]) ? $phaseMap[$phaseKey] : dol_escape_htmltag($phaseKey);
+	if ($phaseLabel === '') {
+		$phaseLabel = '?';
 	}
-	print '<div><strong>'.$langs->trans("Phase").':</strong> '.dol_escape_htmltag($phase).'</div>';
-	print '<div><strong>'.$langs->trans("Direction").':</strong> '.dol_escape_htmltag($direction).$progress.'</div>';
-	print '<div><strong>'.$langs->trans("Date").':</strong> '.$ts.'</div>';
+
+	$directionKey = strtolower((string) ($status['direction'] ?? ''));
+	if ($directionKey === 'pull') {
+		$directionLabel = dol_escape_htmltag($langs->trans('SyncDirectionTalerToDolibarr'));
+	} elseif ($directionKey === 'push') {
+		$directionLabel = dol_escape_htmltag($langs->trans('SyncDirectionDolibarrToTaler'));
+	} else {
+		$directionLabel = dol_escape_htmltag((string) ($status['direction'] ?? '?'));
+	}
+	if ($directionLabel === '') {
+		$directionLabel = '?';
+	}
+
+	$directionExtra = '';
+	if (isset($status['processed'])) {
+		$summaryBits = array();
+		$summaryBits[] = dol_escape_htmltag($langs->trans('SyncMetricProcessed')).': '.((int) $status['processed']);
+		if (array_key_exists('total', $status) && $status['total'] !== null) {
+			$summaryBits[] = dol_escape_htmltag($langs->trans('SyncMetricTotal')).': '.((int) $status['total']);
+		}
+		if (!empty($summaryBits)) {
+			$directionExtra = ' <span class="opacitymedium">('.implode(' | ', $summaryBits).')</span>';
+		}
+	}
+
+	$tsRaw = $status['ts'] ?? '';
+	$tsHtml = '<span class="opacitymedium">'.$langs->trans('NotDefined').'</span>';
+	if ($tsRaw !== '') {
+		$timestamp = is_numeric($tsRaw) ? (int) $tsRaw : strtotime((string) $tsRaw);
+		if ($timestamp) {
+			$tsHtml = dol_escape_htmltag(dol_print_date($timestamp, 'dayhour'));
+		} else {
+			$tsHtml = dol_escape_htmltag((string) $tsRaw);
+		}
+	}
+
+	print '<div><strong>'.$langs->trans("Phase").':</strong> '.$phaseLabel.'</div>';
+	print '<div><strong>'.$langs->trans("Direction").':</strong> '.$directionLabel.$directionExtra.'</div>';
+	print '<div><strong>'.$langs->trans("Date").':</strong> '.$tsHtml.'</div>';
+
+	$bucketLabels = array(
+		'products' => $langs->trans('SyncMetricsProducts'),
+		'orders' => $langs->trans('SyncMetricsOrders'),
+	);
+	$metricLabels = array(
+		'processed' => $langs->trans('SyncMetricProcessed'),
+		'synced' => $langs->trans('SyncMetricSynced'),
+		'skipped_paid' => $langs->trans('SyncMetricSkippedPaid'),
+		'total' => $langs->trans('SyncMetricTotal'),
+	);
+
+	foreach ($bucketLabels as $bucketKey => $bucketTitle) {
+		if (empty($status[$bucketKey]) || !is_array($status[$bucketKey])) {
+			continue;
+		}
+		$bucket = $status[$bucketKey];
+		$parts = array();
+		foreach ($metricLabels as $metricKey => $metricLabel) {
+			if (!array_key_exists($metricKey, $bucket)) {
+				continue;
+			}
+			$valueRaw = $bucket[$metricKey];
+			if ($valueRaw === null || !is_numeric($valueRaw)) {
+				continue;
+			}
+			$value = (int) $valueRaw;
+			if ($metricKey === 'skipped_paid' && $value === 0) {
+				continue;
+			}
+			$parts[] = dol_escape_htmltag($metricLabel).': '.$value;
+		}
+		if (!empty($parts)) {
+			print '<div><strong>'.dol_escape_htmltag($bucketTitle).':</strong> '.implode(', ', $parts).'</div>';
+		}
+	}
+
+	if (!empty($status['note'])) {
+		print '<div class="opacitymedium">'.dol_escape_htmltag($status['note']).'</div>';
+	}
 
 	if (!empty($status['error'])) {
 		print '<div class="error">'.dol_escape_htmltag($status['error']).'</div>';
