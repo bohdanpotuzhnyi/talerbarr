@@ -368,7 +368,8 @@ class modTalerBarr extends DolibarrModules
 			'prefix'   => img_picto('', 'object_order', 'class="paddingright pictofixedwidth valignmiddle"'),
 			'mainmenu' => 'talerbarr',
 			'leftmenu' => 'talerorder',
-			'url'      => '',
+			//TODO: We might really want to replace it with some nice/simple stats screen for orders
+			'url'      => '/talerbarr/talerorderlink_list.php',
 			'langs'    => 'talerbarr@talerbarr',
 			'position' => 1000 + $r,
 			'enabled'  => 'isModEnabled("talerbarr")',
@@ -401,7 +402,8 @@ class modTalerBarr extends DolibarrModules
 			'prefix'   => img_picto('', 'product', 'class="paddingright pictofixedwidth valignmiddle"'),
 			'mainmenu' => 'talerbarr',
 			'leftmenu' => 'talerinventory',
-			'url'      => '',
+			//TODO: We might really want to replace it with some nice/simple stats screen for products + categories
+			'url'      => '/talerbarr/talerproductlink_list.php',
 			'langs'    => 'talerbarr@talerbarr',
 			'position' => 1000 + $r,
 			'enabled'  => 'isModEnabled("talerbarr")',
