@@ -337,6 +337,7 @@ class modTalerBarr extends DolibarrModules
 		*/
 		/* END MODULEBUILDER PERMISSIONS */
 
+		$safeMenuOffset = 2700;
 
 		// Main menu entries to add
 		$this->menu = array();
@@ -353,7 +354,7 @@ class modTalerBarr extends DolibarrModules
 			'leftmenu' => '',
 			'url' => '/talerbarr/talerbarrindex.php',
 			'langs' => 'talerbarr@talerbarr', // Lang file to use (without .lang) by module. File must be in langs/code_CODE/ directory.
-			'position' => 1000 + $r,
+			'position' => $safeMenuOffset + $r,
 			'enabled' => 'isModEnabled("talerbarr")', // Define condition to show or hide menu entry. Use 'isModEnabled("talerbarr")' if entry must be visible if module is enabled.
 			'perms' => '1', // Use 'perms'=>'$user->hasRight("talerbarr", "talerconfig", "read")' if you want your menu with a permission rules
 			'target' => '',
@@ -369,9 +370,9 @@ class modTalerBarr extends DolibarrModules
 			'mainmenu' => 'talerbarr',
 			'leftmenu' => 'talerorder',
 			//TODO: We might really want to replace it with some nice/simple stats screen for orders
-			'url'      => '/talerbarr/talerorderlink_list.php',
+			'url'      => '',
 			'langs'    => 'talerbarr@talerbarr',
-			'position' => 1000 + $r,
+			'position' => $safeMenuOffset + $r,
 			'enabled'  => 'isModEnabled("talerbarr")',
 			'perms'    => '1',
 			'target'   => '',
@@ -388,7 +389,7 @@ class modTalerBarr extends DolibarrModules
 			'leftmenu' => 'talerorderlink_list',
 			'url'      => '/talerbarr/talerorderlink_list.php',
 			'langs'    => 'talerbarr@talerbarr',
-			'position' => 1000 + $r,
+			'position' => $safeMenuOffset + $r,
 			'enabled'  => 'isModEnabled("talerbarr")',
 			'perms'    => '1',
 			'target'   => '',
@@ -403,9 +404,9 @@ class modTalerBarr extends DolibarrModules
 			'mainmenu' => 'talerbarr',
 			'leftmenu' => 'talerinventory',
 			//TODO: We might really want to replace it with some nice/simple stats screen for products + categories
-			'url'      => '/talerbarr/talerproductlink_list.php',
+			'url'      => '',
 			'langs'    => 'talerbarr@talerbarr',
-			'position' => 1000 + $r,
+			'position' => $safeMenuOffset + $r,
 			'enabled'  => 'isModEnabled("talerbarr")',
 			'perms'    => '1',
 			'target'   => '',
@@ -420,9 +421,9 @@ class modTalerBarr extends DolibarrModules
 			'prefix'   => img_picto('', $this->picto, 'class="paddingright pictofixedwidth valignmiddle"'),
 			'mainmenu' => 'talerbarr',
 			'leftmenu' => 'talerproductlink_list',
-			'url'      => '/talerbarr/talerproductlink_list.php', // adjust if your filename differs
+			'url'      => '/talerbarr/talerproductlink_list.php',
 			'langs'    => 'talerbarr@talerbarr',
-			'position' => 1000 + $r,
+			'position' => $safeMenuOffset + $r,
 			'enabled'  => 'isModEnabled("talerbarr")',
 			'perms'    => '1',
 			'target'   => '',
@@ -437,9 +438,9 @@ class modTalerBarr extends DolibarrModules
 			'prefix'   => img_picto('', $this->picto, 'class="paddingright pictofixedwidth valignmiddle"'),
 			'mainmenu' => 'talerbarr',
 			'leftmenu' => 'talercategorymap_list',
-			'url'      => '/talerbarr/talercategorymap_list.php', // adjust if your filename is talercategorymap.php
+			'url'      => '/talerbarr/talercategorymap_list.php',
 			'langs'    => 'talerbarr@talerbarr',
-			'position' => 1000 + $r,
+			'position' => $safeMenuOffset + $r,
 			'enabled'  => 'isModEnabled("talerbarr")',
 			'perms'    => '1',
 			'target'   => '',
@@ -456,7 +457,7 @@ class modTalerBarr extends DolibarrModules
 			'leftmenu' => 'talerconfig',
 			'url' => '/talerbarr/talerconfig_card.php',
 			'langs' => 'talerbarr@talerbarr',
-			'position' => 1000 + $r,
+			'position' => $safeMenuOffset + $r,
 			'enabled' => 'isModEnabled("talerbarr")',
 			'perms' => '1',
 			'target' => '',
