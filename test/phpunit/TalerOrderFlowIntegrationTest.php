@@ -121,8 +121,8 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 
 		self::ensureModuleTables();
 		self::loadDefaultCustomer();
-		self::seedProduct();
 		self::seedConfiguration();
+		self::ensureTestProduct();
 
 		dolibarr_set_const(self::$db, 'TALERBARR_DEFAULT_SOCID', (int) self::$customer->id, 'chaine', 0, '', $conf->entity);
 		dolibarr_set_const(self::$db, 'TALERBARR_PAYMENT_MODE_ID', 1, 'chaine', 0, '', $conf->entity);
@@ -430,30 +430,44 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 	}
 
 	/**
-	 * Create a service product that matches the static test catalogue.
+	 * Ensure a deterministic service product exists for integration flows.
 	 *
 	 * @return void
 	 */
-	private static function seedProduct(): void
+	private static function ensureTestProduct(): void
 	{
 		global $conf;
 
+		$ref = 'TALER-TEST-PRODUCT';
 		$product = new Product(self::$db);
-		$product->ref = 'WALLET-PROD-'.bin2hex(random_bytes(3));
+		if ($product->fetch(0, $ref) > 0 && (int) $product->entity === (int) $conf->entity) {
+			self::$product = $product;
+			return;
+		}
+
+		$product->initAsSpecimen();
+		$product->ref = $ref;
 		$product->label = 'Taler integration test product';
 		$product->price = 5.00;
 		$product->price_ttc = 5.00;
-		$product->price_base_type = 'TTC';
+		$product->price_base_type = 'HT';
 		$product->tva_tx = 0;
 		$product->status = 1;
 		$product->status_buy = 0;
 		$product->entity = $conf->entity;
 		$product->type = Product::TYPE_SERVICE;
 
-		$id = $product->create(self::$user);
-		if ($id <= 0) {
-			throw new RuntimeException('Unable to create product: '.$product->error);
+		$resCreate = $product->create(self::$user);
+		if ($resCreate <= 0) {
+			if ($product->errorcode === 'DB_ERROR_RECORD_ALREADY_EXISTS' || str_contains((string) $product->error, 'Duplicate')) {
+				if ($product->fetch(0, $ref) > 0) {
+					self::$product = $product;
+					return;
+				}
+			}
+			throw new RuntimeException('Unable to provision test product: '.$product->error);
 		}
+
 		self::$product = $product;
 	}
 
@@ -483,16 +497,7 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 			self::$product->tva_tx,
 			0,
 			0,
-			self::$product->id,
-			0,
-			dol_now(),
-			dol_now(),
-			0,
-			0,
-			0,
-			'TTC',
-			self::$product->price_ttc,
-			self::$product->type
+			self::$product->id
 		);
 		$this->assertGreaterThan(0, $lineRes, 'Failed to add order line: '.$cmd->error);
 
