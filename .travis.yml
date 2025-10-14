@@ -625,7 +625,9 @@ script:
              . "require_once DOL_DOCUMENT_ROOT.\x27/custom/talerbarr/test/phpunit/TalerProductLinkTest.php\x27;\n"
              . "\$suite->addTestSuite(\x27TalerProductLinkTest\x27);\n"
              . "require_once DOL_DOCUMENT_ROOT.\x27/custom/talerbarr/test/phpunit/TalerOrderLinkStaticTest.php\x27;\n"
-             . "\$suite->addTestSuite(\x27TalerOrderLinkStaticTest\x27);\n";
+             . "\$suite->addTestSuite(\x27TalerOrderLinkStaticTest\x27);\n"
+             . "require_once DOL_DOCUMENT_ROOT.\x27/custom/talerbarr/test/phpunit/TalerOrderFlowIntegrationTest.php\x27;\n"
+             . "\$suite->addTestSuite(\x27TalerOrderFlowIntegrationTest\x27);\n";
       } s/return \$suite;/ $ins\nreturn \$suite;/s' -i "$ALLTESTS"
 
       echo "Patch applied. Showing tail of AllTests.php for verification:"
@@ -634,6 +636,7 @@ script:
 
   - |
     echo "Unit testing"
+    export TALER_INTEGRATION_TEST=1
     # Execute phpunit, check its exit status and that the phpunit output shows a test summary
     phpunit -d memory_limit=-1 -c test/phpunit/phpunittest.xml test/phpunit/AllTests.php | tee /dev/tty | grep -qE "(OK .*[0-9]+ tests.*[0-9]+ assertions|Tests: [0-9]+)" ; phpunitresult=$((PIPESTATUS[0]?PIPESTATUS[0]:PIPESTATUS[2]))
     echo "Phpunit return code = $phpunitresult"
