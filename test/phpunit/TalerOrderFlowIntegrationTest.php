@@ -120,7 +120,7 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 		$module->init('');
 
 		self::ensureModuleTables();
-		self::seedCustomer();
+		self::loadDefaultCustomer();
 		self::seedProduct();
 		self::seedConfiguration();
 
@@ -408,29 +408,24 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 	}
 
 	/**
-	 * Create a disposable Dolibarr customer for the integration run.
+	 * Load the module-provisioned default customer created during module init.
 	 *
 	 * @return void
 	 */
-	private static function seedCustomer(): void
+	private static function loadDefaultCustomer(): void
 	{
 		global $conf;
+
+		$defaultSocId = (int) getDolGlobalInt('TALERBARR_DEFAULT_SOCID');
+		if ($defaultSocId <= 0) {
+			throw new RuntimeException('TALERBARR_DEFAULT_SOCID not initialised; module bootstrap failed.');
+		}
+
 		$company = new Societe(self::$db);
-		$company->name = 'Taler Wallet Customer '.uniqid();
-		$company->client = 1;
-		$company->entity = $conf->entity;
-		$company->town = 'Testville';
-		$company->country_id = 1;
-		$company->zip = '00000';
-		$company->email = 'wallet+'.uniqid().'@example.invalid';
-		$company->code_client = $company->getNextCode('', 'customer');
-		if (empty($company->code_client)) {
-			$company->code_client = 'WALLET'.mt_rand(1000, 9999);
+		if ($company->fetch($defaultSocId) <= 0 || (int) $company->entity !== (int) $conf->entity) {
+			throw new RuntimeException('Unable to fetch default Taler customer (ID '.$defaultSocId.'): '.$company->error);
 		}
-		$id = $company->create(self::$user);
-		if ($id <= 0) {
-			throw new RuntimeException('Unable to create customer: '.$company->error);
-		}
+
 		self::$customer = $company;
 	}
 
