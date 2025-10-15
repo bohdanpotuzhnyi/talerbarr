@@ -208,8 +208,51 @@ ensure_wallet_cli() {
   )
   hash -r
 
+  local helper_target="/usr/local/bin/taler-helper-sqlite3"
+  if ! command -v taler-helper-sqlite3 >/dev/null 2>&1; then
+    local helper_src=""
+    helper_src=$(find "$wallet_src_dir" -maxdepth 6 -type f -name 'taler-helper-sqlite3' -print -quit 2>/dev/null || true)
+    if [[ -n $helper_src ]]; then
+      log "Installing taler-helper-sqlite3 binary from ${helper_src}"
+      sudo install -m 0755 "$helper_src" "$helper_target"
+      if [[ -d /usr/local/libexec ]]; then
+        sudo install -m 0755 "$helper_src" /usr/local/libexec/taler-helper-sqlite3 2>/dev/null || true
+      fi
+    else
+      log "taler-helper-sqlite3 binary not found in build tree"
+    fi
+    hash -r
+  fi
+
+  if command -v taler-helper-sqlite3 >/dev/null 2>&1 && [[ -x /usr/local/bin/taler-helper-sqlite3 ]]; then
+    if [[ ! -x /usr/bin/taler-helper-sqlite3 ]]; then
+      log "Linking taler-helper-sqlite3 into /usr/bin for sudo PATH"
+      sudo ln -sf /usr/local/bin/taler-helper-sqlite3 /usr/bin/taler-helper-sqlite3
+    fi
+  fi
+
+  if ! command -v taler-helper-sqlite3 >/dev/null 2>&1; then
+    log "taler-helper-sqlite3 remains unavailable after installation steps"
+    return 1
+  fi
+
+  log "Running taler-helper-sqlite3 --version smoke test"
+  if ! taler-helper-sqlite3 --version >/dev/null 2>&1; then
+    log "taler-helper-sqlite3 smoke test failed"
+    return 1
+  fi
+
   if command -v taler-wallet-cli >/dev/null 2>&1; then
     log "Installed taler-wallet-cli at $(command -v taler-wallet-cli)"
+    local wallet_smoke_home
+    wallet_smoke_home=$(mktemp -d)
+    log "Running taler-wallet-cli smoke test (testing withdraw-kudos --help)"
+    if ! TALER_WALLET_HOME="$wallet_smoke_home" HOME="$wallet_smoke_home" taler-wallet-cli testing withdraw-kudos --help >/dev/null 2>&1; then
+      log "taler-wallet-cli smoke test failed"
+      rm -rf "$wallet_smoke_home"
+      return 1
+    fi
+    rm -rf "$wallet_smoke_home"
     return 0
   fi
 
