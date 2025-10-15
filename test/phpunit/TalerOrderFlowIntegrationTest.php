@@ -181,6 +181,7 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 		$statusPaid = $this->waitForMerchantStatus((string) $link->taler_order_id, 45);
 		$this->assertNotEmpty($statusPaid, 'Merchant status payload required');
 
+		//NORMALLY THIS IS NOT NEEDED, as the taler will communicate with webhook to merchant, so we just need to wait
 		$rcPayment = TalerOrderLink::upsertFromTalerOfPayment(self::$db, $statusPaid, self::$user);
 		$this->assertSame(1, $rcPayment, 'Payment sync should succeed');
 
@@ -964,6 +965,8 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 		$deadline = time() + $timeoutSeconds;
 		do {
 			$status = $client->getOrderStatus($orderId);
+			//Normally response doesn't contain order_id, so we add it for processing purposes
+			$status['order_id'] = $orderId;
 			$state = strtolower((string) ($status['status'] ?? ''));
 			if (in_array($state, ['paid', 'delivered', 'wired'], true)) {
 				return $status;
