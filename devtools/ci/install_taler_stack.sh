@@ -86,36 +86,48 @@ ensure_python_module() {
 }
 
 ensure_node_runtime() {
-  local required_major=16
+  local desired_major=18
+  local node_path=""
   local node_version=""
   local node_major=0
+  local needs_nodesource=0
 
-  if command -v node >/dev/null 2>&1; then
+  node_path=$(command -v node || true)
+  if [[ -n $node_path ]]; then
     node_version=$(node -v | sed 's/^v//')
     node_major=${node_version%%.*}
-  fi
-
-  local needs_nodesource=0
-  if (( node_major < required_major )); then
+    if (( node_major < desired_major )); then
+      needs_nodesource=1
+    fi
+    case "$node_path" in
+      /usr/bin/node|/usr/local/bin/node)
+        ;;
+      *)
+        needs_nodesource=1
+        ;;
+    esac
+  else
     needs_nodesource=1
   fi
 
   if (( needs_nodesource == 1 )); then
-    log "Installing Node.js 18.x (and npm) from NodeSource (current: ${node_version:-absent})"
+    log "Installing Node.js ${desired_major}.x (and npm) from NodeSource (current: ${node_version:-absent} at ${node_path:-unset})"
     ensure_packages curl ca-certificates gnupg
-    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+    curl -fsSL "https://deb.nodesource.com/setup_${desired_major}.x" | sudo -E bash -
     sudo apt-get install -y nodejs
-    node_version=$(node -v | sed 's/^v//')
+    hash -r
+    node_path=$(command -v node || true)
+    node_version=$(node -v 2>/dev/null | sed 's/^v//')
   else
-    log "Node.js ${node_version} already available"
+    log "Node.js ${node_version} already installed system-wide at ${node_path}"
   fi
 
   hash -r
 
   if ! command -v npm >/dev/null 2>&1; then
-    log "Node.js installation missing npm; reinstalling Node.js 18.x from NodeSource"
+    log "npm not found; reinstalling Node.js ${desired_major}.x from NodeSource"
     ensure_packages curl ca-certificates gnupg
-    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+    curl -fsSL "https://deb.nodesource.com/setup_${desired_major}.x" | sudo -E bash -
     sudo apt-get install -y nodejs
     hash -r
   fi
@@ -192,7 +204,7 @@ ensure_wallet_cli() {
     ./bootstrap
     ./configure
     make -j"$TALER_BUILD_JOBS"
-    sudo make install
+    sudo env "PATH=$PATH" make install
   )
   hash -r
 
@@ -301,7 +313,7 @@ build_project() {
     ./bootstrap
     ./configure --prefix="$TALER_PREFIX" "${configure_args[@]}"
     make -j"$TALER_BUILD_JOBS"
-    sudo make install
+    sudo env "PATH=$PATH" make install
   )
   sudo ldconfig
 }
