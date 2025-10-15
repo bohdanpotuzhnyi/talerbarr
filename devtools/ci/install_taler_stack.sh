@@ -96,7 +96,7 @@ ensure_node_runtime() {
   fi
 
   local needs_nodesource=0
-  if (( node_major < required_major )) || ! command -v npm >/dev/null 2>&1; then
+  if (( node_major < required_major )); then
     needs_nodesource=1
   fi
 
@@ -111,9 +111,33 @@ ensure_node_runtime() {
   fi
 
   hash -r
+
+  if ! command -v corepack >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1; then
+    log "Existing Node.js installation lacks corepack/npm; reinstalling Node.js 18.x from NodeSource"
+    ensure_packages curl ca-certificates gnupg
+    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    hash -r
+  fi
+
+  local desired_pnpm="pnpm@9.7.0"
   if ! command -v pnpm >/dev/null 2>&1; then
-    log "Installing pnpm@9.7.0 globally via npm"
-    sudo npm install -g pnpm@9.7.0
+    if command -v corepack >/dev/null 2>&1; then
+      log "Activating ${desired_pnpm} via corepack"
+      if ! corepack enable >/dev/null 2>&1; then
+        log "corepack enable reported an issue; continuing"
+      fi
+      if ! corepack prepare "${desired_pnpm}" --activate; then
+        log "corepack failed to activate ${desired_pnpm}"
+        return 1
+      fi
+    elif command -v npm >/dev/null 2>&1; then
+      log "Installing ${desired_pnpm} globally via npm"
+      sudo env "PATH=$PATH" npm install -g "${desired_pnpm}"
+    else
+      log "Failed to locate corepack or npm for pnpm installation"
+      return 1
+    fi
     hash -r
   fi
   if ! command -v pnpm >/dev/null 2>&1; then
