@@ -103,6 +103,8 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 		self::$db = $db;
 		self::$user = $user;
 
+		self::bootstrapLogging();
+
 		self::$walletCli = self::locateWalletCli();
 		if (!self::$walletCli) {
 			self::markTestSkipped('taler-wallet-cli not available locally and sandcastle container not reachable.');
@@ -240,6 +242,12 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 			return $explicit;
 		}
 
+		$which = trim((string) shell_exec('command -v taler-wallet-cli 2>/dev/null'));
+		if ($which !== '') {
+			self::$walletExecMode = 'local';
+			return $which;
+		}
+
 		$container = self::resolveSandboxContainer();
 		if (self::commandExists('podman')) {
 			$result = self::runPodman(['exec', $container, 'which', 'taler-wallet-cli'], true);
@@ -248,12 +256,6 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 				self::$walletContainer = $container;
 				return 'taler-wallet-cli';
 			}
-		}
-
-		$which = trim(shell_exec('command -v taler-wallet-cli 2>/dev/null') ?: '');
-		if ($which !== '') {
-			self::$walletExecMode = 'local';
-			return $which;
 		}
 
 		return null;
@@ -687,6 +689,36 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 			'stderr' => $this->truncateForLog($result['stderr']),
 		]);
 		return $result;
+	}
+
+	/**
+	 * Ensure concise Dolibarr logging is active for the integration test run.
+	 *
+	 * @return void
+	 */
+	private static function bootstrapLogging(): void
+	{
+		global $conf;
+
+		require_once DOL_DOCUMENT_ROOT . '/core/modules/modSyslog.class.php';
+
+		if (!isModEnabled('syslog')) {
+			$syslogModule = new modSyslog(self::$db);
+			$syslogModule->init('');
+			$conf->modules['syslog'] = 1;
+		}
+
+		$handlers = '["mod_syslog_file"]';
+		dolibarr_set_const(self::$db, 'SYSLOG_HANDLERS', $handlers, 'chaine', 0, '', 0);
+		dolibarr_set_const(self::$db, 'SYSLOG_FILE', 'DOL_DATA_ROOT/dolibarr.log', 'chaine', 0, '', 0);
+		dolibarr_set_const(self::$db, 'SYSLOG_DISABLE_LOGHANDLER_FILE', '0', 'chaine', 0, '', 0);
+		dolibarr_set_const(self::$db, 'MAIN_SYSLOG_DISABLE_FILE', '0', 'chaine', 0, '', 0);
+		dolibarr_set_const(self::$db, 'SYSLOG_LEVEL', (string) LOG_DEBUG, 'chaine', 0, '', 0);
+		$conf->global->SYSLOG_HANDLERS = $handlers;
+		$conf->global->SYSLOG_FILE = 'DOL_DATA_ROOT/dolibarr.log';
+		$conf->global->SYSLOG_DISABLE_LOGHANDLER_FILE = '0';
+		$conf->global->MAIN_SYSLOG_DISABLE_FILE = '0';
+		$conf->global->SYSLOG_LEVEL = LOG_DEBUG;
 	}
 
 	/**

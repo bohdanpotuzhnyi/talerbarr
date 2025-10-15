@@ -85,6 +85,54 @@ ensure_python_module() {
   return 1
 }
 
+ensure_wallet_cli() {
+  if command -v taler-wallet-cli >/dev/null 2>&1; then
+    log "taler-wallet-cli already available at $(command -v taler-wallet-cli)"
+    return 0
+  fi
+
+  log "Ensuring build prerequisites for taler-wallet-cli"
+  ensure_packages git make zip jq nodejs npm
+  if ! command -v pnpm >/dev/null 2>&1; then
+    log "Installing pnpm via npm"
+    sudo npm install -g pnpm
+    hash -r
+  fi
+
+  mkdir -p "$TALER_BUILD_ROOT"
+  local wallet_src_dir="$TALER_BUILD_ROOT/taler-typescript-core"
+
+  if [[ ! -d $wallet_src_dir ]]; then
+    log "Cloning taler-typescript-core into ${wallet_src_dir}"
+    git clone --depth "$TALER_CLONE_DEPTH" https://git.taler.net/taler-typescript-core.git "$wallet_src_dir"
+  else
+    log "Updating taler-typescript-core in ${wallet_src_dir}"
+    (
+      cd "$wallet_src_dir"
+      git fetch --depth "$TALER_CLONE_DEPTH" origin HEAD
+      git reset --hard FETCH_HEAD
+    )
+  fi
+
+  log "Building taler-wallet-cli from sources"
+  (
+    cd "$wallet_src_dir"
+    ./bootstrap
+    ./configure
+    make -j"$TALER_BUILD_JOBS"
+    sudo make install
+  )
+  hash -r
+
+  if command -v taler-wallet-cli >/dev/null 2>&1; then
+    log "Installed taler-wallet-cli at $(command -v taler-wallet-cli)"
+    return 0
+  fi
+
+  log "Failed to install taler-wallet-cli"
+  return 1
+}
+
 ensure_meson_toolchain() {
   local required_meson_version="1.0.0"
 
@@ -465,9 +513,11 @@ main() {
   case "${mode}" in
     sandcastle)
       provision_sandcastle
+      ensure_wallet_cli
       ;;
     build)
       provision_build
+      ensure_wallet_cli
       ;;
     *)
       log "Unsupported TALER_STACK_MODE '${mode}' (expected 'build' or 'sandcastle')"
