@@ -565,6 +565,7 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 	 */
 	private function walletWithdraw(string $amount): void
 	{
+		$attempts = [];
 		$tries = [
 			[
 				'testing', 'withdraw-kudos',
@@ -584,17 +585,29 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 
 		$lastError = null;
 		foreach ($tries as $candidate) {
+			$this->logWalletStep('withdraw', 'attempt', ['command' => $candidate]);
 			$res = $this->runWallet($candidate);
+			$attempt = [
+				'command' => $candidate,
+				'code'    => $res['code'],
+				'stdout'  => $this->truncateForLog($res['stdout']),
+				'stderr'  => $this->truncateForLog($res['stderr']),
+			];
+			$attempts[] = $attempt;
+			$this->logWalletStep('withdraw', 'result', $attempt);
 			if ($res['code'] === 0) {
 				return;
 			}
 			$lastError = $res['stderr'] ?: $res['stdout'];
-			if (stripos($lastError, 'unknown command') === false) {
+			if (stripos((string) $lastError, 'unknown command') === false) {
 				break;
 			}
 		}
 
-		$this->fail('Wallet withdraw failed: '.($lastError ?? 'unknown error'));
+		$this->fail(
+			'Wallet withdraw failed: '.($lastError ?? 'unknown error')
+			.'; attempts='.json_encode($attempts, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+		);
 	}
 
 	/**
@@ -606,6 +619,7 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 	 */
 	private function walletPayUri(string $uri): void
 	{
+		$attempts = [];
 		$tries = [
 			['handle-uri', '--yes', $uri],
 			['handle-uri', '-y', $uri],
@@ -613,17 +627,29 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 
 		$lastError = null;
 		foreach ($tries as $candidate) {
+			$this->logWalletStep('payment', 'attempt', ['command' => $candidate]);
 			$res = $this->runWallet($candidate);
+			$attempt = [
+				'command' => $candidate,
+				'code'    => $res['code'],
+				'stdout'  => $this->truncateForLog($res['stdout']),
+				'stderr'  => $this->truncateForLog($res['stderr']),
+			];
+			$attempts[] = $attempt;
+			$this->logWalletStep('payment', 'result', $attempt);
 			if ($res['code'] === 0) {
 				return;
 			}
 			$lastError = $res['stderr'] ?: $res['stdout'];
-			if (stripos($lastError, 'unknown command') === false) {
+			if (stripos((string) $lastError, 'unknown command') === false) {
 				break;
 			}
 		}
 
-		$this->fail('Wallet payment failed: '.($lastError ?? 'unknown error'));
+		$this->fail(
+			'Wallet payment failed: '.($lastError ?? 'unknown error')
+			.'; attempts='.json_encode($attempts, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+		);
 	}
 
 	/**
@@ -639,10 +665,68 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 		}
 
 		$command = array_merge([self::$walletCli], array_map('strval', $args));
+		$this->logWalletStep('exec',
+			'dispatch',
+			[
+			'mode'    => self::$walletExecMode,
+			'command' => $command,
+			'env'     => self::$walletEnv,
+		]);
+
 		if (self::$walletExecMode === 'podman') {
-			return self::runPodmanExec($command, self::$walletEnv);
+			$result = self::runPodmanExec($command, self::$walletEnv);
+		} else {
+			$result = self::execCommand($command, self::$walletEnv);
 		}
-		return self::execCommand($command, self::$walletEnv);
+		$this->logWalletStep('exec',
+			'completed',
+			[
+			'mode'   => self::$walletExecMode,
+			'code'   => $result['code'],
+			'stdout' => $this->truncateForLog($result['stdout']),
+			'stderr' => $this->truncateForLog($result['stderr']),
+		]);
+		return $result;
+	}
+
+	/**
+	 * Emit a structured trace line for wallet CLI operations.
+	 *
+	 * @param string               $context Logical operation (withdraw/payment/exec).
+	 * @param string               $message Short message.
+	 * @param array<string,mixed>  $data    Optional context payload.
+	 * @return void
+	 */
+	private function logWalletStep(string $context, string $message, array $data = []): void
+	{
+		$payload = $data ? ' '.json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
+		$level = defined('LOG_DEBUG') ? LOG_DEBUG : 0;
+		dol_syslog('[TalerOrderFlowIntegrationTest]['.$context.'] '.$message.$payload, $level);
+	}
+
+	/**
+	 * Make CLI output suitable for logging by trimming and truncating long snippets.
+	 *
+	 * @param string $value Raw stdout/stderr.
+	 * @param int    $limit Maximum number of characters to preserve.
+	 * @return string Sanitised snippet.
+	 */
+	private function truncateForLog(string $value, int $limit = 512): string
+	{
+		$clean = trim($value);
+		if ($clean === '') {
+			return '';
+		}
+		if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+			if (mb_strlen($clean) <= $limit) {
+				return $clean;
+			}
+			return mb_substr($clean, 0, $limit).'...';
+		}
+		if (strlen($clean) <= $limit) {
+			return $clean;
+		}
+		return substr($clean, 0, $limit).'...';
 	}
 
 	/**
