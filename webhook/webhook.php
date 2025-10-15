@@ -91,6 +91,7 @@ if (!$cfg || !$cfg->verification_ok) {
 
 
 $rawBody = file_get_contents('php://input');
+dol_syslog('talerbarr webhook body: '.dol_trunc((string) $rawBody, 2048), LOG_DEBUG);
 $payload = json_decode((string) $rawBody, true);
 if (json_last_error() !== JSON_ERROR_NONE) {
 	$jsonErr = json_last_error_msg();

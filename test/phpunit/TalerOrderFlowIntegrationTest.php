@@ -383,16 +383,11 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 		if ($config === null) {
 			$config = new TalerConfig(self::$db);
 			$config->entity = $conf->entity;
+			//TODO: We have to fail at this point as config, must have been done by the previous test(ProductLink)
 		}
 
-		$config->talermerchanturl = self::$merchantUrl;
-		$config->talertoken = self::$merchantApiKey;
-		$config->username = self::$merchantInstance;
-		$config->verification_ok = 1;
-		$config->verification_ts = dol_now();
+		//we might really want to verify that the sync is from doli to taler
 		$config->syncdirection = 0;
-		$config->fk_bank_account = 1;
-		$config->fk_default_customer = self::$customer ? (int) self::$customer->id : 0;
 
 		if (!empty($config->id)) {
 			if ($config->update(self::$user) <= 0) {
