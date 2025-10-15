@@ -85,6 +85,42 @@ ensure_python_module() {
   return 1
 }
 
+ensure_node_runtime() {
+  local required_major=16
+  local node_version=""
+  local node_major=0
+
+  if command -v node >/dev/null 2>&1; then
+    node_version=$(node -v | sed 's/^v//')
+    node_major=${node_version%%.*}
+  fi
+
+  if (( node_major < required_major )); then
+    log "Installing Node.js 18.x from NodeSource (current: ${node_version:-absent})"
+    ensure_packages curl ca-certificates gnupg
+    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    node_version=$(node -v | sed 's/^v//')
+  else
+    log "Node.js ${node_version} already available"
+  fi
+
+  if command -v corepack >/dev/null 2>&1; then
+    sudo corepack enable
+  else
+    log "corepack not found; installing via npm"
+    sudo npm install -g corepack
+    sudo corepack enable
+  fi
+  sudo corepack prepare pnpm@9.7.0 --activate
+  hash -r
+  if ! command -v pnpm >/dev/null 2>&1; then
+    log "pnpm command not found even after corepack activation"
+    return 1
+  fi
+  log "Using pnpm $(pnpm -v) with Node.js $(node -v)"
+}
+
 ensure_wallet_cli() {
   if command -v taler-wallet-cli >/dev/null 2>&1; then
     log "taler-wallet-cli already available at $(command -v taler-wallet-cli)"
@@ -92,12 +128,8 @@ ensure_wallet_cli() {
   fi
 
   log "Ensuring build prerequisites for taler-wallet-cli"
-  ensure_packages git make zip jq nodejs npm
-  if ! command -v pnpm >/dev/null 2>&1; then
-    log "Installing pnpm via npm"
-    sudo npm install -g pnpm
-    hash -r
-  fi
+  ensure_packages git make zip jq
+  ensure_node_runtime
 
   mkdir -p "$TALER_BUILD_ROOT"
   local wallet_src_dir="$TALER_BUILD_ROOT/taler-typescript-core"
