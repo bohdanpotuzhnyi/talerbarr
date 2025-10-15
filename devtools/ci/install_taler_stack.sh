@@ -144,6 +144,32 @@ ensure_node_runtime() {
     log "Failed to ensure pnpm on PATH"
     return 1
   fi
+
+  local pnpm_path pnpm_dir
+  pnpm_path=$(type -P pnpm || true)
+
+  if [[ -z ${PNPM_HOME:-} ]]; then
+    export PNPM_HOME="$HOME/.local/share/pnpm"
+  fi
+  if [[ -d $PNPM_HOME ]] && [[ ":$PATH:" != *":$PNPM_HOME:"* ]]; then
+    log "Adding PNPM_HOME (${PNPM_HOME}) to PATH"
+    export PATH="${PNPM_HOME}:$PATH"
+  fi
+
+  if [[ -n $pnpm_path ]]; then
+    pnpm_dir=${pnpm_path%/*}
+    if [[ -n $pnpm_dir && $pnpm_dir != "$pnpm_path" && ":$PATH:" != *":$pnpm_dir:"* ]]; then
+      log "Ensuring pnpm binary directory ${pnpm_dir} is on PATH"
+      export PATH="${pnpm_dir}:$PATH"
+    fi
+  elif [[ -x $PNPM_HOME/pnpm ]]; then
+    log "Creating pnpm shim in $HOME/.local/bin"
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$PNPM_HOME/pnpm" "$HOME/.local/bin/pnpm"
+    export PATH="$HOME/.local/bin:$PATH"
+    pnpm_path="$HOME/.local/bin/pnpm"
+  fi
+
   log "Using pnpm $(pnpm -v) with Node.js $(node -v)"
 }
 
