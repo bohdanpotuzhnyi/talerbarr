@@ -180,7 +180,7 @@ ensure_wallet_cli() {
   fi
 
   log "Ensuring build prerequisites for taler-wallet-cli"
-  ensure_packages git make zip jq
+  ensure_packages git make gcc g++ zip jq libsqlite3-dev
   ensure_node_runtime
 
   mkdir -p "$TALER_BUILD_ROOT"
