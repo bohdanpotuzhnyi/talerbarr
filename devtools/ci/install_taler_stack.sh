@@ -106,6 +106,11 @@ ensure_node_runtime() {
   fi
 
   hash -r
+  if ! command -v npm >/dev/null 2>&1; then
+    log "npm not found; installing via apt"
+    sudo apt-get install -y npm
+    hash -r
+  fi
   if ! command -v pnpm >/dev/null 2>&1; then
     log "Installing pnpm@9.7.0 globally via npm"
     sudo npm install -g pnpm@9.7.0
