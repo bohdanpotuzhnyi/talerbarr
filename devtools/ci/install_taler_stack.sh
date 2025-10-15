@@ -95,8 +95,13 @@ ensure_node_runtime() {
     node_major=${node_version%%.*}
   fi
 
-  if (( node_major < required_major )); then
-    log "Installing Node.js 18.x from NodeSource (current: ${node_version:-absent})"
+  local needs_nodesource=0
+  if (( node_major < required_major )) || ! command -v npm >/dev/null 2>&1; then
+    needs_nodesource=1
+  fi
+
+  if (( needs_nodesource == 1 )); then
+    log "Installing Node.js 18.x (and npm) from NodeSource (current: ${node_version:-absent})"
     ensure_packages curl ca-certificates gnupg
     curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
     sudo apt-get install -y nodejs
@@ -106,11 +111,6 @@ ensure_node_runtime() {
   fi
 
   hash -r
-  if ! command -v npm >/dev/null 2>&1; then
-    log "npm not found; installing via apt"
-    sudo apt-get install -y npm
-    hash -r
-  fi
   if ! command -v pnpm >/dev/null 2>&1; then
     log "Installing pnpm@9.7.0 globally via npm"
     sudo npm install -g pnpm@9.7.0
