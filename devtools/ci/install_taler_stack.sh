@@ -105,17 +105,14 @@ ensure_node_runtime() {
     log "Node.js ${node_version} already available"
   fi
 
-  if command -v corepack >/dev/null 2>&1; then
-    sudo corepack enable
-  else
-    log "corepack not found; installing via npm"
-    sudo npm install -g corepack
-    sudo corepack enable
-  fi
-  sudo corepack prepare pnpm@9.7.0 --activate
   hash -r
   if ! command -v pnpm >/dev/null 2>&1; then
-    log "pnpm command not found even after corepack activation"
+    log "Installing pnpm@9.7.0 globally via npm"
+    sudo npm install -g pnpm@9.7.0
+    hash -r
+  fi
+  if ! command -v pnpm >/dev/null 2>&1; then
+    log "Failed to ensure pnpm on PATH"
     return 1
   fi
   log "Using pnpm $(pnpm -v) with Node.js $(node -v)"
@@ -541,15 +538,15 @@ provision_build() {
 }
 
 main() {
+  ensure_wallet_cli
+
   local mode="${TALER_STACK_MODE:-sandcastle}"
   case "${mode}" in
     sandcastle)
       provision_sandcastle
-      ensure_wallet_cli
       ;;
     build)
       provision_build
-      ensure_wallet_cli
       ;;
     *)
       log "Unsupported TALER_STACK_MODE '${mode}' (expected 'build' or 'sandcastle')"
