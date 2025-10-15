@@ -558,33 +558,72 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 
 	/**
 	 * Withdraw test currency via wallet CLI.
-	 * From taler-wallet-cli(1): test-withdraw [-e|--exchange URL] [-a|--amount AMOUNT] [-b|--bank URL]
+	 * Follows current taler-wallet-cli(1) structure (testing withdraw-kudos / withdraw manual).
 	 *
 	 * @param string $amount Amount to withdraw (e.g. KUDOS:5).
 	 * @return void
 	 */
 	private function walletWithdraw(string $amount): void
 	{
-		$res = $this->runWallet([
-			'test-withdraw',
-			'--exchange', self::$exchangeUrl,
-			'--amount',   $amount,
-			'--bank',     self::$bankUrl,
-		]);
-		$this->assertSame(0, $res['code'], 'Wallet withdraw failed: '.$res['stderr']);
+		$tries = [
+			[
+				'testing', 'withdraw-kudos',
+				'--amount', $amount,
+				'--wait',
+			],
+			[
+				'testing', 'withdraw-testkudos',
+				'--wait',
+			],
+			[
+				'withdraw', 'manual',
+				'--exchange', self::$exchangeUrl,
+				'--amount',   $amount,
+			],
+		];
+
+		$lastError = null;
+		foreach ($tries as $candidate) {
+			$res = $this->runWallet($candidate);
+			if ($res['code'] === 0) {
+				return;
+			}
+			$lastError = $res['stderr'] ?: $res['stdout'];
+			if (stripos($lastError, 'unknown command') === false) {
+				break;
+			}
+		}
+
+		$this->fail('Wallet withdraw failed: '.($lastError ?? 'unknown error'));
 	}
 
 	/**
 	 * Execute payment via wallet CLI.
-	 * From taler-wallet-cli(1): pay-uri [-y|--yes] URI
+	 * Uses taler-wallet-cli handle-uri --yes to settle a taler://pay URI.
 	 *
 	 * @param string $uri Taler pay URI to settle.
 	 * @return void
 	 */
 	private function walletPayUri(string $uri): void
 	{
-		$res = $this->runWallet(['pay-uri', '--yes', $uri]);
-		$this->assertSame(0, $res['code'], 'Wallet payment failed: '.$res['stderr']);
+		$tries = [
+			['handle-uri', '--yes', $uri],
+			['handle-uri', '-y', $uri],
+		];
+
+		$lastError = null;
+		foreach ($tries as $candidate) {
+			$res = $this->runWallet($candidate);
+			if ($res['code'] === 0) {
+				return;
+			}
+			$lastError = $res['stderr'] ?: $res['stdout'];
+			if (stripos($lastError, 'unknown command') === false) {
+				break;
+			}
+		}
+
+		$this->fail('Wallet payment failed: '.($lastError ?? 'unknown error'));
 	}
 
 	/**
