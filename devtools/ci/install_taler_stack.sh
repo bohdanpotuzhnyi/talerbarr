@@ -120,18 +120,38 @@ ensure_node_runtime() {
     hash -r
   fi
 
+  if ! command -v corepack >/dev/null 2>&1; then
+    log "corepack is unavailable after Node.js installation"
+    return 1
+  fi
+
+  log "Enabling Corepack shims"
+  if ! corepack enable >/dev/null 2>&1; then
+    log "corepack enable reported an issue; continuing"
+  fi
+
   local desired_pnpm_version="9.7.0"
-  local current_pnpm_version=""
-
-  if command -v pnpm >/dev/null 2>&1; then
-    current_pnpm_version=$(pnpm -v 2>/dev/null || true)
+  log "Preparing pnpm@${desired_pnpm_version} via corepack"
+  if ! corepack prepare "pnpm@${desired_pnpm_version}" --activate; then
+    log "Failed to activate pnpm@${desired_pnpm_version} using corepack"
+    return 1
   fi
 
-  if [[ $current_pnpm_version != "${desired_pnpm_version}"* ]]; then
-    log "Installing pnpm@${desired_pnpm_version} globally via npm"
-    sudo npm install -g "pnpm@${desired_pnpm_version}"
-    hash -r
+  hash -r
+  local pnpm_cmd
+  pnpm_cmd=$(command -v pnpm || true)
+
+  if [[ -z $pnpm_cmd ]]; then
+    log "Failed to locate pnpm after corepack activation"
+    return 1
   fi
+
+  if [[ ! -x /usr/local/bin/pnpm ]] || [[ "$(readlink -f /usr/local/bin/pnpm 2>/dev/null)" != "$(readlink -f "$pnpm_cmd")" ]]; then
+    log "Linking pnpm shim into /usr/local/bin"
+    sudo ln -sf "$pnpm_cmd" /usr/local/bin/pnpm
+  fi
+
+  hash -r
 
   if ! command -v pnpm >/dev/null 2>&1; then
     log "Failed to ensure pnpm on PATH"
