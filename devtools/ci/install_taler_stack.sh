@@ -112,62 +112,30 @@ ensure_node_runtime() {
 
   hash -r
 
-  if ! command -v corepack >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1; then
-    log "Existing Node.js installation lacks corepack/npm; reinstalling Node.js 18.x from NodeSource"
+  if ! command -v npm >/dev/null 2>&1; then
+    log "Node.js installation missing npm; reinstalling Node.js 18.x from NodeSource"
     ensure_packages curl ca-certificates gnupg
     curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
     sudo apt-get install -y nodejs
     hash -r
   fi
 
-  local desired_pnpm="pnpm@9.7.0"
-  if ! command -v pnpm >/dev/null 2>&1; then
-    if command -v corepack >/dev/null 2>&1; then
-      log "Activating ${desired_pnpm} via corepack"
-      if ! corepack enable >/dev/null 2>&1; then
-        log "corepack enable reported an issue; continuing"
-      fi
-      if ! corepack prepare "${desired_pnpm}" --activate; then
-        log "corepack failed to activate ${desired_pnpm}"
-        return 1
-      fi
-    elif command -v npm >/dev/null 2>&1; then
-      log "Installing ${desired_pnpm} globally via npm"
-      sudo env "PATH=$PATH" npm install -g "${desired_pnpm}"
-    else
-      log "Failed to locate corepack or npm for pnpm installation"
-      return 1
-    fi
+  local desired_pnpm_version="9.7.0"
+  local current_pnpm_version=""
+
+  if command -v pnpm >/dev/null 2>&1; then
+    current_pnpm_version=$(pnpm -v 2>/dev/null || true)
+  fi
+
+  if [[ $current_pnpm_version != "${desired_pnpm_version}"* ]]; then
+    log "Installing pnpm@${desired_pnpm_version} globally via npm"
+    sudo npm install -g "pnpm@${desired_pnpm_version}"
     hash -r
   fi
+
   if ! command -v pnpm >/dev/null 2>&1; then
     log "Failed to ensure pnpm on PATH"
     return 1
-  fi
-
-  local pnpm_path pnpm_dir
-  pnpm_path=$(type -P pnpm || true)
-
-  if [[ -z ${PNPM_HOME:-} ]]; then
-    export PNPM_HOME="$HOME/.local/share/pnpm"
-  fi
-  if [[ -d $PNPM_HOME ]] && [[ ":$PATH:" != *":$PNPM_HOME:"* ]]; then
-    log "Adding PNPM_HOME (${PNPM_HOME}) to PATH"
-    export PATH="${PNPM_HOME}:$PATH"
-  fi
-
-  if [[ -n $pnpm_path ]]; then
-    pnpm_dir=${pnpm_path%/*}
-    if [[ -n $pnpm_dir && $pnpm_dir != "$pnpm_path" && ":$PATH:" != *":$pnpm_dir:"* ]]; then
-      log "Ensuring pnpm binary directory ${pnpm_dir} is on PATH"
-      export PATH="${pnpm_dir}:$PATH"
-    fi
-  elif [[ -x $PNPM_HOME/pnpm ]]; then
-    log "Creating pnpm shim in $HOME/.local/bin"
-    mkdir -p "$HOME/.local/bin"
-    ln -sf "$PNPM_HOME/pnpm" "$HOME/.local/bin/pnpm"
-    export PATH="$HOME/.local/bin:$PATH"
-    pnpm_path="$HOME/.local/bin/pnpm"
   fi
 
   log "Using pnpm $(pnpm -v) with Node.js $(node -v)"
