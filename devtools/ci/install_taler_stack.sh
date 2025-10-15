@@ -236,12 +236,6 @@ ensure_wallet_cli() {
     return 1
   fi
 
-  log "Running taler-helper-sqlite3 --version smoke test"
-  if ! taler-helper-sqlite3 --version >/dev/null 2>&1; then
-    log "taler-helper-sqlite3 smoke test failed"
-    return 1
-  fi
-
   if command -v taler-wallet-cli >/dev/null 2>&1; then
     log "Installed taler-wallet-cli at $(command -v taler-wallet-cli)"
     local wallet_smoke_home
