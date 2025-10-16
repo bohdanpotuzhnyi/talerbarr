@@ -204,7 +204,7 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 			self::$db,
 			$orderFromTaler['status'],
 			self::$user,
-			$orderFromTaler['status']['contract_terms']
+			$orderFromTaler['status']['contract_terms'] ?? []
 		);
 		$this->assertSame(1, $rcCreation, 'Order creation sync should succeed');
 
