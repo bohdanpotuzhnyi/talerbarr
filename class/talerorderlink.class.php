@@ -1817,7 +1817,7 @@ class TalerOrderLink extends CommonObject
 
 		global $conf;
 		$currency = !empty($cmd->multicurrency_code) ? strtoupper($cmd->multicurrency_code) : (!empty($conf->currency) ? strtoupper($conf->currency) : 'EUR');
-		$currency = 'KUDOS'; // TODO: revert to real currency once Taler backend supports EUR payouts
+		$currency = TalerConfig::mapCurrencyToTaler($currency);
 
 		// Build order summary and fallback fulfillment message
 		$summary = self::buildOrderSummary($cmd);

@@ -389,6 +389,9 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 
 		//we might really want to verify that the sync is from doli to taler
 		$config->syncdirection = 0;
+		if (empty($config->taler_currency_alias)) {
+			$config->taler_currency_alias = 'KUDOS';
+		}
 
 		if (!empty($config->id)) {
 			if ($config->update(self::$user) <= 0) {

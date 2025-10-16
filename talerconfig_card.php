@@ -214,6 +214,7 @@ if ($action === 'view' && (empty($object->id))) {
 			'talermerchanturl' => isset($singleton->talermerchanturl) ? $singleton->talermerchanturl : '',
 			'username'         => isset($singleton->username) ? $singleton->username : '',
 			'talertoken'       => isset($singleton->talertoken) ? $singleton->talertoken : (isset($singleton->taler_token) ? $singleton->taler_token : ''),
+			'taler_currency_alias' => isset($singleton->taler_currency_alias) ? $singleton->taler_currency_alias : '',
 		);
 
 		header('Location: '.$_SERVER['PHP_SELF'].'?action=create');

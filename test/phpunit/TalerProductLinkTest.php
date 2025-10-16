@@ -233,6 +233,7 @@ class TalerProductLinkTest extends CommonClassTest
 		self::$cfg->verification_ok  = 1;
 		self::$cfg->verification_ts  = dol_now();
 		self::$cfg->fk_bank_account  = 1;
+		self::$cfg->taler_currency_alias = 'KUDOS';
 
 		$cfgId = self::$cfg->create($user);
 		print __METHOD__." TalerConfig::create rc=".$cfgId."\n";

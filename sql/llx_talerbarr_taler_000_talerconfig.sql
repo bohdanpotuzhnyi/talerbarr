@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS llx_talerbarr_talerconfig(
 	talermerchanturl varchar(2048) NOT NULL, 
 	username varchar(128) NOT NULL, 
 	expiration timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL, 
-	talertoken varchar(128) NOT NULL, 
+	talertoken varchar(128) NOT NULL,
 	syncdirection boolean DEFAULT 1
 	-- END MODULEBUILDER FIELDS
 ) ENGINE=innodb;

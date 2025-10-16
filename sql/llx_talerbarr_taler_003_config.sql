@@ -33,3 +33,11 @@ ALTER TABLE llx_talerbarr_talerconfig
 ALTER TABLE llx_talerbarr_talerconfig
     ADD CONSTRAINT fk_talerconfig_default_customer
         FOREIGN KEY (fk_default_customer) REFERENCES llx_societe(rowid);
+
+ALTER TABLE llx_talerbarr_talerconfig
+    ADD COLUMN taler_currency_alias VARCHAR(16) NULL AFTER talertoken;
+
+UPDATE llx_talerbarr_talerconfig
+SET taler_currency_alias = UPPER(taler_currency_alias)
+WHERE taler_currency_alias IS NOT NULL
+  AND taler_currency_alias <> UPPER(taler_currency_alias);

@@ -21,6 +21,8 @@ readonly TALER_MERCHANT_REF="${TALER_MERCHANT_REF:-master}"
 readonly TALER_EXCHANGE_REF="${TALER_EXCHANGE_REF:-master}"
 readonly GNUNET_REPO="${GNUNET_REPO:-https://git.gnunet.org/gnunet.git}"
 readonly GNUNET_REF="${GNUNET_REF:-master}"
+readonly TALER_WALLET_REPO="${TALER_WALLET_REPO:-https://git.taler.net/taler-typescript-core.git}"
+readonly TALER_WALLET_FALLBACK_TAG="${TALER_WALLET_FALLBACK_TAG:-v1.0.36}"
 readonly TALER_CLONE_DEPTH="${TALER_CLONE_DEPTH:-1}"
 readonly PODMAN_OVERRIDE_CONF="${TALER_PODMAN_OVERRIDE_CONF:-$TALER_BUILD_ROOT/podman-containers.conf}"
 readonly PODMAN_SYSTEM_OVERRIDE="${TALER_PODMAN_SYSTEM_OVERRIDE:-/etc/containers/containers.conf.d/99-taler-sandcastle.conf}"
@@ -185,20 +187,46 @@ ensure_wallet_cli() {
 
   mkdir -p "$TALER_BUILD_ROOT"
   local wallet_src_dir="$TALER_BUILD_ROOT/taler-typescript-core"
+  local wallet_ref="${TALER_WALLET_REF:-}"
 
-  if [[ ! -d $wallet_src_dir ]]; then
-    log "Cloning taler-typescript-core into ${wallet_src_dir}"
-    git clone --depth "$TALER_CLONE_DEPTH" https://git.taler.net/taler-typescript-core.git "$wallet_src_dir"
+  if [[ -z $wallet_ref ]]; then
+    wallet_ref=$(git ls-remote --tags --refs "$TALER_WALLET_REPO" 'v*' 2>/dev/null \
+      | awk -F/ '{print $NF}' \
+      | sort -rV \
+      | head -n1 \
+      || true)
+    if [[ -z $wallet_ref ]]; then
+      wallet_ref="$TALER_WALLET_FALLBACK_TAG"
+      log "Unable to determine latest taler-wallet tag; using fallback ${wallet_ref}"
+    else
+      log "Detected latest taler-wallet tag ${wallet_ref}"
+    fi
   else
-    log "Updating taler-typescript-core in ${wallet_src_dir}"
-    (
-      cd "$wallet_src_dir"
-      git fetch --depth "$TALER_CLONE_DEPTH" origin HEAD
-      git reset --hard FETCH_HEAD
-    )
+    log "Using taler-wallet ref override ${wallet_ref}"
   fi
 
-  log "Building taler-wallet-cli from sources"
+  if [[ -d $wallet_src_dir ]]; then
+    log "Removing previous taler-typescript-core checkout in ${wallet_src_dir}"
+    rm -rf "$wallet_src_dir"
+  fi
+
+  log "Cloning taler-typescript-core (${wallet_ref}) into ${wallet_src_dir}"
+  if ! git clone --depth "$TALER_CLONE_DEPTH" --branch "$wallet_ref" "$TALER_WALLET_REPO" "$wallet_src_dir"; then
+    if [[ "$wallet_ref" != "$TALER_WALLET_FALLBACK_TAG" ]]; then
+      log "Clone of ${wallet_ref} failed; retrying with fallback ${TALER_WALLET_FALLBACK_TAG}"
+      rm -rf "$wallet_src_dir"
+      if ! git clone --depth "$TALER_CLONE_DEPTH" --branch "$TALER_WALLET_FALLBACK_TAG" "$TALER_WALLET_REPO" "$wallet_src_dir"; then
+        log "Failed to clone fallback taler-wallet tag ${TALER_WALLET_FALLBACK_TAG}"
+        return 1
+      fi
+      wallet_ref="$TALER_WALLET_FALLBACK_TAG"
+    else
+      log "Clone failed for fallback ref ${wallet_ref}"
+      return 1
+    fi
+  fi
+
+  log "Building taler-wallet-cli from sources (ref ${wallet_ref})"
   (
     cd "$wallet_src_dir"
     ./bootstrap
