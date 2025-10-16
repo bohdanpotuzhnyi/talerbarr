@@ -961,7 +961,7 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 	 */
 	private function waitForMerchantStatus(string $orderId, int $timeoutSeconds = 30): array
 	{
-		$client = self::$config->getMerchantClient();
+		$client = self::$config->talerMerchantClient();
 		$deadline = time() + $timeoutSeconds;
 		do {
 			$status = $client->getOrderStatus($orderId);
