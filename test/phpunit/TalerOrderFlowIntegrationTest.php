@@ -198,7 +198,7 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 
 		$orderFromTaler = $this->createMerchantOrder(self::TALER_ORDER_AMOUNT);
 		$this->assertArrayHasKey('status', $orderFromTaler);
-		$this->assertArrayHasKey('contract_terms', $orderFromTaler['status']);
+		$this->assertArrayHasKey('taler_pay_uri', $orderFromTaler['status']);
 
 		$rcCreation = TalerOrderLink::upsertFromTalerOnOrderCreation(
 			self::$db,
@@ -1025,6 +1025,7 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 		$response = $client->createOrder($request);
 		$createdId = (string) ($response['order_id'] ?? $orderId);
 		$status = $client->getOrderStatus($createdId);
+		$status['order_id'] = $createdId;
 		return [
 			'order_id' => $createdId,
 			'status'   => $status,
