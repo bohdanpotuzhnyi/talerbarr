@@ -77,8 +77,6 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 	private static ?bool $podmanUseSudo = null;
 	private static ?string $podmanOverrideConf = null;
 
-	private static TalerMerchantClient $talerMerchantClient;
-
 	/**
 	 * Bootstraps the Dolibarr + sandcastle stack once before running the suite.
 	 *
@@ -970,7 +968,7 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 			//Normally response doesn't contain order_id, so we add it for processing purposes
 			$status['order_id'] = $orderId;
 			dol_syslog('[TalerOrderFlowIntegrationTest] Merchant order status: '.json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), LOG_DEBUG);
-			$state = strtolower((string) ($status['status'] ?? ''));
+			$state = strtolower((string) ($status['order_status'] ?? ''));
 			if (in_array($state, ['paid', 'delivered', 'wired'], true)) {
 				return $status;
 			}
