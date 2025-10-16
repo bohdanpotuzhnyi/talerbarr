@@ -77,6 +77,8 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 	private static ?bool $podmanUseSudo = null;
 	private static ?string $podmanOverrideConf = null;
 
+	private static TalerMerchantClient $talerMerchantClient;
+
 	/**
 	 * Bootstraps the Dolibarr + sandcastle stack once before running the suite.
 	 *
@@ -961,20 +963,21 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 	 */
 	private function waitForMerchantStatus(string $orderId, int $timeoutSeconds = 30): array
 	{
-		$client = new TalerMerchantClient(self::$merchantUrl, self::$merchantApiKey ?? '', self::$merchantInstance);
+		$client = self::$config->getMerchantClient();
 		$deadline = time() + $timeoutSeconds;
 		do {
 			$status = $client->getOrderStatus($orderId);
 			//Normally response doesn't contain order_id, so we add it for processing purposes
 			$status['order_id'] = $orderId;
+			dol_syslog('[TalerOrderFlowIntegrationTest] Merchant order status: '.json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), LOG_DEBUG);
 			$state = strtolower((string) ($status['status'] ?? ''));
 			if (in_array($state, ['paid', 'delivered', 'wired'], true)) {
 				return $status;
 			}
-			usleep(500000);
+			usleep(5000000);
 		} while (time() <= $deadline);
 
-		return $client->getOrderStatus($orderId);
+		return $status;
 	}
 
 	/**
