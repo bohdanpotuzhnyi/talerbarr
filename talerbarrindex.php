@@ -24,6 +24,8 @@
  *	\file       talerbarr/talerbarrindex.php
  *	\ingroup    talerbarr
  *	\brief      Home page of talerbarr top menu
+ *
+ * @package    Application
  */
 
 // Load Dolibarr environment

@@ -21,6 +21,8 @@
  *    \file       talerconfig_card.php
  *    \ingroup    talerbarr
  *    \brief      Page to create/edit/view talerconfig
+ *
+ * @package    Application
  */
 
 

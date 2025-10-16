@@ -19,6 +19,8 @@
  *  \file       talerproductlink_list.php
  *  \ingroup    talerbarr
  *  \brief      List page for TalerProductLink
+ *
+ * @package    Application
  */
 
 // Load Dolibarr environment

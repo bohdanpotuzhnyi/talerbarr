@@ -19,6 +19,8 @@
  * \file class/talerorderlink.class.php
  * \ingroup talerbarr
  * \brief CRUD + helpers with sync logic
+ *
+ * @package    TalerBarr
  */
 
 require_once DOL_DOCUMENT_ROOT . '/core/class/commonobject.class.php';

@@ -19,6 +19,8 @@
  * \file        lib/talersync.lib.php
  * \ingroup     talerbarr
  * \brief       Lightweight launcher for the background synchroniser.
+ *
+ * @package    TalerBarr
  */
 class TalerSyncUtil
 {

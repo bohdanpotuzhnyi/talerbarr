@@ -20,6 +20,8 @@
  * \file        class/talertaxmap.class.php
  * \ingroup     talerbarr
  * \brief       CRUD class for mapping Taler taxes to Dolibarr VAT dictionary
+ *
+ * @package    TalerBarr
  */
 
 require_once DOL_DOCUMENT_ROOT . '/core/class/commonobject.class.php';
@@ -30,6 +32,8 @@ require_once DOL_DOCUMENT_ROOT . '/core/lib/date.lib.php';
  *
  * Maintains a mapping between Taler-side tax definitions and Dolibarr's VAT dictionary
  * (`c_tva`). Provides CRUD, finders, and idempotent upsert helpers used by sync flows.
+ *
+ * @package    TalerBarr
  */
 class TalerTaxMap extends CommonObject
 {

@@ -21,6 +21,8 @@
  * \file    talerbarr/admin/about.php
  * \ingroup talerbarr
  * \brief   About page of module TalerBarr.
+ *
+ * @package    Application
  */
 
 // Load Dolibarr environment

@@ -19,6 +19,8 @@
  * \file        class/talerproductlink.class.php
  * \ingroup     talerbarr
  * \brief       CRUD class for product links between Dolibarr and Taler
+ *
+ * @package    TalerBarr
  */
 
 require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';

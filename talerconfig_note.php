@@ -21,6 +21,8 @@
  *  \file       talerconfig_note.php
  *  \ingroup    talerbarr
  *  \brief      Tab for notes on TalerConfig
+ *
+ * @package    Application
  */
 
 

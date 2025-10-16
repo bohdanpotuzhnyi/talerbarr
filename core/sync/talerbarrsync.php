@@ -19,6 +19,8 @@
  * \file        core/sync/talerbarrsync.php
  * \ingroup     talerbarr
  * \brief       Main file that handles the logic of sync between 2 systems
+ *
+ * @package    Application
  */
 
 /**

@@ -25,6 +25,8 @@
  *      \file       admin/talerconfig_extrafields.php
  *		\ingroup    talerbarr
  *		\brief      Page to setup extra fields of talerconfig
+ *
+ * @package    Application
  */
 
 // Load Dolibarr environment

@@ -27,6 +27,8 @@
  *      - interface_99_all_MyTrigger.class.php
  * - The file must stay in core/triggers
  * - The class name must be InterfaceMyTrigger
+ *
+ * @package    TalerBarr
  */
 
 require_once DOL_DOCUMENT_ROOT.'/core/triggers/dolibarrtriggers.class.php';
@@ -42,6 +44,8 @@ require_once dol_buildpath('/talerbarr/class/talerorderlink.class.php', 0);
 
 /**
  *  Class of triggers for TalerBarr module
+ *
+ * @package    TalerBarr
  */
 class InterfaceTalerBarrTriggers extends DolibarrTriggers
 {

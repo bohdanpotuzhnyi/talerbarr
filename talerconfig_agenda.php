@@ -21,6 +21,8 @@
  *  \file       talerconfig_agenda.php
  *  \ingroup    talerbarr
  *  \brief      Tab of events on TalerConfig
+ *
+ * @package    Application
  */
 
 //if (! defined('NOREQUIREDB'))              define('NOREQUIREDB', '1');				// Do not create database handler $db

@@ -19,6 +19,8 @@
  * \file    lib/talerbarr_talerconfig.lib.php
  * \ingroup talerbarr
  * \brief   Library files with common functions for TalerConfig
+ *
+ * @package    TalerBarr
  */
 
 /**

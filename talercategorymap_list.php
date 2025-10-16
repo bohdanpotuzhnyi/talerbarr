@@ -19,6 +19,8 @@
  * \file       talercategorymap_list.php
  * \ingroup    talerbarr
  * \brief      List page for TalerCategoryMap
+ *
+ * @package    Application
  */
 
 // Load Dolibarr environment

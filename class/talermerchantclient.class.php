@@ -32,6 +32,7 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/geturl.lib.php';
  * - All methods throw \Exception on HTTP errors (non-2xx) or JSON encoding/decoding errors.
  * - Uses Dolibarr's getURL() under the hood (curl mode).
  *
+ * @package TalerBarr
  * @author  Bohdan Potuzhnyi <bohdan.potuzhnyi@gmail.com>
  * @license https://www.gnu.org/licenses/  GNU Affero General Public License v3 or later
  */

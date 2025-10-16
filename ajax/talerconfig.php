@@ -20,6 +20,8 @@
 /**
  *       \file       htdocs/talerbarr/ajax/talerconfig.php
  *       \brief      File to return Ajax response on talerconfig list request
+ *
+ * @package    Application
  */
 
 if (!defined('NOTOKENRENEWAL')) {

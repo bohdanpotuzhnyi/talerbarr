@@ -21,6 +21,8 @@
  *  \file       talerconfig_document.php
  *  \ingroup    talerbarr
  *  \brief      Tab for documents linked to TalerConfig
+ *
+ * @package    Application
  */
 
 // General defined Options

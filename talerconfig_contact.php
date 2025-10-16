@@ -21,6 +21,8 @@
  *  \file       talerconfig_contact.php
  *  \ingroup    talerbarr
  *  \brief      Tab for contacts linked to TalerConfig
+ *
+ * @package    Application
  */
 
 // Load Dolibarr environment

@@ -21,6 +21,8 @@
  * \file        class/talerconfig.class.php
  * \ingroup     talerbarr
  * \brief       This file is a CRUD class file for TalerConfig (Create/Read/Update/Delete)
+ *
+ * @package    TalerBarr
  */
 
 // Put here all includes required by your class file
@@ -32,7 +34,9 @@ dol_include_once('/talerbarr/lib/talersync.lib.php');
 dol_include_once('/talerbarr/class/talermerchantclient.class.php');
 
 /**
- * Class for TalerConfig
+ * Class for TalerConfig.
+ *
+ * @package    TalerBarr
  */
 class TalerConfig extends CommonObject
 {

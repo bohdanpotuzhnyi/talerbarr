@@ -19,6 +19,8 @@
  * \file        class/talererrorlog.class.php
  * \ingroup     talerbarr
  * \brief       CRUD class for TalerBarr error log
+ *
+ * @package    TalerBarr
  */
 
 require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';
@@ -30,6 +32,8 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
  *
  * Stores synchronization / integration errors for the TalerBarr module.
  * Extends Dolibarr's CommonObject for standard CRUD behavior.
+ *
+ * @package    TalerBarr
  */
 class TalerErrorLog extends CommonObject
 {

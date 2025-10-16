@@ -17,13 +17,19 @@ declare(strict_types=1);
  */
 
 /**
- * Hook actions for the TalerBarr module.
+ * \file        class/actions_talerbarr.class.php
+ * \ingroup     talerbarr
+ * \brief       Hook handlers for the TalerBarr module.
+ *
+ * @package    TalerBarr
  */
 
 require_once DOL_DOCUMENT_ROOT.'/core/class/commonhookactions.class.php';
 
 /**
- * Class ActionsTalerBarr
+ * Hook actions for the TalerBarr module.
+ *
+ * @package    TalerBarr
  */
 class ActionsTalerBarr extends CommonHookActions
 {

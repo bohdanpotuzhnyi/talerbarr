@@ -31,6 +31,8 @@ include_once DOL_DOCUMENT_ROOT.'/core/modules/DolibarrModules.class.php';
 
 /**
  *  Description and activation class for module TalerBarr
+ *
+ * @package    TalerBarr
  */
 class modTalerBarr extends DolibarrModules
 {

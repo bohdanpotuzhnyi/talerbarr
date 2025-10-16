@@ -19,6 +19,8 @@
  * \file        talerbarr/webhook/webhook.php
  * \ingroup     talerbarr
  * \brief       Lightweight webhook listener for the Taler synchronisation.
+ *
+ * @package    Application
  */
 
 // Minimal Dolibarr init – no login, session, CSRF, etc.

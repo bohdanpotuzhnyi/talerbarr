@@ -19,6 +19,8 @@
  * \file        class/talercategorymap.class.php
  * \ingroup     talerbarr
  * \brief       CRUD class for mapping Taler categories to Dolibarr categories
+ *
+ * @package    TalerBarr
  */
 
 require_once DOL_DOCUMENT_ROOT.'/core/class/commonobject.class.php';
