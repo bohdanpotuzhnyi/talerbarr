@@ -57,7 +57,7 @@ Great, so now we can provide qr code to customer and pay it with Taler wallet.
 
 ![Dolibarr order qr code](./img2/p2_img12.jpg)
 
-![Dolibarr order paid](./img2/p2_img13.png)
+![Dolibarr order paid](./img2/p2_img13.jpg)
 
 Payment went through lets' comeback to Dolibarr and check has payment appeared or not.
 And we can see that the related object has appeared.
