@@ -439,6 +439,15 @@ do {
 			if (!isset($statusPayload['orderId']) || $statusPayload['orderId'] === '' || $statusPayload['orderId'] === null) {
 				$statusPayload['orderId'] = $orderId;
 			}
+			if (!isset($statusPayload['amount']) && isset($orderSummary['amount'])) {
+				$statusPayload['amount'] = $orderSummary['amount'];
+			}
+			if (!isset($statusPayload['total_amount']) && isset($orderSummary['amount'])) {
+				$statusPayload['total_amount'] = $orderSummary['amount'];
+			}
+			if (!isset($statusPayload['amount_str']) && isset($orderSummary['amount']) && is_string($orderSummary['amount'])) {
+				$statusPayload['amount_str'] = $orderSummary['amount'];
+			}
 		} catch (Throwable $e) {
 			writeStatus([
 				'phase'     => 'abort',

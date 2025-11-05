@@ -55,6 +55,7 @@ if (!$res) die("Include of main fails");
 dol_include_once('/talerbarr/class/talerconfig.class.php');
 dol_include_once('/talerbarr/class/talerproductlink.class.php');
 dol_include_once('/talerbarr/class/talerorderlink.class.php');
+dol_include_once('/talerbarr/class/talermerchantclient.class.php');
 
 /**
  * Emit a JSON error/success response and exit.
@@ -82,6 +83,115 @@ function talerbarrWebhookRespond(int $status, string $message, array $extra = []
 	exit;
 }
 
+/**
+ * Decode a JSON payload with a couple of sanitation fallbacks.
+ *
+ * @param string      $raw         Raw HTTP body.
+ * @param string|null $error       Receives the last json_last_error_msg() if decoding fails.
+ * @param string|null $lastAttempt Receives the sanitised payload used for the final attempt.
+ *
+ * @return array|null Decoded associative array on success, null on failure.
+ */
+function talerbarrDecodeWebhookJson(string $raw, ?string &$error = null, ?string &$lastAttempt = null): ?array
+{
+	$error = null;
+	$lastAttempt = $raw;
+
+	$trimmed = $raw;
+	if (substr($trimmed, 0, 3) === "\xEF\xBB\xBF") {
+		$trimmed = substr($trimmed, 3);
+	}
+
+	$candidates = [
+		['body' => $trimmed, 'flags' => 0],
+	];
+
+	if (defined('JSON_INVALID_UTF8_IGNORE')) {
+		$candidates[] = ['body' => $trimmed, 'flags' => JSON_INVALID_UTF8_IGNORE];
+	}
+
+	$sanitised = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $trimmed);
+	if (is_string($sanitised) && $sanitised !== $trimmed) {
+		$candidates[] = ['body' => $sanitised, 'flags' => 0];
+		if (defined('JSON_INVALID_UTF8_IGNORE')) {
+			$candidates[] = ['body' => $sanitised, 'flags' => JSON_INVALID_UTF8_IGNORE];
+		}
+	}
+
+	if (function_exists('iconv')) {
+		$converted = @iconv('UTF-8', 'UTF-8//IGNORE', $trimmed);
+		if (is_string($converted) && $converted !== $trimmed) {
+			$candidates[] = ['body' => $converted, 'flags' => 0];
+			if (defined('JSON_INVALID_UTF8_IGNORE')) {
+				$candidates[] = ['body' => $converted, 'flags' => JSON_INVALID_UTF8_IGNORE];
+			}
+		}
+		if (isset($sanitised) && is_string($sanitised)) {
+			$convertedSanitised = @iconv('UTF-8', 'UTF-8//IGNORE', $sanitised);
+			if (is_string($convertedSanitised) && $convertedSanitised !== $sanitised) {
+				$candidates[] = ['body' => $convertedSanitised, 'flags' => 0];
+				if (defined('JSON_INVALID_UTF8_IGNORE')) {
+					$candidates[] = ['body' => $convertedSanitised, 'flags' => JSON_INVALID_UTF8_IGNORE];
+				}
+			}
+		}
+	}
+
+	foreach ($candidates as $candidate) {
+		$decoded = json_decode($candidate['body'], true, 512, $candidate['flags']);
+		if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+			$lastAttempt = $candidate['body'];
+			return $decoded;
+		}
+		$error = json_last_error_msg();
+		$lastAttempt = $candidate['body'];
+	}
+
+	return null;
+}
+
+/**
+ * Persist the raw body of a JSON payload that could not be decoded for debugging.
+ *
+ * @param string $raw   Raw body string.
+ * @param string $error Last json_last_error_msg().
+ * @return void
+ */
+function talerbarrPersistInvalidJsonPayload(string $raw, string $error): void
+{
+	global $conf;
+
+	if (empty($raw)) {
+		return;
+	}
+
+	$dir = rtrim(DOL_DATA_ROOT, '/').'/talerbarr';
+	if (!is_dir($dir)) {
+		dol_mkdir($dir);
+	}
+	if (!is_dir($dir) || !is_writable($dir)) {
+		return;
+	}
+
+	$dateFragment = dol_print_date(dol_now(), '%Y%m%d-%H%M%S');
+	$hashFragment = substr(sha1($raw), 0, 8);
+	$file = $dir.'/webhook-jsonfail-'.$dateFragment.'-'.$hashFragment.'.log';
+
+	$metadata = [
+		'error' => $error,
+		'length' => dol_strlen($raw),
+		'content_type' => $_SERVER['CONTENT_TYPE'] ?? '',
+	];
+
+	$payload = "### talerbarr webhook JSON decode failure ###\n";
+	$payload .= 'error: '.$error."\n";
+	$payload .= 'length: '.$metadata['length']."\n";
+	$payload .= 'content-type: '.$metadata['content_type']."\n";
+	$payload .= "payload:\n".$raw."\n";
+
+	@file_put_contents($file, $payload, LOCK_EX);
+}
+
 global $db;
 
 // Load Taler configuration
@@ -92,14 +202,14 @@ if (!$cfg || !$cfg->verification_ok) {
 }
 
 
-$rawBody = file_get_contents('php://input');
-dol_syslog('talerbarr webhook body: '.dol_trunc((string) $rawBody, 2048), LOG_DEBUG);
-$payload = json_decode((string) $rawBody, true);
-if (json_last_error() !== JSON_ERROR_NONE) {
-	$jsonErr = json_last_error_msg();
-	$bodyPreview = dol_trunc((string) $rawBody, 1024, '...');
+$rawBody = (string) (file_get_contents('php://input') ?: '');
+dol_syslog('talerbarr webhook body: '.dol_trunc($rawBody, 2048), LOG_DEBUG);
+$decodeSnapshot = $rawBody;
+$payload = talerbarrDecodeWebhookJson($rawBody, $jsonErr, $decodeSnapshot);
+if ($payload === null) {
+	$bodyPreview = dol_trunc($decodeSnapshot, 1024);
 	dol_syslog('talerbarr webhook failed to decode JSON: '.$jsonErr.' body='.$bodyPreview, LOG_WARNING);
-	$payload = null;
+	talerbarrPersistInvalidJsonPayload($decodeSnapshot, (string) $jsonErr);
 }
 
 // Capture headers for diagnostics (DEBUG level to avoid noisy logs in production)
@@ -243,7 +353,7 @@ switch ($type) {
 			if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
 				$contractData = $decoded;
 			} else {
-				dol_syslog('talerbarr webhook received invalid contract JSON for order '.$orderId.' ('.json_last_error_msg().') payload='.dol_trunc($contractPayload, 512, '...'), LOG_ERR);
+				dol_syslog('talerbarr webhook received invalid contract JSON for order '.$orderId.' ('.json_last_error_msg().') payload='.dol_trunc($contractPayload, 512), LOG_ERR);
 				talerbarrWebhookRespond(400, 'Invalid contract JSON payload', ['order_id' => $orderId]);
 			}
 		} elseif (is_array($contractPayload)) {

@@ -1193,9 +1193,37 @@ class TalerOrderLink extends CommonObject
 		}
 
 		// Snapshot amount & summary
-		$statusAmount = $statusData['amount'] ?? null;
-		$contractAmount = $contractData['amount'] ?? ($contractData['amount_str'] ?? null);
-		$parsedAmount = self::extractAmount($statusAmount ?? $contractAmount);
+		$amountCandidates = array(
+			$statusData['amount']        ?? null,
+			$statusData['total_amount']  ?? null,
+			$statusData['totalAmount']   ?? null,
+			$statusData['amount_str']    ?? null,
+			$contractData['amount']      ?? null,
+			$contractData['amount_str']  ?? null,
+			$contractData['total_amount'] ?? null,
+			$contractData['totalAmount']  ?? null,
+		);
+		$statusAmount = null;
+		foreach ($amountCandidates as $candidate) {
+			if ($candidate === null) {
+				continue;
+			}
+			if (is_string($candidate)) {
+				$candidate = trim($candidate);
+				if ($candidate === '') {
+					continue;
+				}
+			}
+			if (is_array($candidate) && $candidate === []) {
+				continue;
+			}
+			if (is_int($candidate) || is_float($candidate)) {
+				$candidate = (string) $candidate;
+			}
+			$statusAmount = $candidate;
+			break;
+		}
+		$parsedAmount = self::extractAmount($statusAmount);
 		if (!empty($parsedAmount['amount_str'])) {
 			$link->order_amount_str = (string) $parsedAmount['amount_str'];
 		}
@@ -1220,6 +1248,8 @@ class TalerOrderLink extends CommonObject
 
 		if (isset($statusData['deposit_total'])) {
 			$link->deposit_total_str = (string) $statusData['deposit_total'];
+		} elseif (!empty($statusData['total_amount'])) {
+			$link->deposit_total_str = (string) $statusData['total_amount'];
 		} elseif (isset($contractData['max_fee'])) {
 			$link->deposit_total_str = is_string($contractData['max_fee'])
 				? $contractData['max_fee']
