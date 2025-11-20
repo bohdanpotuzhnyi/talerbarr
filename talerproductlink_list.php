@@ -45,6 +45,7 @@ if (!$res) die("Include of main fails");
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.formcompany.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
+require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
 
 dol_include_once('/talerbarr/class/talerproductlink.class.php');
 
@@ -429,10 +430,13 @@ if ($conf->main_checkbox_left_column) {
 	$totalarray['nbfield']++;
 }
 foreach ($object->fields as $key => $val) {
-	$cssforfield = (empty($val['csslist']) ? (empty($val['css']) ? '' : $val['css']) : $val['csslist']);
-	if ($key == 'status' || in_array($val['type'], array('date','datetime','timestamp'))) $cssforfield .= ($cssforfield ? ' ' : '').'center';
-	$cssforfield = preg_replace('/small\s*/', '', $cssforfield);
+		$cssforfield = (empty($val['csslist']) ? (empty($val['css']) ? '' : $val['css']) : $val['csslist']);
+		if ($key == 'status' || in_array($val['type'], array('date','datetime','timestamp'))) $cssforfield .= ($cssforfield ? ' ' : '').'center';
+		$cssforfield = preg_replace('/small\s*/', '', $cssforfield);
 	if (!empty($arrayfields['t.'.$key]['checked'])) {
+		if ($key === 'fk_product') {
+			$val['label'] = $val['label'].' (link)';
+		}
 		print getTitleFieldOfList($arrayfields['t.'.$key]['label'], 0, $_SERVER['PHP_SELF'], 't.'.$key, '', $param, ($cssforfield ? 'class="'.$cssforfield.'"' : ''), $sortfield, $sortorder, ($cssforfield ? $cssforfield.' ' : ''), 0, (empty($val['helplist']) ? '' : $val['helplist']))."\n";
 		$totalarray['nbfield']++;
 	}
@@ -463,6 +467,9 @@ while ($i < $imaxinloop) {
 	if (empty($obj)) break;
 
 	$object->setVarsFromFetchObj($obj);
+	if (empty($object->id) && !empty($object->rowid)) {
+		$object->id = (int) $object->rowid;
+	}
 
 	if ($mode == 'kanban' || $mode == 'kanbangroupby') {
 		if ($i == 0) { print '<tr class="trkanban"><td colspan="'.$savnbfield.'"><div class="box-flex-container kanban">'; }
@@ -492,8 +499,16 @@ while ($i < $imaxinloop) {
 				print '<td'.($cssforfield ? ' class="'.$cssforfield.'"' : '').'>';
 				if ($key == 'status') {
 					print $object->getLibStatut(5);
-				} elseif ($key == 'rowid') {
-					print $object->showOutputField($val, $key, (string) $object->id, '');
+				} elseif ($key == 'rowid' || $key === 'taler_product_id') {
+					// Link to product link card
+					print $object->getNomUrl(1);
+				} elseif ($key == 'fk_product' && !empty($object->fk_product)) {
+					$prod = new Product($db);
+					if ($prod->fetch((int) $object->fk_product) > 0) {
+						print $prod->getNomUrl(1);
+					} else {
+						print (int) $object->fk_product;
+					}
 				} else {
 					if ($val['type'] == 'html') print '<div class="small lineheightsmall twolinesmax-normallineheight">';
 					print $object->showOutputField($val, $key, (string) $object->$key, '');

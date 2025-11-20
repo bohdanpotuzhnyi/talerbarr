@@ -513,6 +513,7 @@ if ($action == 'create') {
 	// Not including unwanted(output fields)
 	unset($object->fields['status']);
 	unset($object->fields['syncdirection']);
+	unset($object->fields['sync_on_paid']);
 	unset($object->fields['entity']);
 	unset($object->fields['fk_bank_account']);
 	unset($object->fields['fk_default_customer']);
@@ -537,6 +538,19 @@ if ($action == 'create') {
 	print '      <input type="checkbox" id="syncdirection_toggle" />';
 	print '      <span class="slider round"></span>';
 	print '    </label>';
+	print '  </td>';
+	print '</tr>';
+
+	$syncTiming = GETPOSTISSET('sync_on_paid') ? GETPOSTINT('sync_on_paid') : (int) (!empty($object->sync_on_paid) ? $object->sync_on_paid : 0);
+	print '<tr class="field_sync_on_paid" style="display:none">';
+	print '  <td class="fieldrequired">'.$form->textwithpicto($langs->trans("SyncTiming"), $langs->trans("SyncTimingHelp")).'</td>';
+	print '  <td class="valuefieldcreate">';
+	print '    <select name="sync_on_paid" id="sync_on_paid" class="flat">';
+	foreach (array(0 => $langs->trans("SyncAtOrderCreated"), 1 => $langs->trans("SyncAtOrderPaid")) as $val => $label) {
+		$selected = ((int) $syncTiming === (int) $val) ? ' selected' : '';
+		print '      <option value="'.$val.'"'.$selected.'>'.$label.'</option>';
+	}
+	print '    </select>';
 	print '  </td>';
 	print '</tr>';
 
@@ -581,11 +595,19 @@ jQuery(function($){
   var $h = $("#syncdirection_hidden");
   var $t = $("#syncdirection_toggle");
   var $label = $("#syncdirection_label");
+  var $timingRow = $(".field_sync_on_paid");
+  var $timingSelect = $("#sync_on_paid");
 
   function apply(v){
     $t.prop("checked", !!v);
     $h.val(v ? 1 : 0);
     $label.text("Sync from " + (v ? "Taler" : "Dolibarr"));
+    if(v){
+      $timingRow.show();
+    } else {
+      $timingRow.hide();
+      $timingSelect.val("0");
+    }
   }
 
   // init from object
@@ -631,6 +653,7 @@ if (($id || $ref) && $action == 'edit') {
 
 	unset($object->fields['status']);
 	unset($object->fields['syncdirection']);
+	unset($object->fields['sync_on_paid']);
 	unset($object->fields['entity']);
 	unset($object->fields['fk_bank_account']);
 	unset($object->fields['fk_default_customer']);
@@ -655,6 +678,19 @@ if (($id || $ref) && $action == 'edit') {
 	print '      <input type="checkbox" id="syncdirection_toggle" />';
 	print '      <span class="slider round"></span>';
 	print '    </label>';
+	print '  </td>';
+	print '</tr>';
+
+	$syncTiming = GETPOSTISSET('sync_on_paid') ? GETPOSTINT('sync_on_paid') : (int) (!empty($object->sync_on_paid) ? $object->sync_on_paid : 0);
+	print '<tr class="field_sync_on_paid" style="display:none">';
+	print '  <td class="fieldrequired">'.$form->textwithpicto($langs->trans("SyncTiming"), $langs->trans("SyncTimingHelp")).'</td>';
+	print '  <td class="valuefieldcreate">';
+	print '    <select name="sync_on_paid" id="sync_on_paid" class="flat">';
+	foreach (array(0 => $langs->trans("SyncAtOrderCreated"), 1 => $langs->trans("SyncAtOrderPaid")) as $val => $label) {
+		$selected = ((int) $syncTiming === (int) $val) ? ' selected' : '';
+		print '      <option value="'.$val.'"'.$selected.'>'.$label.'</option>';
+	}
+	print '    </select>';
 	print '  </td>';
 	print '</tr>';
 
@@ -699,11 +735,19 @@ jQuery(function($){
   var $h = $("#syncdirection_hidden");
   var $t = $("#syncdirection_toggle");
   var $label = $("#syncdirection_label");
+  var $timingRow = $(".field_sync_on_paid");
+  var $timingSelect = $("#sync_on_paid");
 
   function apply(v){
     $t.prop("checked", !!v);
     $h.val(v ? 1 : 0);
     $label.text("Sync from " + (v ? "Taler" : "Dolibarr"));
+    if(v){
+      $timingRow.show();
+    } else {
+      $timingRow.hide();
+      $timingSelect.val("0");
+    }
   }
 
   // init from object
@@ -836,6 +880,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 	// Common attributes
 	unset($object->fields['entity']);
+	unset($object->fields['sync_on_paid']);
 	unset($object->fields['fk_bank_account']);
 	unset($object->fields['fk_default_customer']);
 	//$keyforbreak='fieldkeytoswitchonsecondcolumn';	// We change column just before this field
@@ -845,6 +890,13 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 	require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';
 	require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+
+	if (!empty($object->syncdirection)) {
+		$timingLabel = !empty($object->sync_on_paid) ? $langs->trans("SyncAtOrderPaid") : $langs->trans("SyncAtOrderCreated");
+		print '<tr class="field_sync_on_paid">';
+		print '  <td>'.$langs->trans("SyncTiming").'</td><td>'.$timingLabel.'</td>';
+		print '</tr>';
+	}
 
 	$acc = new Account($db);
 	if ($object->fk_bank_account && $acc->fetch($object->fk_bank_account) > 0) {

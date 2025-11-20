@@ -1136,10 +1136,11 @@ class TalerOrderLink extends CommonObject
 	 * @param array|object  $statusResponse Raw MerchantOrderStatusResponse
 	 * @param User          $user           Current user (for permissions & history)
 	 * @param object|array  $contractTerms  Parsed contract terms payload received from Taler
+	 * @param bool|null     $allowDolibarrArtefacts Whether Dolibarr order/invoice creation is allowed (null follows config)
 	 *
 	 * @return int 1=OK, 0=ignored, -1=error (logic TBD)
 	 */
-	public static function upsertFromTalerOnOrderCreation(DoliDB $db, $statusResponse, User $user, object|array $contractTerms): int
+	public static function upsertFromTalerOnOrderCreation(DoliDB $db, $statusResponse, User $user, object|array $contractTerms, ?bool $allowDolibarrArtefacts = null): int
 	{
 		$statusData   = self::normalizeToArray($statusResponse);
 		$contractData = self::normalizeToArray($contractTerms);
@@ -1166,6 +1167,10 @@ class TalerOrderLink extends CommonObject
 				return -1;
 			}
 			$instance = (string) $config->username;
+		}
+
+		if ($allowDolibarrArtefacts === null) {
+			$allowDolibarrArtefacts = empty($config->sync_on_paid);
 		}
 
 		$link = new self($db);
@@ -1347,18 +1352,21 @@ class TalerOrderLink extends CommonObject
 		}
 
 		// Ensure Dolibarr artefacts (order at minimum)
-		$commande = self::ensureDolibarrOrder($db, $user, $link, $contractData, $statusData);
-		if ($commande instanceof Commande) {
-			$link->fk_commande = (int) $commande->id;
-			$link->commande_ref_snap = $commande->ref ?? $commande->ref_client ?? $link->commande_ref_snap;
-			if (!empty($commande->date_commande)) {
-				$link->commande_datec = $db->idate($commande->date_commande);
-			}
-			if (!empty($commande->date_validation)) {
-				$link->commande_validated_at = $db->idate($commande->date_validation);
-			}
-			if (!empty($commande->mode_reglement_id)) {
-				$link->fk_c_paiement = (int) $commande->mode_reglement_id;
+		$commande = null;
+		if ($allowDolibarrArtefacts) {
+			$commande = self::ensureDolibarrOrder($db, $user, $link, $contractData, $statusData);
+			if ($commande instanceof Commande) {
+				$link->fk_commande = (int) $commande->id;
+				$link->commande_ref_snap = $commande->ref ?? $commande->ref_client ?? $link->commande_ref_snap;
+				if (!empty($commande->date_commande)) {
+					$link->commande_datec = $db->idate($commande->date_commande);
+				}
+				if (!empty($commande->date_validation)) {
+					$link->commande_validated_at = $db->idate($commande->date_validation);
+				}
+				if (!empty($commande->mode_reglement_id)) {
+					$link->fk_c_paiement = (int) $commande->mode_reglement_id;
+				}
 			}
 		}
 
@@ -1421,7 +1429,7 @@ class TalerOrderLink extends CommonObject
 		}
 
 		if (!empty($contractData)) {
-			self::upsertFromTalerOnOrderCreation($db, $statusResponse, $user, $contractData);
+			self::upsertFromTalerOnOrderCreation($db, $statusResponse, $user, $contractData, true);
 		}
 
 		$link = new self($db);

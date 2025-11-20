@@ -85,6 +85,10 @@ TalerCurrencyAlias = Taler currency alias
 TalerCurrencyAliasHelp = Optional Taler test currency (e.g. KUDOS) that should be treated as the Dolibarr base currency.
 SyncDirection = Sync from
 SyncFrom = Sync from
+SyncTiming = Order Sync timing
+SyncTimingHelp = Choose when Taler orders should be created in Dolibarr
+SyncAtOrderCreated = When order is created
+SyncAtOrderPaid = When order is paid
 TalerConfigIsValid = Valid Taler Config Is Found
 Username = Username
 DeleteTalerConfig = Deleting TalerBarr configuration
@@ -97,11 +101,14 @@ TalerDefaultCustomer = Default customer for Taler orders
 TalerInventory = Taler Inventory
 TalerOrder = Orders
 TalerOrderLinkList = Orders
+TalerOrderLink = Taler Order link
 TalerOrderLinks = Taler Orders
 TalerProductLinkList = Products
+TalerProductLink = Taler Product link
 TalerProductLinks = Taler Products
 TalerCategoryMapList = Categories
 TalerCategoryMaps = Taler Categories
+RawData = Raw data
 
 #
 # Taler Orders

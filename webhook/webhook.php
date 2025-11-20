@@ -306,6 +306,7 @@ if ($type === '') {
 
 $syncDirection = (string) ($cfg->syncdirection ?? '0');
 $syncFromTaler = ($syncDirection === '1');
+$syncOnPaymentOnly = $syncFromTaler && !empty($cfg->sync_on_paid);
 
 if (!$syncFromTaler) {
 	switch ($type) {
@@ -360,6 +361,19 @@ switch ($type) {
 			$contractData = $contractPayload;
 		} elseif (is_object($contractPayload)) {
 			$contractData = json_decode(json_encode($contractPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), true) ?: [];
+		}
+
+		if ($syncOnPaymentOnly) {
+			$statusPayload = $payload;
+			if (!empty($contractData)) {
+				$statusPayload['contract'] = $contractData;
+				$statusPayload['contract_terms'] = $contractData;
+			}
+			$result = TalerOrderLink::upsertFromTalerOnOrderCreation($db, $statusPayload, $user, $contractData, false);
+			if ($result < 0) {
+				talerbarrWebhookRespond(500, 'Failed to stage order creation event', ['order_id' => $orderId]);
+			}
+			talerbarrWebhookRespond(202, 'Order creation deferred until payment', ['order_id' => $orderId]);
 		}
 
 		if (!isset($payload['merchant_instance']) && isset($payload['instance_id'])) {

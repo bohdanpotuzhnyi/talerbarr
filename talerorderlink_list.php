@@ -66,6 +66,8 @@ if (!$res) {
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.formcompany.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
+require_once DOL_DOCUMENT_ROOT.'/commande/class/commande.class.php';
+require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 
 dol_include_once('/talerbarr/class/talerorderlink.class.php');
 
@@ -454,6 +456,9 @@ foreach ($object->fields as $key => $val) {
 	if ($key == 'status' || in_array($val['type'], array('date','datetime','timestamp'))) $cssforfield .= ($cssforfield ? ' ' : '').'center';
 	$cssforfield = preg_replace('/small\s*/', '', $cssforfield);
 	if (!empty($arrayfields['t.'.$key]['checked'])) {
+		if ($key === 'fk_commande' || $key === 'fk_facture') {
+			$val['label'] = $val['label'].' (link)';
+		}
 		print getTitleFieldOfList($arrayfields['t.'.$key]['label'], 0, $_SERVER['PHP_SELF'], 't.'.$key, '', $param, ($cssforfield ? 'class="'.$cssforfield.'"' : ''), $sortfield, $sortorder, ($cssforfield ? $cssforfield.' ' : ''), 0, (empty($val['helplist']) ? '' : $val['helplist']))."\n";
 		$totalarray['nbfield']++;
 	}
@@ -484,6 +489,12 @@ while ($i < $imaxinloop) {
 	if (empty($obj)) break;
 
 	$object->setVarsFromFetchObj($obj);
+	if (empty($object->id) && !empty($object->rowid)) {
+		$object->id = (int) $object->rowid;
+	}
+	if (empty($object->id) && !empty($object->rowid)) {
+		$object->id = (int) $object->rowid;
+	}
 
 	if ($mode == 'kanban' || $mode == 'kanbangroupby') {
 		if ($i == 0) { print '<tr class="trkanban"><td colspan="'.$savnbfield.'"><div class="box-flex-container kanban">'; }
@@ -527,8 +538,23 @@ while ($i < $imaxinloop) {
 						91 => 'Aborted',
 					];
 					print isset($map[$state]) ? $langs->trans($map[$state]) : '';
-				} elseif ($key == 'rowid') {
-					print $object->showOutputField($val, $key, (string) $object->id, '');
+				} elseif ($key == 'rowid' || $key === 'taler_order_id') {
+					// Link to card
+					print $object->getNomUrl(1);
+				} elseif ($key == 'fk_commande' && !empty($object->fk_commande)) {
+					$order = new Commande($db);
+					if ($order->fetch((int) $object->fk_commande) > 0) {
+						print $order->getNomUrl(1);
+					} else {
+						print (int) $object->fk_commande;
+					}
+				} elseif ($key == 'fk_facture' && !empty($object->fk_facture)) {
+					$invoice = new Facture($db);
+					if ($invoice->fetch((int) $object->fk_facture) > 0) {
+						print $invoice->getNomUrl(1);
+					} else {
+						print (int) $object->fk_facture;
+					}
 				} else {
 					if ($val['type'] == 'html') print '<div class="small lineheightsmall twolinesmax-normallineheight">';
 					print $object->showOutputField($val, $key, (string) $object->$key, '');
