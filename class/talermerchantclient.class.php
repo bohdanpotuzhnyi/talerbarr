@@ -17,6 +17,7 @@
 
 
 require_once DOL_DOCUMENT_ROOT.'/core/lib/geturl.lib.php';
+require_once __DIR__.'/talermerchantresponseparser.class.php';
 
 /**
  * TalerMerchantClient
@@ -248,7 +249,8 @@ class TalerMerchantClient
 	public function listCategories(): array
 	{
 		$path = "categories";
-		return $this->get($path);
+		$raw = $this->get($path);
+		return TalerMerchantResponseParser::parseCategoryList($raw);
 	}
 
 	/**
@@ -263,7 +265,8 @@ class TalerMerchantClient
 	public function getCategory(int $categoryId): array
 	{
 		$path = "categories/{$categoryId}";
-		return $this->get($path);
+		$raw = $this->get($path);
+		return TalerMerchantResponseParser::parseCategory($raw);
 	}
 
 	/**
@@ -410,7 +413,8 @@ class TalerMerchantClient
 		if ($offset !== null) {
 			$query['offset'] = $offset;
 		}
-		return $this->get($path, $query);
+		$raw = $this->get($path, $query);
+		return TalerMerchantResponseParser::parseInventorySummary($raw);
 	}
 
 	/**
@@ -425,7 +429,8 @@ class TalerMerchantClient
 	public function getProduct(string $productId): array
 	{
 		$path = "products/".rawurlencode($productId);
-		return $this->get($path);
+		$raw = $this->get($path);
+		return TalerMerchantResponseParser::parseProduct($raw);
 	}
 
 	/**
@@ -461,7 +466,8 @@ class TalerMerchantClient
 	public function createOrder(array $postOrderRequest): array
 	{
 		$path = "orders";
-		return $this->post($path, $postOrderRequest);
+		$raw = $this->post($path, $postOrderRequest);
+		return TalerMerchantResponseParser::parsePostOrderResponse($raw);
 	}
 
 	/**
@@ -481,7 +487,8 @@ class TalerMerchantClient
 				return $value !== null;
 			});
 
-		return $this->get($path, $query);
+		$raw = $this->get($path, $query);
+		return TalerMerchantResponseParser::parseOrderHistory($raw);
 	}
 
 	/**
@@ -502,7 +509,8 @@ class TalerMerchantClient
 				return $value !== null;
 			});
 
-		return $this->get($path, $query);
+		$raw = $this->get($path, $query);
+		return TalerMerchantResponseParser::parseOrderStatus($raw);
 	}
 
 	/**
@@ -554,7 +562,8 @@ class TalerMerchantClient
 	public function refundOrder(string $orderId, array $refundRequest): array
 	{
 		$path = "orders/".rawurlencode($orderId)."/refund";
-		return $this->post($path, $refundRequest);
+		$raw = $this->post($path, $refundRequest);
+		return TalerMerchantResponseParser::parseRefundResponse($raw);
 	}
 
 	/* =======================================================================
@@ -572,7 +581,8 @@ class TalerMerchantClient
 	 */
 	public function listWebhooks(): array
 	{
-		return $this->get('webhooks');
+		$raw = $this->get('webhooks');
+		return TalerMerchantResponseParser::parseWebhookList($raw);
 	}
 
 	/**
@@ -586,7 +596,8 @@ class TalerMerchantClient
 	 */
 	public function getWebhook(string $webhookId): array
 	{
-		return $this->get('webhooks/'.rawurlencode($webhookId));
+		$raw = $this->get('webhooks/'.rawurlencode($webhookId));
+		return TalerMerchantResponseParser::parseWebhook($raw);
 	}
 
 	/**
@@ -678,6 +689,7 @@ class TalerMerchantClient
 			throw new Exception('Failed to decode JSON response: '.json_last_error_msg());
 		}
 
-		return $decoded ?? [];
+		$parsed = $decoded ?? [];
+		return TalerMerchantResponseParser::parseVersion($parsed);
 	}
 }
