@@ -295,6 +295,9 @@ class TalerConfig extends CommonObject
 		if (empty($this->entity)) {
 			$this->entity = getEntity($this->element, 1);
 		}
+		if (!isset($this->sync_on_paid) || $this->sync_on_paid === '') {
+			$this->sync_on_paid = 0;
+		}
 		$this->normalizeCurrencyAliasField();
 
 		$result = $this->createCommon($user, $notrigger);

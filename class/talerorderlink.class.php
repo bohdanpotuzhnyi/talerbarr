@@ -1343,6 +1343,11 @@ class TalerOrderLink extends CommonObject
 		if (empty($link->fk_soc) && $defaultSoc > 0) {
 			$link->fk_soc = $defaultSoc;
 		}
+		$link->intended_payment_code = 'TLR';
+		$paymentModeId = self::resolvePaymentModeId();
+		if ($paymentModeId !== null) {
+			$link->fk_c_paiement = (int) $paymentModeId;
+		}
 		$clearingAccountId = self::resolveClearingAccountId();
 		if ($clearingAccountId !== null) {
 			$link->fk_bank_account = $clearingAccountId;
@@ -1376,6 +1381,7 @@ class TalerOrderLink extends CommonObject
 			dol_syslog(__METHOD__.' failed to save link: '.($link->error ?: $db->lasterror()), LOG_ERR);
 			return -1;
 		}
+		self::linkToCommande($db, $link);
 
 		dol_syslog(__METHOD__.' completed', LOG_INFO);
 		return 1;
@@ -2194,9 +2200,29 @@ class TalerOrderLink extends CommonObject
 				$link->rowid = $linkRowId;
 			}
 		}
+		self::linkToCommande($db, $link);
 
 		dol_syslog('TalerOrderLink::upsertFromDolibarr.end order_id='.$orderIdCreated, LOG_INFO);
 		return 1;
+	}
+
+	/**
+	 * Ensure linked-object relationship is visible from the commande card.
+	 *
+	 * @param DoliDB         $db   Database connection.
+	 * @param TalerOrderLink $link Persisted order link with fk_commande populated.
+	 * @return void
+	 */
+	private static function linkToCommande(DoliDB $db, TalerOrderLink $link): void
+	{
+		if (empty($link->fk_commande) || empty($link->id)) {
+			return;
+		}
+
+		$commande = new Commande($db);
+		if ($commande->fetch((int) $link->fk_commande) > 0) {
+			$commande->add_object_linked($link->element, (int) $link->id);
+		}
 	}
 
 	/**

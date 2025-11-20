@@ -109,6 +109,10 @@ TalerProductLinks = Taler Products
 TalerCategoryMapList = Categories
 TalerCategoryMaps = Taler Categories
 RawData = Raw data
+ProductOverview = Product overview
+Pricing = Pricing
+Inventory = Inventory
+Sync = Synchronisation
 
 #
 # Taler Orders
@@ -116,6 +120,30 @@ RawData = Raw data
 TalerInstance = Taler Instance
 TalerOrderId = Taler Order ID
 AmountStr = Amount
+OrderFlow = Order flow
+StructuredInfo = Structured information
+FlowNodeTalerOrder = Taler order
+FlowNodeCommande = Sales order
+FlowNodeInvoice = Invoice
+FlowNodePayment = Customer payment
+FlowNodeRefund = Refunds
+FlowNodeWire = Wire settlement
+FlowAmount = Amount
+FlowDeadlines = Deadlines
+FlowLink = Status link
+FlowMissing = Missing
+FlowDone = Done
+FlowPending = Pending
+FlowAttention = Attention
+FlowRefundStatus = Refund status
+FlowNone = None
+FlowWireStatus = Wire status
+FlowState = State
+FlowOrderRef = Order ref
+FlowPaymentIntent = Intended payment
+FlowPaymentTerms = Payment terms
+FlowPaymentStatus = Payment status
+WTID = Wire transfer ID
 # TalerOrderLink state labels
 Unpaid = Unpaid
 Claimed = Claimed
