@@ -71,6 +71,18 @@ LinkedPayment=Payment
 LastUpdate=Last update
 UnitsSold=Units sold
 Unlimited=Unlimited
+OrdersTotal=Total orders
+OrdersOpen=Open/unpaid
+OrdersPaid=Paid/delivered
+OrdersFailed=Failed/expired
+OrdersWithInvoice=With invoice
+OrdersWithPayment=With payment
+ProductsTotal=Total products
+ProductsSyncEnabled=Sync enabled
+ProductsSyncedOk=Last sync OK
+ProductsSyncError=Last sync error
+ProductsUnlimitedStock=Unlimited stock
+SyncMetricsOverall=Overall
 
 #
 # Sample page

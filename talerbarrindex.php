@@ -204,6 +204,13 @@ print '<style>
 .taler-section-actions a{margin-right:6px;}
 .taler-meta{font-size:12px;color:#6b7280;margin-top:4px;}
 .taler-highlight{font-weight:700;color:#1f2a44;}
+.taler-plain-list{margin:0;padding:0;list-style:none;}
+.taler-plain-list li{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #e2e7f0;}
+.taler-plain-list li:last-child{border-bottom:none;}
+.taler-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:8px;}
+.taler-stat{border:1px dashed #e2e7f0;border-radius:8px;padding:10px;background:#f9fbfd;text-align:center;}
+.taler-stat .label{color:#4a505c;font-size:12px;}
+.taler-stat .value{font-size:18px;font-weight:700;color:#1f2a44;}
 </style>';
 
 print load_fiche_titre($langs->trans("TalerBarrArea"), '', 'cash-register');
@@ -267,36 +274,12 @@ if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->ver
 	);
 
 	print '<div class="taler-home-card">';
-	print '<div class="div-table-responsive-no-min">';
-	print '<table class="noborder centpercent">';
-
-	// Header row
-	print '<tr class="liste_titre">';
-	print '<th colspan="3">'.$langs->trans("TalerBarConfiguration").'</th>';
-	print '</tr>';
-
-	// Content row
-	print '<tr class="oddeven">';
-
-	// Status icon
-	print '<td class="center" style="width:40px;">'.img_picto($langs->trans("Valid"), 'tick').'</td>';
-
-	// Details block
-	print '<td>';
-	//print '<div style="font-size:15px; font-weight:bold; margin-bottom:6px;">'.$langs->trans("TalerConfigIsValid").'</div>';
+	print '<div class="taler-card-heading">'.$langs->trans("TalerBarConfiguration").'<a class="button" href="'.$editUrl.'">'.$langs->trans("Modify").'</a></div>';
+	print '<ul class="taler-plain-list">';
 	foreach ($configRows as $label => $value) {
-		print '<div class="marginbottomonly"><strong>'.dol_escape_htmltag($label).':</strong> '.$value.'</div>';
+		print '<li><span>'.dol_escape_htmltag($label).'</span><span>'.$value.'</span></li>';
 	}
-	print '</td>';
-
-	// Action button
-	print '<td class="right" style="width:120px;">';
-	print '<a class="butAction" href="'.$editUrl.'">'.$langs->trans("Modify").'</a>';
-	print '</td>';
-
-	print '</tr>';
-	print '</table>';
-	print '</div>';
+	print '</ul>';
 	print '</div>';
 }
 
@@ -306,29 +289,14 @@ $statusFile = DOL_DATA_ROOT.'/talerbarr/sync.status.json';
 $status     = file_exists($statusFile) ? json_decode(@file_get_contents($statusFile), true) : null;
 
 print '<div class="taler-home-card">';
-print '<div class="div-table-responsive-no-min">';
-print '<table class="noborder centpercent">';
-print '<tr class="liste_titre">';
-print '<th colspan="3">'.$langs->trans("TalerBarrSyncStatus").'</th>';
-print '</tr><tr class="oddeven">';
-
-// --- Left column: icon ---
-print '<td class="center" style="width:40px;">';
-if (!$status) {
-	print img_picto('', 'object_calendar');          // grey calendar
-} elseif ($status['phase'] === 'done') {
-	print img_picto('', 'tick');                     // green tick
-} elseif ($status['phase'] === 'abort') {
-	print img_picto('', 'warning');                  // red warning
-} else {
-	print img_picto('', 'refresh');                  // blue spinner
+print '<div class="taler-card-heading">';
+print '<span>'.$langs->trans("TalerBarrSyncStatus").'</span>';
+if ($user->admin) {
+	print '<span class="right-actions"><form method="POST" action="'.$_SERVER['PHP_SELF'].'" style="display:inline;"><input type="hidden" name="token" value="'.newToken().'"><input type="hidden" name="action" value="runsync"><input type="submit" class="button" value="'.$langs->trans("RunSyncNow").'"></form></span>';
 }
-print '</td>';
-
-// --- Middle column: message ---
-print '<td>';
+print '</div>';
 if (!$status) {
-	print $langs->trans("NoSyncYet");
+	print '<div class="taler-section-empty">'.$langs->trans("NoSyncYet").'</div>';
 } else {
 	$phaseKey = isset($status['phase']) ? (string) $status['phase'] : '';
 	$phaseMap = array(
@@ -346,6 +314,7 @@ if (!$status) {
 		$phaseLabel = '?';
 	}
 
+	// Direction + summary
 	$directionKey = strtolower((string) ($status['direction'] ?? ''));
 	if ($directionKey === 'pull') {
 		$directionLabel = dol_escape_htmltag($langs->trans('SyncDirectionTalerToDolibarr'));
@@ -356,18 +325,6 @@ if (!$status) {
 	}
 	if ($directionLabel === '') {
 		$directionLabel = '?';
-	}
-
-	$directionExtra = '';
-	if (isset($status['processed'])) {
-		$summaryBits = array();
-		$summaryBits[] = dol_escape_htmltag($langs->trans('SyncMetricProcessed')).': '.((int) $status['processed']);
-		if (array_key_exists('total', $status) && $status['total'] !== null) {
-			$summaryBits[] = dol_escape_htmltag($langs->trans('SyncMetricTotal')).': '.((int) $status['total']);
-		}
-		if (!empty($summaryBits)) {
-			$directionExtra = ' <span class="opacitymedium">('.implode(' | ', $summaryBits).')</span>';
-		}
 	}
 
 	$tsRaw = $status['ts'] ?? '';
@@ -381,9 +338,11 @@ if (!$status) {
 		}
 	}
 
-	print '<div><strong>'.$langs->trans("Phase").':</strong> '.$phaseLabel.'</div>';
-	print '<div><strong>'.$langs->trans("Direction").':</strong> '.$directionLabel.$directionExtra.'</div>';
-	print '<div><strong>'.$langs->trans("Date").':</strong> '.$tsHtml.'</div>';
+	// Build lines like configuration block
+	print '<ul class="taler-plain-list">';
+	print '<li><span>'.dol_escape_htmltag($langs->trans("Phase")).'</span><span>'.$phaseLabel.'</span></li>';
+	print '<li><span>'.dol_escape_htmltag($langs->trans("Direction")).'</span><span>'.$directionLabel.'</span></li>';
+	print '<li><span>'.dol_escape_htmltag($langs->trans("Time")).'</span><span>'.$tsHtml.'</span></li>';
 
 	$bucketLabels = array(
 		'products' => $langs->trans('SyncMetricsProducts'),
@@ -417,32 +376,30 @@ if (!$status) {
 			$parts[] = dol_escape_htmltag($metricLabel).': '.$value;
 		}
 		if (!empty($parts)) {
-			print '<div><strong>'.dol_escape_htmltag($bucketTitle).':</strong> '.implode(', ', $parts).'</div>';
+			print '<li><span>'.dol_escape_htmltag($bucketTitle).'</span><span>'.implode(', ', $parts).'</span></li>';
 		}
 	}
 
 	if (!empty($status['note'])) {
-		print '<div class="opacitymedium">'.dol_escape_htmltag($status['note']).'</div>';
+		print '<li><span>'.dol_escape_htmltag($langs->trans('Note')).'</span><span class="opacitymedium">'.dol_escape_htmltag($status['note']).'</span></li>';
 	}
 
 	if (!empty($status['error'])) {
-		print '<div class="error">'.dol_escape_htmltag($status['error']).'</div>';
+		print '<li><span class="error">'.dol_escape_htmltag($langs->trans('Error')).'</span><span class="error">'.dol_escape_htmltag($status['error']).'</span></li>';
 	}
+	if (isset($status['processed'])) {
+		$totalBits = array();
+		$totalBits[] = dol_escape_htmltag($langs->trans('SyncMetricProcessed')).': '.((int) $status['processed']);
+		if (array_key_exists('total', $status) && $status['total'] !== null) {
+			$totalBits[] = dol_escape_htmltag($langs->trans('SyncMetricTotal')).': '.((int) $status['total']);
+		}
+		if (!empty($totalBits)) {
+			print '<li><span>'.dol_escape_htmltag($langs->trans('Total')).'</span><span>'.implode(', ', $totalBits).'</span></li>';
+		}
+	}
+	print '</ul>';
 }
-print '</td>';
-
-// --- Right column: Run-sync button ---
-print '<td class="right" style="width:140px;">';
-if ($user->admin) {
-	print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'">';
-	print '<input type="hidden" name="token"  value="'.newToken().'">';
-	print '<input type="hidden" name="action" value="runsync">';
-	print '<input type="submit" class="butAction" value="'.$langs->trans("RunSyncNow").'">';
-	print '</form>';
-}
-print '</td>';
-
-print '</tr></table></div><br>';
+print '</div>';
 print '</div>';
 
 print '</div>'; // close taler-home-top grid
@@ -487,131 +444,80 @@ $factureStatic = new Facture($db);
 $paiementStatic = new Paiement($db);
 $productStatic = new Product($db);
 
-print '<div class="taler-home-grid taler-home-bottom">';
+print '<div class="taler-home-grid taler-home-bottom" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr));">';
 
-// Orders card
+// Orders card (glance numbers only)
+$ordersTotal = count($orders);
+$ordersPaid = 0;
+$ordersOpen = 0;
+$ordersFailed = 0;
+$ordersWithInvoice = 0;
+$ordersWithPayment = 0;
+foreach ($orders as $row) {
+	$state = (int) $row->taler_state;
+	if (in_array($state, array(30, 40, 50, 70), true)) {
+		$ordersPaid++;
+	} elseif (in_array($state, array(90, 91), true)) {
+		$ordersFailed++;
+	} else {
+		$ordersOpen++;
+	}
+	if (!empty($row->fk_facture)) {
+		$ordersWithInvoice++;
+	}
+	if (!empty($row->fk_paiement)) {
+		$ordersWithPayment++;
+	}
+}
 print '<div class="taler-home-card">';
 print '<div class="taler-card-heading">'.$langs->trans('TalerOrdersOverview').'<span class="right-actions"><a class="button" href="'.dol_buildpath('/talerbarr/talerorderlink_list.php', 1).'">'.$langs->trans('TalerOrderLinks').'</a></span></div>';
 if (empty($orders)) {
 	print '<div class="taler-section-empty">'.$langs->trans('NoOrdersYet').'</div>';
 } else {
-	foreach ($orders as $row) {
-		$orderUrl = dol_buildpath('/talerbarr/talerorderlink_card.php', 1).'?id='.(int) $row->rowid;
-		$title = dol_escape_htmltag($row->taler_instance).' / '.dol_escape_htmltag($row->taler_order_id);
-		$stateLabels = array(
-			10 => $langs->trans('Unpaid'),
-			20 => $langs->trans('Claimed'),
-			30 => $langs->trans('Paid'),
-			40 => $langs->trans('Delivered'),
-			50 => $langs->trans('Wired'),
-			70 => $langs->trans('Refunded'),
-			90 => $langs->trans('Expired'),
-			91 => $langs->trans('Aborted'),
-		);
-		$stateLabel = $stateLabels[(int) $row->taler_state] ?? $langs->trans('Unknown');
-		$stateClass = 'taler-chip-open';
-		if ((int) $row->taler_state >= 50) {
-			$stateClass = 'taler-chip-ok';
-		} elseif ((int) $row->taler_state >= 30) {
-			$stateClass = 'taler-chip-warn';
-		} elseif (in_array((int) $row->taler_state, array(90, 91), true)) {
-			$stateClass = 'taler-chip-missing';
-		}
-
-		$customerHtml = '<span class="opacitymedium">'.$langs->trans('None').'</span>';
-		if (!empty($row->fk_soc)) {
-			if ($thirdpartyStatic->fetch((int) $row->fk_soc) > 0) {
-				$customerHtml = $thirdpartyStatic->getNomUrl(1);
-			}
-		}
-
-		$commandeHtml = '<span class="opacitymedium">'.$langs->trans('FlowMissing').'</span>';
-		if (!empty($row->fk_commande) && $commandeStatic->fetch((int) $row->fk_commande) > 0) {
-			$commandeHtml = $commandeStatic->getNomUrl(1);
-		}
-
-		$factureHtml = '<span class="opacitymedium">'.$langs->trans('FlowNone').'</span>';
-		if (!empty($row->fk_facture) && $factureStatic->fetch((int) $row->fk_facture) > 0) {
-			$factureHtml = $factureStatic->getNomUrl(1);
-		}
-
-		$paiementHtml = '<span class="opacitymedium">'.$langs->trans('FlowMissing').'</span>';
-		if (!empty($row->fk_paiement) && $paiementStatic->fetch((int) $row->fk_paiement) > 0) {
-			$paiementHtml = $paiementStatic->getNomUrl(1);
-		}
-
-		$updatedAt = !empty($row->tms) ? dol_print_date($db->jdate($row->tms), 'dayhour') : $langs->trans('NotDefined');
-		$deadline = !empty($row->taler_pay_deadline) ? dol_print_date($db->jdate($row->taler_pay_deadline), 'dayhour') : $langs->trans('None');
-		$orderSummary = !empty($row->order_summary) ? dol_escape_htmltag($row->order_summary) : $langs->trans('FlowMissing');
-
-		print '<div class="taler-mini-card">';
-		print '<div class="taler-mini-top">';
-		print '<div class="taler-mini-title"><a href="'.$orderUrl.'">'.$title.'</a></div>';
-		print '<span class="taler-chip '.$stateClass.'">'.$stateLabel.'</span>';
-		print '</div>';
-		print '<div class="taler-mini-fields">';
-		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('OrderAmount').'</span><span class="taler-field-value">'.dol_escape_htmltag($row->order_amount_str ?: '-').'</span></div>';
-		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('Customer').'</span><span class="taler-field-value">'.$customerHtml.'</span></div>';
-		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('LinkedDolibarrOrder').'</span><span class="taler-field-value">'.$commandeHtml.'</span></div>';
-		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('LinkedInvoice').'</span><span class="taler-field-value">'.$factureHtml.'</span></div>';
-		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('LinkedPayment').'</span><span class="taler-field-value">'.$paiementHtml.'</span></div>';
-		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('FlowDeadlines').'</span><span class="taler-field-value">'.$deadline.'</span></div>';
-		print '</div>';
-		print '<div class="taler-meta">'.$langs->trans('LastUpdate').': '.dol_escape_htmltag($updatedAt).'</div>';
-		if (!empty($row->taler_status_url)) {
-			print '<div class="taler-section-actions"><a href="'.dol_escape_htmltag($row->taler_status_url).'" target="_blank" rel="noopener">'.$langs->trans('FlowLink').'</a></div>';
-		}
-		print '<div class="taler-meta">'.$langs->trans('StructuredInfo').': '.$orderSummary.'</div>';
-		print '</div>';
-	}
+	print '<div class="taler-stat-grid">';
+	print '<div class="taler-stat"><div class="label">'.$langs->trans('OrdersTotal').'</div><div class="value">'.(int) $ordersTotal.'</div></div>';
+	print '<div class="taler-stat"><div class="label">'.$langs->trans('OrdersOpen').'</div><div class="value">'.(int) $ordersOpen.'</div></div>';
+	print '<div class="taler-stat"><div class="label">'.$langs->trans('OrdersPaid').'</div><div class="value">'.(int) $ordersPaid.'</div></div>';
+	print '<div class="taler-stat"><div class="label">'.$langs->trans('OrdersFailed').'</div><div class="value">'.(int) $ordersFailed.'</div></div>';
+	print '<div class="taler-stat"><div class="label">'.$langs->trans('OrdersWithInvoice').'</div><div class="value">'.(int) $ordersWithInvoice.'</div></div>';
+	print '<div class="taler-stat"><div class="label">'.$langs->trans('OrdersWithPayment').'</div><div class="value">'.(int) $ordersWithPayment.'</div></div>';
+	print '</div>';
 }
 print '</div>'; // end orders card
 
-// Products card
+// Products card (glance numbers only)
+$productsTotal = count($products);
+$productsSyncEnabled = 0;
+$productsSyncError = 0;
+$productsUnlimited = 0;
+$productsSyncedOk = 0;
+foreach ($products as $row) {
+	if (!empty($row->sync_enabled)) {
+		$productsSyncEnabled++;
+	}
+	if (!empty($row->last_sync_status) && $row->last_sync_status === 'error') {
+		$productsSyncError++;
+	}
+	if (!empty($row->last_sync_status) && $row->last_sync_status === 'ok') {
+		$productsSyncedOk++;
+	}
+	$stockVal = isset($row->taler_total_stock) ? (int) $row->taler_total_stock : null;
+	if ($stockVal === null || $stockVal < 0) {
+		$productsUnlimited++;
+	}
+}
 print '<div class="taler-home-card">';
 print '<div class="taler-card-heading">'.$langs->trans('TalerProductsOverview').'<span class="right-actions"><a class="button" href="'.dol_buildpath('/talerbarr/talerproductlink_list.php', 1).'">'.$langs->trans('TalerProductLinks').'</a></span></div>';
 if (empty($products)) {
 	print '<div class="taler-section-empty">'.$langs->trans('NoProductsYet').'</div>';
 } else {
-	foreach ($products as $row) {
-		$productUrl = dol_buildpath('/talerbarr/talerproductlink_card.php', 1).'?id='.(int) $row->rowid;
-		$title = dol_escape_htmltag($row->taler_product_name ?: $row->taler_product_id);
-		$syncBadgeClass = 'taler-chip-open';
-		if (empty($row->sync_enabled)) {
-			$syncBadgeClass = 'taler-chip-missing';
-		} elseif ($row->last_sync_status === 'error') {
-			$syncBadgeClass = 'taler-chip-warn';
-		} elseif ($row->last_sync_status === 'ok') {
-			$syncBadgeClass = 'taler-chip-ok';
-		}
-
-		$productHtml = '<span class="opacitymedium">'.$langs->trans('None').'</span>';
-		if (!empty($row->fk_product) && $productStatic->fetch((int) $row->fk_product) > 0) {
-			$productHtml = $productStatic->getNomUrl(1);
-		} elseif (!empty($row->taler_product_id)) {
-			$productHtml = dol_escape_htmltag($row->taler_product_id);
-		}
-
-		$stockVal = isset($row->taler_total_stock) ? (int) $row->taler_total_stock : null;
-		$stockText = ($stockVal === null || $stockVal < 0) ? $langs->trans('Unlimited') : (string) $stockVal;
-		$soldText = isset($row->taler_total_sold) ? (string) ((int) $row->taler_total_sold) : '-';
-		$lastSync = !empty($row->last_sync_at) ? dol_print_date($db->jdate($row->last_sync_at), 'dayhour') : $langs->trans('None');
-
-		print '<div class="taler-mini-card">';
-		print '<div class="taler-mini-top">';
-		print '<div class="taler-mini-title"><a href="'.$productUrl.'">'.$title.'</a></div>';
-		print '<span class="taler-chip '.$syncBadgeClass.'">'.dol_escape_htmltag($row->last_sync_status ?: ($row->sync_enabled ? $langs->trans('Sync') : $langs->trans('Disabled'))).'</span>';
-		print '</div>';
-		print '<div class="taler-mini-fields">';
-		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('Product').'</span><span class="taler-field-value">'.$productHtml.'</span></div>';
-		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('Price').'</span><span class="taler-field-value">'.dol_escape_htmltag($row->taler_amount_str ?: '-').'</span></div>';
-		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('Stock').'</span><span class="taler-field-value">'.$stockText.'</span></div>';
-		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('UnitsSold').'</span><span class="taler-field-value">'.$soldText.'</span></div>';
-		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('LastSyncAt').'</span><span class="taler-field-value">'.$lastSync.'</span></div>';
-		print '</div>';
-		print '<div class="taler-meta">'.$langs->trans('LastUpdate').': '.dol_escape_htmltag(!empty($row->tms) ? dol_print_date($db->jdate($row->tms), 'dayhour') : $langs->trans('NotDefined')).'</div>';
-		print '</div>';
-	}
+	print '<div class="taler-stat-grid">';
+	print '<div class="taler-stat"><div class="label">'.$langs->trans('ProductsTotal').'</div><div class="value">'.(int) $productsTotal.'</div></div>';
+	print '<div class="taler-stat"><div class="label">'.$langs->trans('ProductsSyncEnabled').'</div><div class="value">'.(int) $productsSyncEnabled.'</div></div>';
+	print '<div class="taler-stat"><div class="label">'.$langs->trans('ProductsSyncedOk').'</div><div class="value">'.(int) $productsSyncedOk.'</div></div>';
+	print '<div class="taler-stat"><div class="label">'.$langs->trans('ProductsSyncError').'</div><div class="value">'.(int) $productsSyncError.'</div></div>';
+	print '<div class="taler-stat"><div class="label">'.$langs->trans('ProductsUnlimitedStock').'</div><div class="value">'.(int) $productsUnlimited.'</div></div>';
+	print '</div>';
 }
 print '</div>'; // end products card
 

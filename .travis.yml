@@ -140,9 +140,19 @@ before_install:
 
   - |
     echo "Bootstrap GNU Taler services for integration tests"
-    bash htdocs/custom/talerbarr/devtools/ci/install_taler_stack.sh > /tmp/taler_stack.install.log 2>&1 || { tail -n 80 /tmp/taler_stack.install.log; exit 1; }
+    LOGFILE=/tmp/taler_stack.install.log
+    (
+      set -e
+      bash htdocs/custom/talerbarr/devtools/ci/install_taler_stack.sh > "$LOGFILE" 2>&1 &
+      PID=$!
+      while kill -0 "$PID" 2>/dev/null; do
+        printf '.\n'
+        sleep 60
+      done
+      wait "$PID"
+    ) || { echo "Sandcastle stack install failed. Last log lines:"; tail -n 80 "$LOGFILE"; exit 1; }
     echo "Sandcastle stack install logs trimmed. Last lines:"
-    tail -n 20 /tmp/taler_stack.install.log
+    tail -n 20 "$LOGFILE"
 
   - |
     echo Install pgsql if run is for pgsql
