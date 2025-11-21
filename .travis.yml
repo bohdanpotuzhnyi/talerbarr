@@ -210,24 +210,24 @@ install:
     echo "(composer version 2.5 is bugged and generate phpunit error Exception: Serialization of 'Closure' is not allowed)"
     if [ "$TRAVIS_PHP_VERSION" = '7.1' ] || [ "$TRAVIS_PHP_VERSION" = '7.2' ]; then
       sudo composer self-update 2.2.18
-      composer -n --no-progress --no-ansi require phpunit/phpunit ^7.5 \
-                        php-parallel-lint/php-parallel-lint ^1 \
-                        php-parallel-lint/php-console-highlighter ^0 \
-                        php-parallel-lint/php-var-dump-check ~0.4 \
-                        squizlabs/php_codesniffer ^3
+      composer -n require phpunit/phpunit ^7.5 \
+                          php-parallel-lint/php-parallel-lint ^1 \
+                          php-parallel-lint/php-console-highlighter ^0 \
+                          php-parallel-lint/php-var-dump-check ~0.4 \
+                          squizlabs/php_codesniffer ^3
     fi
     if [ "$TRAVIS_PHP_VERSION" = '7.3' ] || [ "$TRAVIS_PHP_VERSION" = '7.4' ]; then
       sudo composer self-update 2.2.18
-      composer -n --no-progress --no-ansi require phpunit/phpunit ^7.5 \
-                        php-parallel-lint/php-parallel-lint ^1.2 \
-                        php-parallel-lint/php-console-highlighter ^0 \
-                        php-parallel-lint/php-var-dump-check ~0.4 \
-                        squizlabs/php_codesniffer ^3
+      composer -n require phpunit/phpunit ^7.5 \
+                          php-parallel-lint/php-parallel-lint ^1.2 \
+                          php-parallel-lint/php-console-highlighter ^0 \
+                          php-parallel-lint/php-var-dump-check ~0.4 \
+                          squizlabs/php_codesniffer ^3
     fi
     # phpunit 9 is required for php 8
     if [ "$TRAVIS_PHP_VERSION" = '8.0' ] || [ "$TRAVIS_PHP_VERSION" = '8.1' ] || [ "$TRAVIS_PHP_VERSION" = '8.2' ] || [ "$TRAVIS_PHP_VERSION" = '8.3' ] || [ "$TRAVIS_PHP_VERSION" = '8.4' ] || [ "$TRAVIS_PHP_VERSION" = 'latest' ]; then
         sudo composer self-update 2.4.4
-        composer -n --no-progress --no-ansi require --ignore-platform-reqs phpunit/phpunit ^8 \
+        composer -n require --ignore-platform-reqs phpunit/phpunit ^8 \
                                                    php-parallel-lint/php-parallel-lint ^1.2 \
                                                    php-parallel-lint/php-console-highlighter ^0 \
                                                    php-parallel-lint/php-var-dump-check ~0.4 \
