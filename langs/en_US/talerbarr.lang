@@ -60,6 +60,17 @@ SyncMetricProcessed=Processed
 SyncMetricTotal=Total
 SyncMetricSynced=Synced
 SyncMetricSkippedPaid=Skipped (already paid)
+TalerOrdersOverview=Orders at a glance
+TalerProductsOverview=Products at a glance
+NoOrdersYet=No Taler orders yet
+NoProductsYet=No Taler products yet
+OrderAmount=Order amount
+LinkedDolibarrOrder=Sales order
+LinkedInvoice=Invoice
+LinkedPayment=Payment
+LastUpdate=Last update
+UnitsSold=Units sold
+Unlimited=Unlimited
 
 #
 # Sample page

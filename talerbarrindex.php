@@ -72,7 +72,13 @@ if (!$res) {
  */
 include_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
 dol_include_once('/societe/class/societe.class.php');
+dol_include_once('/commande/class/commande.class.php');
+dol_include_once('/compta/facture/class/facture.class.php');
+dol_include_once('/compta/paiement/class/paiement.class.php');
+dol_include_once('/product/class/product.class.php');
 dol_include_once('/compta/bank/class/account.class.php');
+dol_include_once('/talerbarr/class/talerorderlink.class.php');
+dol_include_once('/talerbarr/class/talerproductlink.class.php');
 
 // Load translation files required by the page
 $langs->loadLangs(array("talerbarr@talerbarr"));
@@ -174,9 +180,36 @@ $formfile = new FormFile($db);
 
 llxHeader("", $langs->trans("TalerBarrArea"), '', '', 0, 0, '', '', '', 'mod-talerbarr page-index');
 
+print '<style>
+.taler-home-wrap{margin-top:8px;}
+.taler-home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-bottom:14px;}
+.taler-home-card{background:#fff;border:1px solid #dfe3eb;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,0.04);padding:14px;}
+.taler-card-heading{display:flex;align-items:center;justify-content:space-between;font-weight:600;margin:0 0 8px;font-size:15px;}
+.taler-card-heading .right-actions a{margin-left:6px;}
+.taler-chip{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;}
+.taler-chip-open{background:#eef2f7;color:#2f3440;border:1px dashed #9ba4b5;}
+.taler-chip-ok{background:#2f8f46;color:#fff;}
+.taler-chip-warn{background:#c57b00;color:#fff;}
+.taler-chip-missing{background:#c1121f;color:#fff;}
+.taler-mini-card{border:1px solid #e6eaf2;border-radius:8px;padding:10px;margin-bottom:8px;background:#f9fbfd;}
+.taler-mini-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.taler-mini-title{font-weight:700;font-size:13px;display:flex;align-items:center;gap:6px;}
+.taler-mini-fields{margin-top:6px;font-size:12px;}
+.taler-field-row{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dashed #e2e7f0;}
+.taler-field-row:last-child{border-bottom:none;}
+.taler-field-label{color:#4a505c;}
+.taler-field-value{text-align:right;font-weight:600;}
+.taler-section-empty{padding:10px;border:1px dashed #e2e7f0;border-radius:8px;background:#f8fafc;color:#6b7280;font-size:13px;}
+.taler-section-actions{margin-top:4px;}
+.taler-section-actions a{margin-right:6px;}
+.taler-meta{font-size:12px;color:#6b7280;margin-top:4px;}
+.taler-highlight{font-weight:700;color:#1f2a44;}
+</style>';
+
 print load_fiche_titre($langs->trans("TalerBarrArea"), '', 'cash-register');
 
-//print '<div class="fichecenter"><div class="fichethirdleft">';
+print '<div class="taler-home-wrap">';
+print '<div class="taler-home-grid taler-home-top">';
 
 if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->verification_ok)) {
 	$safeUrl  = dol_escape_htmltag($singleton->talermerchanturl);
@@ -229,10 +262,11 @@ if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->ver
 		$langs->trans('SyncDirection') => $directionDisplay,
 		$langs->trans('SyncTokenExpires') => $tokenExpiryHtml,
 		$langs->trans('SyncBankAccount') => $bankHtml,
-		$langs->trans('TalerDefaultCustomer') => $customerHtml,
-		$langs->trans('SyncVerificationStatus') => $verificationHtml,
+	$langs->trans('TalerDefaultCustomer') => $customerHtml,
+	$langs->trans('SyncVerificationStatus') => $verificationHtml,
 	);
 
+	print '<div class="taler-home-card">';
 	print '<div class="div-table-responsive-no-min">';
 	print '<table class="noborder centpercent">';
 
@@ -263,6 +297,7 @@ if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->ver
 	print '</tr>';
 	print '</table>';
 	print '</div>';
+	print '</div>';
 }
 
 $statusFile = DOL_DATA_ROOT.'/talerbarr/sync.status.json';
@@ -270,6 +305,7 @@ $statusFile = DOL_DATA_ROOT.'/talerbarr/sync.status.json';
 //   on every update of this file
 $status     = file_exists($statusFile) ? json_decode(@file_get_contents($statusFile), true) : null;
 
+print '<div class="taler-home-card">';
 print '<div class="div-table-responsive-no-min">';
 print '<table class="noborder centpercent">';
 print '<tr class="liste_titre">';
@@ -407,135 +443,181 @@ if ($user->admin) {
 print '</td>';
 
 print '</tr></table></div><br>';
+print '</div>';
 
-/* BEGIN MODULEBUILDER DRAFT MYOBJECT
-// Draft MyObject
-if (isModEnabled('talerbarr') && $user->hasRight('talerbarr', 'read')) {
-	$langs->load("orders");
+print '</div>'; // close taler-home-top grid
 
-	$sql = "SELECT c.rowid, c.ref, c.ref_client, c.total_ht, c.tva as total_tva, c.total_ttc, s.rowid as socid, s.nom as name, s.client, s.canvas";
-	$sql.= ", s.code_client";
-	$sql.= " FROM ".$db->prefix()."commande as c";
-	$sql.= ", ".$db->prefix()."societe as s";
-	$sql.= " WHERE c.fk_soc = s.rowid";
-	$sql.= " AND c.fk_statut = 0";
-	$sql.= " AND c.entity IN (".getEntity('commande').")";
-	if ($socid)	$sql.= " AND c.fk_soc = ".((int) $socid);
-
-	$resql = $db->query($sql);
-	if ($resql)
-	{
-		$total = 0;
-		$num = $db->num_rows($resql);
-
-		print '<table class="noborder centpercent">';
-		print '<tr class="liste_titre">';
-		print '<th colspan="3">'.$langs->trans("DraftMyObjects").($num?'<span class="badge marginleftonlyshort">'.$num.'</span>':'').'</th></tr>';
-
-		$var = true;
-		if ($num > 0)
-		{
-			$i = 0;
-			while ($i < $num)
-			{
-
-				$obj = $db->fetch_object($resql);
-				print '<tr class="oddeven"><td class="nowrap">';
-
-				$myobjectstatic->id=$obj->rowid;
-				$myobjectstatic->ref=$obj->ref;
-				$myobjectstatic->ref_client=$obj->ref_client;
-				$myobjectstatic->total_ht = $obj->total_ht;
-				$myobjectstatic->total_tva = $obj->total_tva;
-				$myobjectstatic->total_ttc = $obj->total_ttc;
-
-				print $myobjectstatic->getNomUrl(1);
-				print '</td>';
-				print '<td class="nowrap">';
-				print '</td>';
-				print '<td class="right" class="nowrap">'.price($obj->total_ttc).'</td></tr>';
-				$i++;
-				$total += $obj->total_ttc;
-			}
-			if ($total>0)
-			{
-
-				print '<tr class="liste_total"><td>'.$langs->trans("Total").'</td><td colspan="2" class="right">'.price($total)."</td></tr>";
-			}
-		}
-		else
-		{
-
-			print '<tr class="oddeven"><td colspan="3" class="opacitymedium">'.$langs->trans("NoOrder").'</td></tr>';
-		}
-		print "</table><br>";
-
-		$db->free($resql);
+// --- Orders snapshot ---
+$ordersSql = "SELECT rowid, taler_instance, taler_order_id, order_amount_str, taler_state, order_summary, fk_soc, fk_commande, fk_facture, fk_paiement, taler_status_url, taler_pay_deadline, tms";
+$ordersSql .= " FROM ".MAIN_DB_PREFIX."talerbarr_order_link";
+$ordersSql .= " WHERE entity IN (".getEntity('talerorderlink').")";
+$ordersSql .= " ORDER BY tms DESC";
+$ordersSql .= $db->plimit($max, 0);
+$orders = array();
+$resqlOrders = $db->query($ordersSql);
+if ($resqlOrders) {
+	while ($obj = $db->fetch_object($resqlOrders)) {
+		$orders[] = $obj;
 	}
-	else
-	{
-		dol_print_error($db);
+	$db->free($resqlOrders);
+} else {
+	dol_print_error($db);
+}
+
+// --- Products snapshot ---
+$productsSql = "SELECT rowid, taler_instance, taler_product_id, taler_product_name, taler_amount_str, taler_total_stock, taler_total_sold, last_sync_status, last_sync_at, sync_enabled, fk_product, tms";
+$productsSql .= " FROM ".MAIN_DB_PREFIX."talerbarr_product_link";
+$productsSql .= " WHERE entity IN (".getEntity('talerproductlink').")";
+$productsSql .= " ORDER BY tms DESC";
+$productsSql .= $db->plimit($max, 0);
+$products = array();
+$resqlProducts = $db->query($productsSql);
+if ($resqlProducts) {
+	while ($obj = $db->fetch_object($resqlProducts)) {
+		$products[] = $obj;
+	}
+	$db->free($resqlProducts);
+} else {
+	dol_print_error($db);
+}
+
+$thirdpartyStatic = new Societe($db);
+$commandeStatic = new Commande($db);
+$factureStatic = new Facture($db);
+$paiementStatic = new Paiement($db);
+$productStatic = new Product($db);
+
+print '<div class="taler-home-grid taler-home-bottom">';
+
+// Orders card
+print '<div class="taler-home-card">';
+print '<div class="taler-card-heading">'.$langs->trans('TalerOrdersOverview').'<span class="right-actions"><a class="button" href="'.dol_buildpath('/talerbarr/talerorderlink_list.php', 1).'">'.$langs->trans('TalerOrderLinks').'</a></span></div>';
+if (empty($orders)) {
+	print '<div class="taler-section-empty">'.$langs->trans('NoOrdersYet').'</div>';
+} else {
+	foreach ($orders as $row) {
+		$orderUrl = dol_buildpath('/talerbarr/talerorderlink_card.php', 1).'?id='.(int) $row->rowid;
+		$title = dol_escape_htmltag($row->taler_instance).' / '.dol_escape_htmltag($row->taler_order_id);
+		$stateLabels = array(
+			10 => $langs->trans('Unpaid'),
+			20 => $langs->trans('Claimed'),
+			30 => $langs->trans('Paid'),
+			40 => $langs->trans('Delivered'),
+			50 => $langs->trans('Wired'),
+			70 => $langs->trans('Refunded'),
+			90 => $langs->trans('Expired'),
+			91 => $langs->trans('Aborted'),
+		);
+		$stateLabel = $stateLabels[(int) $row->taler_state] ?? $langs->trans('Unknown');
+		$stateClass = 'taler-chip-open';
+		if ((int) $row->taler_state >= 50) {
+			$stateClass = 'taler-chip-ok';
+		} elseif ((int) $row->taler_state >= 30) {
+			$stateClass = 'taler-chip-warn';
+		} elseif (in_array((int) $row->taler_state, array(90, 91), true)) {
+			$stateClass = 'taler-chip-missing';
+		}
+
+		$customerHtml = '<span class="opacitymedium">'.$langs->trans('None').'</span>';
+		if (!empty($row->fk_soc)) {
+			if ($thirdpartyStatic->fetch((int) $row->fk_soc) > 0) {
+				$customerHtml = $thirdpartyStatic->getNomUrl(1);
+			}
+		}
+
+		$commandeHtml = '<span class="opacitymedium">'.$langs->trans('FlowMissing').'</span>';
+		if (!empty($row->fk_commande) && $commandeStatic->fetch((int) $row->fk_commande) > 0) {
+			$commandeHtml = $commandeStatic->getNomUrl(1);
+		}
+
+		$factureHtml = '<span class="opacitymedium">'.$langs->trans('FlowNone').'</span>';
+		if (!empty($row->fk_facture) && $factureStatic->fetch((int) $row->fk_facture) > 0) {
+			$factureHtml = $factureStatic->getNomUrl(1);
+		}
+
+		$paiementHtml = '<span class="opacitymedium">'.$langs->trans('FlowMissing').'</span>';
+		if (!empty($row->fk_paiement) && $paiementStatic->fetch((int) $row->fk_paiement) > 0) {
+			$paiementHtml = $paiementStatic->getNomUrl(1);
+		}
+
+		$updatedAt = !empty($row->tms) ? dol_print_date($db->jdate($row->tms), 'dayhour') : $langs->trans('NotDefined');
+		$deadline = !empty($row->taler_pay_deadline) ? dol_print_date($db->jdate($row->taler_pay_deadline), 'dayhour') : $langs->trans('None');
+		$orderSummary = !empty($row->order_summary) ? dol_escape_htmltag($row->order_summary) : $langs->trans('FlowMissing');
+
+		print '<div class="taler-mini-card">';
+		print '<div class="taler-mini-top">';
+		print '<div class="taler-mini-title"><a href="'.$orderUrl.'">'.$title.'</a></div>';
+		print '<span class="taler-chip '.$stateClass.'">'.$stateLabel.'</span>';
+		print '</div>';
+		print '<div class="taler-mini-fields">';
+		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('OrderAmount').'</span><span class="taler-field-value">'.dol_escape_htmltag($row->order_amount_str ?: '-').'</span></div>';
+		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('Customer').'</span><span class="taler-field-value">'.$customerHtml.'</span></div>';
+		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('LinkedDolibarrOrder').'</span><span class="taler-field-value">'.$commandeHtml.'</span></div>';
+		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('LinkedInvoice').'</span><span class="taler-field-value">'.$factureHtml.'</span></div>';
+		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('LinkedPayment').'</span><span class="taler-field-value">'.$paiementHtml.'</span></div>';
+		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('FlowDeadlines').'</span><span class="taler-field-value">'.$deadline.'</span></div>';
+		print '</div>';
+		print '<div class="taler-meta">'.$langs->trans('LastUpdate').': '.dol_escape_htmltag($updatedAt).'</div>';
+		if (!empty($row->taler_status_url)) {
+			print '<div class="taler-section-actions"><a href="'.dol_escape_htmltag($row->taler_status_url).'" target="_blank" rel="noopener">'.$langs->trans('FlowLink').'</a></div>';
+		}
+		print '<div class="taler-meta">'.$langs->trans('StructuredInfo').': '.$orderSummary.'</div>';
+		print '</div>';
 	}
 }
-END MODULEBUILDER DRAFT MYOBJECT */
+print '</div>'; // end orders card
 
-
-print '</div><div class="fichetwothirdright">';
-
-
-/* BEGIN MODULEBUILDER LASTMODIFIED MYOBJECT
-// Last modified myobject
-if (isModEnabled('talerbarr') && $user->hasRight('talerbarr', 'read')) {
-	$sql = "SELECT s.rowid, s.ref, s.label, s.date_creation, s.tms";
-	$sql.= " FROM ".$db->prefix()."talerbarr_myobject as s";
-	$sql.= " WHERE s.entity IN (".getEntity($myobjectstatic->element).")";
-	//if ($socid)	$sql.= " AND s.rowid = $socid";
-	$sql .= " ORDER BY s.tms DESC";
-	$sql .= $db->plimit($max, 0);
-
-	$resql = $db->query($sql);
-	if ($resql)
-	{
-		$num = $db->num_rows($resql);
-		$i = 0;
-
-		print '<table class="noborder centpercent">';
-		print '<tr class="liste_titre">';
-		print '<th colspan="2">';
-		print $langs->trans("BoxTitleLatestModifiedMyObjects", $max);
-		print '</th>';
-		print '<th class="right">'.$langs->trans("DateModificationShort").'</th>';
-		print '</tr>';
-		if ($num)
-		{
-			while ($i < $num)
-			{
-				$objp = $db->fetch_object($resql);
-
-				$myobjectstatic->id=$objp->rowid;
-				$myobjectstatic->ref=$objp->ref;
-				$myobjectstatic->label=$objp->label;
-				$myobjectstatic->status = $objp->status;
-
-				print '<tr class="oddeven">';
-				print '<td class="nowrap">'.$myobjectstatic->getNomUrl(1).'</td>';
-				print '<td class="right nowrap">';
-				print "</td>";
-				print '<td class="right nowrap">'.dol_print_date($db->jdate($objp->tms), 'day')."</td>";
-				print '</tr>';
-				$i++;
-			}
-
-			$db->free($resql);
-		} else {
-			print '<tr class="oddeven"><td colspan="3" class="opacitymedium">'.$langs->trans("None").'</td></tr>';
+// Products card
+print '<div class="taler-home-card">';
+print '<div class="taler-card-heading">'.$langs->trans('TalerProductsOverview').'<span class="right-actions"><a class="button" href="'.dol_buildpath('/talerbarr/talerproductlink_list.php', 1).'">'.$langs->trans('TalerProductLinks').'</a></span></div>';
+if (empty($products)) {
+	print '<div class="taler-section-empty">'.$langs->trans('NoProductsYet').'</div>';
+} else {
+	foreach ($products as $row) {
+		$productUrl = dol_buildpath('/talerbarr/talerproductlink_card.php', 1).'?id='.(int) $row->rowid;
+		$title = dol_escape_htmltag($row->taler_product_name ?: $row->taler_product_id);
+		$syncBadgeClass = 'taler-chip-open';
+		if (empty($row->sync_enabled)) {
+			$syncBadgeClass = 'taler-chip-missing';
+		} elseif ($row->last_sync_status === 'error') {
+			$syncBadgeClass = 'taler-chip-warn';
+		} elseif ($row->last_sync_status === 'ok') {
+			$syncBadgeClass = 'taler-chip-ok';
 		}
-		print "</table><br>";
+
+		$productHtml = '<span class="opacitymedium">'.$langs->trans('None').'</span>';
+		if (!empty($row->fk_product) && $productStatic->fetch((int) $row->fk_product) > 0) {
+			$productHtml = $productStatic->getNomUrl(1);
+		} elseif (!empty($row->taler_product_id)) {
+			$productHtml = dol_escape_htmltag($row->taler_product_id);
+		}
+
+		$stockVal = isset($row->taler_total_stock) ? (int) $row->taler_total_stock : null;
+		$stockText = ($stockVal === null || $stockVal < 0) ? $langs->trans('Unlimited') : (string) $stockVal;
+		$soldText = isset($row->taler_total_sold) ? (string) ((int) $row->taler_total_sold) : '-';
+		$lastSync = !empty($row->last_sync_at) ? dol_print_date($db->jdate($row->last_sync_at), 'dayhour') : $langs->trans('None');
+
+		print '<div class="taler-mini-card">';
+		print '<div class="taler-mini-top">';
+		print '<div class="taler-mini-title"><a href="'.$productUrl.'">'.$title.'</a></div>';
+		print '<span class="taler-chip '.$syncBadgeClass.'">'.dol_escape_htmltag($row->last_sync_status ?: ($row->sync_enabled ? $langs->trans('Sync') : $langs->trans('Disabled'))).'</span>';
+		print '</div>';
+		print '<div class="taler-mini-fields">';
+		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('Product').'</span><span class="taler-field-value">'.$productHtml.'</span></div>';
+		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('Price').'</span><span class="taler-field-value">'.dol_escape_htmltag($row->taler_amount_str ?: '-').'</span></div>';
+		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('Stock').'</span><span class="taler-field-value">'.$stockText.'</span></div>';
+		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('UnitsSold').'</span><span class="taler-field-value">'.$soldText.'</span></div>';
+		print '<div class="taler-field-row"><span class="taler-field-label">'.$langs->trans('LastSyncAt').'</span><span class="taler-field-value">'.$lastSync.'</span></div>';
+		print '</div>';
+		print '<div class="taler-meta">'.$langs->trans('LastUpdate').': '.dol_escape_htmltag(!empty($row->tms) ? dol_print_date($db->jdate($row->tms), 'dayhour') : $langs->trans('NotDefined')).'</div>';
+		print '</div>';
 	}
 }
-*/
+print '</div>'; // end products card
 
-print '</div></div>';
+print '</div>'; // end bottom grid
+
+print '</div>'; // end taler-home-wrap
 
 // End of page
 llxFooter();
