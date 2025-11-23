@@ -150,7 +150,7 @@ $blocks = array(
 	),
 	array(
 		'title' => $langs->trans('Pricing'),
-		'icon'  => 'fa-money',
+		'icon'  => 'fa-money-bill-alt',
 		'items' => array(
 			$langs->trans('TalerAmountStr') => dol_escape_htmltag($object->taler_amount_str ?: '-'),
 			$langs->trans('Currency') => dol_escape_htmltag($object->taler_currency ?: '-'),
@@ -169,7 +169,7 @@ $blocks = array(
 	),
 	array(
 		'title' => $langs->trans('Sync'),
-		'icon'  => 'fa-refresh',
+		'icon'  => 'fa-sync-alt',
 		'items' => array(
 			$langs->trans('TalerInstance') => dol_escape_htmltag($object->taler_instance),
 			$langs->trans('TalerProductId') => dol_escape_htmltag($object->taler_product_id),

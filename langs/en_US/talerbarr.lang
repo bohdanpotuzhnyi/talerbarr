@@ -167,6 +167,8 @@ FlowPaymentIntent = Intended payment
 FlowPaymentTerms = Payment terms
 FlowPaymentStatus = Payment status
 WTID = Wire transfer ID
+OrderAmounts = Order amounts
+NumberOfOrders = Number of orders
 # TalerOrderLink state labels
 Unpaid = Unpaid
 Claimed = Claimed

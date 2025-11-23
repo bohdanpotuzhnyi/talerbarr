@@ -198,7 +198,7 @@ $flowSteps[] = array(
 );
 $flowSteps[] = array(
 	'label'  => $langs->trans('FlowNodeCommande'),
-	'icon'   => 'fa-file-text-o',
+	'icon'   => 'fa-file-alt',
 	'status' => $commande ? 'flow-ok' : 'flow-open',
 	'badge'  => $commande ? $langs->trans('FlowDone') : $langs->trans('FlowPending'),
 	'lines'  => array(
@@ -210,7 +210,7 @@ $flowSteps[] = array(
 );
 $flowSteps[] = array(
 	'label'  => $langs->trans('FlowNodeInvoice'),
-	'icon'   => 'fa-file-text-o',
+	'icon'   => 'fa-file-invoice',
 	'status' => $facture ? 'flow-ok' : 'flow-open',
 	'badge'  => $facture ? $langs->trans('FlowDone') : $langs->trans('FlowPending'),
 	'lines'  => array(
@@ -241,7 +241,7 @@ $flowSteps[] = array(
 );
 $flowSteps[] = array(
 	'label'  => $langs->trans('FlowNodeWire'),
-	'icon'   => 'fa-exchange',
+	'icon'   => 'fa-exchange-alt',
 	'status' => !empty($object->taler_wired) ? 'flow-ok' : (!empty($object->taler_wtid) ? 'flow-warn' : 'flow-open'),
 	'badge'  => !empty($object->taler_wired) ? $langs->trans('FlowDone') : (!empty($object->taler_wtid) ? $langs->trans('FlowAttention') : $langs->trans('FlowPending')),
 	'lines'  => array(
