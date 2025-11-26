@@ -141,8 +141,9 @@ before_install:
   - |
     echo "Bootstrap GNU Taler services for integration tests"
     LOGFILE=/tmp/taler_stack.install.log
-    set -e
-    bash htdocs/custom/talerbarr/devtools/ci/install_taler_stack.sh > "$LOGFILE" 2>&1 || { echo "Sandcastle stack install failed. Full log follows:"; cat "$LOGFILE"; exit 1; }
+    set -eo pipefail
+    # Stream live output to Travis and also capture to LOGFILE for post-mortem
+    bash htdocs/custom/talerbarr/devtools/ci/install_taler_stack.sh 2>&1 | tee "$LOGFILE"
     echo "Sandcastle stack install logs (full):"
     cat "$LOGFILE"
 

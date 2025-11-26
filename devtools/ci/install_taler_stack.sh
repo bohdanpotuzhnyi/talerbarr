@@ -502,32 +502,6 @@ wait_for_sandcastle_ready() {
   return 1
 }
 
-# Wait for merchant sandbox token endpoint to be ready (demo setup)
-wait_for_merchant_sandbox() {
-  local baseurl="${1:-http://127.0.0.1:16000/}"
-  local user="${2:-sandbox}"
-  local pass="${3:-sandbox}"
-  local attempts="${4:-60}"
-  local delay="${5:-5}"
-
-  log "Waiting for merchant sandbox token endpoint at ${baseurl}"
-  while (( attempts > 0 )); do
-    http_code=$(curl -s -o /tmp/taler_sandbox_token_check.json -w "%{http_code}" -u "${user}:${pass}" -X POST \
-      "${baseurl%/}/instances/sandbox/private/token" \
-      -H "Accept: application/json" -H "Content-Type: application/json" \
-      --data '{"scope":"all:refreshable","duration":{"d_us":"forever"}}' 2>/dev/null || true)
-    if [[ "$http_code" == "200" ]]; then
-      log "Merchant sandbox token endpoint is ready (http 200)"
-      return 0
-    fi
-    sleep "${delay}"
-    ((attempts--))
-  done
-
-  log "Timed out waiting for merchant sandbox token endpoint (last http_code=${http_code:-unset})"
-  return 1
-}
-
 provision_sandcastle() {
   log "Provisioning GNU Taler services via sandcastle-ng container"
   ensure_packages git podman
@@ -540,7 +514,7 @@ provision_sandcastle() {
 
   local container_name="${SANDCASTLE_CONTAINER_NAME:-taler-sandcastle}"
   local repo="${SANDCASTLE_REPO:-https://git.taler.net/sandcastle-ng.git}"
-  local ref="${SANDCASTLE_REF:-demo-10}"
+  local ref="${SANDCASTLE_REF:-dev/bohdan-potuzhnyi/talerbarr}"
   local checkout_dir="${SANDCASTLE_ROOT:-$TALER_BUILD_ROOT/sandcastle-ng}"
   local requested_override="${SANDCASTLE_OVERRIDE_NAME:-ci}"
 
@@ -635,7 +609,6 @@ provision_sandcastle() {
   )
 
   wait_for_sandcastle_ready "${container_name}"
-  wait_for_merchant_sandbox "${SANDCASTLE_MERCHANT_BASEURL:-http://127.0.0.1:16000/}"
   disable_donau_services "${container_name}"
   log "Sandcastle provisioning finished"
 }
