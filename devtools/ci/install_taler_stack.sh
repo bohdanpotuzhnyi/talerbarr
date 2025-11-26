@@ -514,7 +514,7 @@ provision_sandcastle() {
 
   local container_name="${SANDCASTLE_CONTAINER_NAME:-taler-sandcastle}"
   local repo="${SANDCASTLE_REPO:-https://git.taler.net/sandcastle-ng.git}"
-  local ref="${SANDCASTLE_REF:-demo-10}"
+  local ref="${SANDCASTLE_REF:-test-41}"
   local checkout_dir="${SANDCASTLE_ROOT:-$TALER_BUILD_ROOT/sandcastle-ng}"
   local requested_override="${SANDCASTLE_OVERRIDE_NAME:-ci}"
 
