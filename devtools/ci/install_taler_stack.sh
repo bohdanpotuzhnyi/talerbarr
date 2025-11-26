@@ -15,13 +15,13 @@ readonly TALER_PREFIX="${TALER_PREFIX:-/usr/local}"
 readonly TALER_BUILD_ROOT="${TALER_BUILD_ROOT:-$HOME/taler-build}"
 readonly TALER_LOG_DIR="${TALER_LOG_DIR:-$TALER_BUILD_ROOT/logs}"
 readonly TALER_BUILD_JOBS="${TALER_BUILD_JOBS:-$(command -v nproc >/dev/null 2>&1 && nproc || printf '2')}"
-readonly TALER_MERCHANT_REPO="${TALER_MERCHANT_REPO:-https://git.taler.net/merchant.git}"
-readonly TALER_EXCHANGE_REPO="${TALER_EXCHANGE_REPO:-https://git.taler.net/exchange.git}"
+readonly TALER_MERCHANT_REPO="${TALER_MERCHANT_REPO:-git://git.taler.net/merchant.git}"
+readonly TALER_EXCHANGE_REPO="${TALER_EXCHANGE_REPO:-git://git.taler.net/exchange.git}"
 readonly TALER_MERCHANT_REF="${TALER_MERCHANT_REF:-master}"
 readonly TALER_EXCHANGE_REF="${TALER_EXCHANGE_REF:-master}"
-readonly GNUNET_REPO="${GNUNET_REPO:-https://git.gnunet.org/gnunet.git}"
+readonly GNUNET_REPO="${GNUNET_REPO:-git://git.gnunet.org/gnunet.git}"
 readonly GNUNET_REF="${GNUNET_REF:-master}"
-readonly TALER_WALLET_REPO="${TALER_WALLET_REPO:-https://git.taler.net/taler-typescript-core.git}"
+readonly TALER_WALLET_REPO="${TALER_WALLET_REPO:-git://git.taler.net/taler-typescript-core.git}"
 readonly TALER_WALLET_FALLBACK_TAG="${TALER_WALLET_FALLBACK_TAG:-v1.0.36}"
 readonly TALER_CLONE_DEPTH="${TALER_CLONE_DEPTH:-1}"
 readonly PODMAN_OVERRIDE_CONF="${TALER_PODMAN_OVERRIDE_CONF:-$TALER_BUILD_ROOT/podman-containers.conf}"
@@ -115,7 +115,7 @@ ensure_node_runtime() {
   if (( needs_nodesource == 1 )); then
     log "Installing Node.js ${desired_major}.x (and npm) from NodeSource (current: ${node_version:-absent} at ${node_path:-unset})"
     ensure_packages curl ca-certificates gnupg
-    curl -fsSL "https://deb.nodesource.com/setup_${desired_major}.x" | sudo -E bash -
+    curl -fsSL "git://deb.nodesource.com/setup_${desired_major}.x" | sudo -E bash -
     sudo apt-get install -y nodejs
     hash -r
     node_path=$(command -v node || true)
@@ -129,7 +129,7 @@ ensure_node_runtime() {
   if ! command -v npm >/dev/null 2>&1; then
     log "npm not found; reinstalling Node.js ${desired_major}.x from NodeSource"
     ensure_packages curl ca-certificates gnupg
-    curl -fsSL "https://deb.nodesource.com/setup_${desired_major}.x" | sudo -E bash -
+    curl -fsSL "git://deb.nodesource.com/setup_${desired_major}.x" | sudo -E bash -
     sudo apt-get install -y nodejs
     hash -r
   fi
@@ -513,7 +513,7 @@ provision_sandcastle() {
   fi
 
   local container_name="${SANDCASTLE_CONTAINER_NAME:-taler-sandcastle}"
-  local repo="${SANDCASTLE_REPO:-https://git.taler.net/sandcastle-ng.git}"
+  local repo="${SANDCASTLE_REPO:-git://git.taler.net/sandcastle-ng.git}"
   local ref="${SANDCASTLE_REF:-test-41}"
   local checkout_dir="${SANDCASTLE_ROOT:-$TALER_BUILD_ROOT/sandcastle-ng}"
   local requested_override="${SANDCASTLE_OVERRIDE_NAME:-ci}"
