@@ -150,9 +150,9 @@ before_install:
         sleep 60
       done
       wait "$PID"
-    ) || { echo "Sandcastle stack install failed. Last log lines:"; tail -n 80 "$LOGFILE"; exit 1; }
+    ) || { echo "Sandcastle stack install failed. Last log lines:"; tail -n 300 "$LOGFILE"; exit 1; }
     echo "Sandcastle stack install logs trimmed. Last lines:"
-    tail -n 20 "$LOGFILE"
+    tail -n 60 "$LOGFILE"
 
   - |
     echo Install pgsql if run is for pgsql
