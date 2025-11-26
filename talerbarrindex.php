@@ -225,6 +225,8 @@ print '<style>
 .taler-chart-label{font-size:11px;color:#4a505c;margin-top:4px;word-break:break-word;}
 .taler-chart-empty{padding:10px;border:1px dashed #e2e7f0;border-radius:8px;background:#f8fafc;color:#6b7280;font-size:13px;text-align:center;}
 .taler-chart-tooltip{position:fixed;z-index:9999;padding:6px 8px;border-radius:6px;font-size:12px;line-height:1.3;background:rgba(15,23,42,0.95);color:#fff;box-shadow:0 8px 15px rgba(15,23,42,0.35);max-width:220px;pointer-events:none;transform:translate(-50%, calc(-100% - 8px));white-space:nowrap;}
+.taler-sync-debug{margin-top:8px;padding:8px;border:1px dashed #e2e7f0;border-radius:8px;background:#f8fafc;font-size:11px;color:#374151;max-height:220px;overflow:auto;}
+.taler-sync-debug pre{margin:0;white-space:pre-wrap;word-break:break-all;}
 </style>';
 
 print load_fiche_titre($langs->trans("TalerBarrArea"), '', 'cash-register');
@@ -671,6 +673,11 @@ if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->ver
 		}
 	}
 
+	$syncTimingHtml = '<span class="opacitymedium">'.$langs->trans('NotDefined').'</span>';
+	if (isset($singleton->syncdirection) && (int) $singleton->syncdirection === 1) {
+		$syncTimingHtml = !empty($singleton->sync_on_paid) ? $langs->trans('SyncAtOrderPaid') : $langs->trans('SyncAtOrderCreated');
+	}
+
 	$verificationHtml = '<span class="badge badge-status1">'.$langs->trans('SyncVerificationFailed').'</span>';
 	if (!empty($singleton->verification_ok)) {
 		$verificationHtml = '<span class="badge badge-status4">'.$langs->trans('SyncVerificationOk').'</span>';
@@ -684,6 +691,7 @@ if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->ver
 		$langs->trans('TalerMerchantURL') => '<a href="'.$safeUrl.'" target="_blank" rel="noopener">'.$safeUrl.'</a>',
 		$langs->trans('TalerInstance') => $safeUser,
 		$langs->trans('SyncDirection') => $directionDisplay,
+		$langs->trans('SyncTiming') => dol_escape_htmltag($syncTimingHtml),
 		$langs->trans('SyncTokenExpires') => $tokenExpiryHtml,
 		$langs->trans('SyncBankAccount') => $bankHtml,
 	$langs->trans('TalerDefaultCustomer') => $customerHtml,
@@ -700,7 +708,7 @@ if (!empty($singleton) && (empty($singleton->verification_ok) || $singleton->ver
 	print '</div>';
 }
 
-print '<div class="taler-home-card">';
+print '<div class="taler-home-card" id="taler-sync-card" data-sync-initial="'.dol_escape_htmltag(json_encode($status)).'">';
 print '<div class="taler-card-heading">';
 print '<span><span class="fa fa-sync-alt"></span>'.$langs->trans("TalerBarrSyncStatus").'</span>';
 if ($user->admin) {
@@ -751,7 +759,7 @@ if (!$status) {
 	}
 
 	// Build lines like configuration block
-	print '<ul class="taler-plain-list">';
+	print '<ul class="taler-plain-list" id="taler-sync-list">';
 	print '<li><span>'.dol_escape_htmltag($langs->trans("Phase")).'</span><span>'.$phaseLabel.'</span></li>';
 	print '<li><span>'.dol_escape_htmltag($langs->trans("Direction")).'</span><span>'.$directionLabel.'</span></li>';
 	print '<li><span>'.dol_escape_htmltag($langs->trans("Time")).'</span><span>'.$tsHtml.'</span></li>';
@@ -820,6 +828,8 @@ $ordersChartSeriesJson = json_encode($ordersChartSeriesMeta, JSON_HEX_TAG | JSON
 $ordersChartSeriesKeysJson = json_encode(array_keys($ordersChartSeriesMeta), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 $ordersChartAmountJson = json_encode($ordersChartAmountData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 $ordersChartCurrency = dol_escape_js(dol_escape_htmltag($ordersChartCurrency));
+$syncStatusJson = json_encode($status, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+$syncStatusUrl = dol_escape_js(dol_buildpath('/talerbarr/ajax/syncstatus.php', 1));
 
 print '<script>
 (function() {
@@ -976,6 +986,169 @@ print '<script>
 	});
 
 	render(selectEl.value || "week", metricEl.value || "count");
+})();
+
+(function() {
+	var syncCard = document.getElementById("taler-sync-card");
+	var syncUrl = "'.$syncStatusUrl.'";
+	var syncStatus = '.$syncStatusJson.';
+	var syncHeadingHtml = "";
+	if (syncCard) {
+		var headingEl = syncCard.querySelector(".taler-card-heading");
+		if (headingEl) {
+			syncHeadingHtml = headingEl.outerHTML;
+		}
+	}
+	var phaseMap = {
+		"start": "'.$langs->transnoentities('SyncPhaseStart').'",
+		"push-products": "'.$langs->transnoentities('SyncPhasePushProducts').'",
+		"push-orders": "'.$langs->transnoentities('SyncPhasePushOrders').'",
+		"pull-products": "'.$langs->transnoentities('SyncPhasePullProducts').'",
+		"pull-orders": "'.$langs->transnoentities('SyncPhasePullOrders').'",
+		"stale-recovery": "'.$langs->transnoentities('SyncPhaseStaleRecovery').'",
+		"done": "'.$langs->transnoentities('SyncPhaseDone').'",
+		"abort": "'.$langs->transnoentities('SyncPhaseAbort').'"
+	};
+	var labels = {
+		phase: "'.$langs->transnoentities('Phase').'",
+		direction: "'.$langs->transnoentities('Direction').'",
+		time: "'.$langs->transnoentities('Time').'",
+		products: "'.$langs->transnoentities('SyncMetricsProducts').'",
+		orders: "'.$langs->transnoentities('SyncMetricsOrders').'",
+		processed: "'.$langs->transnoentities('SyncMetricProcessed').'",
+		synced: "'.$langs->transnoentities('SyncMetricSynced').'",
+		skipped_paid: "'.$langs->transnoentities('SyncMetricSkippedPaid').'",
+		total: "'.$langs->transnoentities('SyncMetricTotal').'",
+		note: "'.$langs->transnoentities('Note').'",
+		error: "'.$langs->transnoentities('Error').'",
+		notDefined: "'.$langs->transnoentities('NotDefined').'",
+		noSync: "'.$langs->transnoentities('NoSyncYet').'"
+	};
+	var pollTimer = null;
+	var ACTIVE_DELAY = 1000;
+	var STABLE_DELAY = 60000;
+	var fastPollRemaining = 3;
+
+	function buildHtml(status) {
+		if (!status) {
+			return \'<div class="taler-section-empty">\' + labels.noSync + \'</div>\';
+		}
+
+		var phaseKey = (status.phase || "").toString();
+		var phaseLabel = phaseMap[phaseKey] || phaseKey || "?";
+
+		var dirKey = (status.direction || "").toString().toLowerCase();
+		var dirLabel = dirKey === "pull" ? "'.$langs->transnoentities('SyncDirectionTalerToDolibarr').'" :
+			(dirKey === "push" ? "'.$langs->transnoentities('SyncDirectionDolibarrToTaler').'" : (status.direction || "?"));
+
+		var tsRaw = status.ts || "";
+		var tsHtml = labels.notDefined;
+		if (tsRaw !== "") {
+			var dateObj = new Date(isNaN(tsRaw) ? tsRaw : parseInt(tsRaw, 10) * 1000);
+			if (!isNaN(dateObj.getTime())) {
+				tsHtml = dateObj.toLocaleString();
+			} else {
+				tsHtml = tsRaw;
+			}
+		}
+
+		var html = [];
+		html.push("<ul class=\"taler-plain-list\">");
+		html.push("<li><span>" + labels.phase + "</span><span>" + phaseLabel + "</span></li>");
+		html.push("<li><span>" + labels.direction + "</span><span>" + dirLabel + "</span></li>");
+		html.push("<li><span>" + labels.time + "</span><span>" + tsHtml + "</span></li>");
+
+		var buckets = {products: labels.products, orders: labels.orders};
+		var metricLabels = {processed: labels.processed, synced: labels.synced, skipped_paid: labels.skipped_paid, total: labels.total};
+		Object.keys(buckets).forEach(function(bucketKey) {
+			var bucket = status[bucketKey];
+			if (!bucket || typeof bucket !== "object") return;
+			var parts = [];
+			Object.keys(metricLabels).forEach(function(mKey) {
+				if (bucket[mKey] === undefined || bucket[mKey] === null) return;
+				if (mKey === "skipped_paid" && parseInt(bucket[mKey], 10) === 0) return;
+				parts.push(metricLabels[mKey] + ": " + bucket[mKey]);
+			});
+			if (parts.length) {
+				html.push("<li><span>" + buckets[bucketKey] + "</span><span>" + parts.join(", ") + "</span></li>");
+			}
+		});
+
+		if (status.note) {
+			html.push("<li><span>" + labels.note + "</span><span class=\"opacitymedium\">" + status.note + "</span></li>");
+		}
+		if (status.error) {
+			html.push("<li><span class=\"error\">" + labels.error + "</span><span class=\"error\">" + status.error + "</span></li>");
+		}
+		if (status.processed !== undefined) {
+			var totalBits = [];
+			totalBits.push(labels.processed + ": " + status.processed);
+			if (status.total !== undefined && status.total !== null) {
+				totalBits.push(labels.total + ": " + status.total);
+			}
+			html.push("<li><span>" + labels.total + "</span><span>" + totalBits.join(", ") + "</span></li>");
+		}
+
+		html.push("</ul>");
+		try {
+			var pretty = JSON.stringify(status, null, 2);
+			html.push("<div class=\"taler-sync-debug\"><pre>" + pretty + "</pre></div>");
+		} catch(e) {
+			/* ignore */
+		}
+		return html.join("");
+	}
+
+	function render(status) {
+		if (!syncCard) return;
+		var body = buildHtml(status);
+		var heading = syncHeadingHtml || "";
+		syncCard.innerHTML = heading + body;
+	}
+
+	function isStable(status) {
+		if (!status || typeof status !== "object") return false;
+		var phaseKey = (status.phase || "").toString().toLowerCase();
+		return phaseKey === "done" || phaseKey === "abort";
+	}
+
+	function scheduleNext(status, fallbackDelay) {
+		if (pollTimer) {
+			clearTimeout(pollTimer);
+		}
+		var delay;
+		if (fallbackDelay) {
+			delay = fallbackDelay;
+		} else if (fastPollRemaining > 0) {
+			delay = ACTIVE_DELAY;
+		} else {
+			delay = isStable(status) ? STABLE_DELAY : ACTIVE_DELAY;
+		}
+		pollTimer = setTimeout(poll, delay);
+	}
+
+	function poll() {
+		fetch(syncUrl, {credentials: "same-origin"})
+			.then(function(resp) { return resp.json(); })
+			.then(function(data) {
+				if (data && data.status !== undefined) {
+					syncStatus = data.status;
+					render(syncStatus);
+				}
+				if (fastPollRemaining > 0) fastPollRemaining--;
+				scheduleNext(syncStatus);
+			})
+			.catch(function() {
+				// back off a bit on errors
+				scheduleNext(syncStatus, 15000);
+			});
+	}
+
+	if (syncStatus !== undefined) {
+		render(syncStatus);
+	}
+	// Start polling immediately to catch changes right after clicking "Run sync"
+	poll();
 })();
 </script>';
 

@@ -104,10 +104,36 @@ class TalerMerchantResponseParser
 	public static function parseProduct(array $payload): array
 	{
 		self::requireString($payload, 'product_name', 'product detail');
+		if (!array_key_exists('description', $payload) || !is_string($payload['description']) || $payload['description'] === '') {
+			$payload['description'] = $payload['product_name'];
+		}
 		self::requireString($payload, 'description', 'product detail');
-		self::requireString($payload, 'unit_total_stock', 'product detail');
+		// unit_total_stock is preferred; fall back to total_stock when absent.
+		if (array_key_exists('unit_total_stock', $payload)) {
+			if (is_numeric($payload['unit_total_stock'])) {
+				$payload['unit_total_stock'] = (string) $payload['unit_total_stock'];
+			}
+			self::requireString($payload, 'unit_total_stock', 'product detail');
+		} elseif (array_key_exists('total_stock', $payload)) {
+			if (is_numeric($payload['total_stock'])) {
+				$payload['total_stock'] = (string) $payload['total_stock'];
+			}
+			self::requireString($payload, 'total_stock', 'product detail');
+			$payload['unit_total_stock'] = (string) $payload['total_stock'];
+		} else {
+			$payload['unit_total_stock'] = '0';
+		}
+		if (!array_key_exists('unit', $payload) || !is_string($payload['unit']) || $payload['unit'] === '') {
+			$payload['unit'] = 'Piece';
+		}
 		self::requireString($payload, 'unit', 'product detail');
+		if (!array_key_exists('unit_precision_level', $payload)) {
+			$payload['unit_precision_level'] = 0;
+		}
 		self::requireIntLike($payload, 'unit_precision_level', 'product detail');
+		if (!array_key_exists('unit_allow_fraction', $payload)) {
+			$payload['unit_allow_fraction'] = false;
+		}
 
 		if (isset($payload['categories'])) {
 			if (!is_array($payload['categories'])) {
@@ -145,9 +171,11 @@ class TalerMerchantResponseParser
 			}
 			self::requireString($order, 'order_id', 'order history entry');
 			if (isset($order['amount']) && !is_array($order['amount'])) {
-				throw new InvalidArgumentException("orders[$idx].amount must be an array when present");
+				$order['amount'] = array('raw' => (string) $order['amount']);
+				$orders[$idx] = $order;
 			}
 		}
+		$payload['orders'] = $orders;
 		return $payload;
 	}
 

@@ -430,7 +430,23 @@ class TalerMerchantClient
 	{
 		$path = "products/".rawurlencode($productId);
 		$raw = $this->get($path);
-		return TalerMerchantResponseParser::parseProduct($raw);
+		try {
+			return TalerMerchantResponseParser::parseProduct($raw);
+		} catch (Throwable $e) {
+			$payloadForLog = is_array($raw) ? $raw : array('raw_type' => gettype($raw));
+			if (isset($payloadForLog['image'])) {
+				unset($payloadForLog['image']); // avoid logging large blobs
+			}
+			$payloadSnippet = json_encode($payloadForLog, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+			if ($payloadSnippet === false) {
+				$payloadSnippet = substr(print_r($payloadForLog, true), 0, 800);
+			}
+			$message = 'Error parsing product '.$productId.': '.$e->getMessage();
+			if (!empty($payloadSnippet)) {
+				$message .= ' Payload='.$payloadSnippet;
+			}
+			throw new InvalidArgumentException($message, 0, $e);
+		}
 	}
 
 	/**
@@ -488,7 +504,20 @@ class TalerMerchantClient
 			});
 
 		$raw = $this->get($path, $query);
-		return TalerMerchantResponseParser::parseOrderHistory($raw);
+		try {
+			return TalerMerchantResponseParser::parseOrderHistory($raw);
+		} catch (Throwable $e) {
+			$payloadForLog = is_array($raw) ? $raw : array('raw_type' => gettype($raw));
+			$payloadSnippet = json_encode($payloadForLog, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+			if ($payloadSnippet === false) {
+				$payloadSnippet = substr(print_r($payloadForLog, true), 0, 800);
+			}
+			$message = 'Error parsing order history: '.$e->getMessage();
+			if (!empty($payloadSnippet)) {
+				$message .= ' Payload='.$payloadSnippet;
+			}
+			throw new InvalidArgumentException($message, 0, $e);
+		}
 	}
 
 	/**

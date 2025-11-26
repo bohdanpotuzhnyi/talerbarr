@@ -89,6 +89,128 @@ class TalerMerchantResponseParserTest extends TestCase
 	}
 
 	/**
+	 * total_stock can be used when unit_total_stock is missing.
+	 *
+	 * @return void
+	 */
+	public function testParseProductAcceptsTotalStockFallback(): void
+	{
+		$payload = [
+			'product_name' => 'Widget',
+			'description' => 'Sample',
+			'total_stock' => '7',
+			'unit' => 'piece',
+			'unit_precision_level' => 0,
+		];
+		$result = TalerMerchantResponseParser::parseProduct($payload);
+		$this->assertSame('7', $result['unit_total_stock']);
+	}
+
+	/**
+	 * Numeric unit_total_stock is accepted and normalised to string.
+	 *
+	 * @return void
+	 */
+	public function testParseProductAcceptsNumericUnitStock(): void
+	{
+		$payload = [
+			'product_name' => 'Widget',
+			'description' => 'Sample',
+			'unit_total_stock' => 5,
+			'unit' => 'piece',
+			'unit_precision_level' => 0,
+		];
+		$result = TalerMerchantResponseParser::parseProduct($payload);
+		$this->assertSame('5', $result['unit_total_stock']);
+	}
+
+	/**
+	 * Missing precision defaults to 0 and unit_allow_fraction defaults to false.
+	 *
+	 * @return void
+	 */
+	public function testParseProductDefaultsPrecisionAndFraction(): void
+	{
+		$payload = [
+			'product_name' => 'Widget',
+			'description' => 'Sample',
+			'unit_total_stock' => '3',
+			'unit' => 'piece',
+		];
+		$result = TalerMerchantResponseParser::parseProduct($payload);
+		$this->assertSame(0, $result['unit_precision_level']);
+		$this->assertFalse($result['unit_allow_fraction']);
+	}
+
+	/**
+	 * Missing unit defaults to Piece.
+	 *
+	 * @return void
+	 */
+	public function testParseProductDefaultsUnitToPiece(): void
+	{
+		$payload = [
+			'product_name' => 'Widget',
+			'unit_total_stock' => '2',
+		];
+		$result = TalerMerchantResponseParser::parseProduct($payload);
+		$this->assertSame('Piece', $result['unit']);
+	}
+
+	/**
+	 * Missing description falls back to product name.
+	 *
+	 * @return void
+	 */
+	public function testParseProductDefaultsDescriptionToName(): void
+	{
+		$payload = [
+			'product_name' => 'Widget',
+			'description' => '',
+			'unit_total_stock' => '2',
+			'unit' => 'Piece',
+		];
+		$result = TalerMerchantResponseParser::parseProduct($payload);
+		$this->assertSame('Widget', $result['description']);
+	}
+
+	/**
+	 * Missing stock fields default to 0 instead of erroring.
+	 *
+	 * @return void
+	 */
+	public function testParseProductDefaultsStockToZero(): void
+	{
+		$payload = [
+			'product_name' => 'Widget',
+			'description' => 'Sample',
+			'unit' => 'piece',
+			'unit_precision_level' => 0,
+		];
+		$result = TalerMerchantResponseParser::parseProduct($payload);
+		$this->assertSame('0', $result['unit_total_stock']);
+	}
+
+	/**
+	 * Order history tolerates scalar amount by wrapping it.
+	 *
+	 * @return void
+	 */
+	public function testParseOrderHistoryWrapsScalarAmount(): void
+	{
+		$payload = [
+			'orders' => [
+				[
+					'order_id' => 'abc',
+					'amount' => 'EUR:5',
+				],
+			],
+		];
+		$result = TalerMerchantResponseParser::parseOrderHistory($payload);
+		$this->assertSame('EUR:5', $result['orders'][0]['amount']['raw']);
+	}
+
+	/**
 	 * Order status requires the order_status field.
 	 *
 	 * @return void

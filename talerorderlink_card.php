@@ -158,6 +158,7 @@ print '<style>
 .taler-flow-step.flow-warn{border-color:#c57b00;background:#fff8ec;}
 .taler-flow-step.flow-missing{border-color:#c1121f;background:#fff5f5;}
 .taler-flow-step.flow-open{border-style:dashed;border-width:2px;}
+.taler-flow-step.flow-disabled{opacity:0.65;}
 .taler-flow-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
 .taler-flow-title{display:flex;align-items:center;gap:8px;}
 .taler-flow-icon{font-size:18px;color:#3b4c70;}
@@ -229,30 +230,36 @@ $flowSteps[] = array(
 		$langs->trans('Date').': '.(!empty($object->paiement_datep) ? dol_print_date($object->paiement_datep, 'dayhour') : $langs->trans('None')),
 	),
 );
+
+$hasRefundData = !empty($object->taler_refunded_total) || !empty($object->taler_refund_pending) || !empty($object->taler_refund_deadline);
+$hasWireData   = !empty($object->taler_wired) || !empty($object->taler_wtid) || !empty($object->wire_execution_time);
+
+// Always show refund + wire, but mark as experimental/placeholder when no data.
 $flowSteps[] = array(
 	'label'  => $langs->trans('FlowNodeRefund'),
 	'icon'   => 'fa-undo',
-	'status' => !empty($object->taler_refunded_total) ? 'flow-ok' : (!empty($object->taler_refund_pending) ? 'flow-warn' : 'flow-open'),
-	'badge'  => !empty($object->taler_refunded_total) ? $langs->trans('FlowDone') : (!empty($object->taler_refund_pending) ? $langs->trans('FlowAttention') : $langs->trans('FlowPending')),
+	'status' => 'flow-open flow-disabled',
+	'badge'  => $langs->trans('FlowUnderDevelopment'),
 	'lines'  => array(
-		$langs->trans('FlowRefundStatus').': '.(!empty($object->taler_refunded_total) ? dol_escape_htmltag($object->taler_refunded_total) : $langs->trans('FlowNone')),
-		$langs->trans('FlowDeadlines').': '.(!empty($object->taler_refund_deadline) ? dol_print_date($object->taler_refund_deadline, 'dayhour') : $langs->trans('None')),
+		$langs->trans('FlowRefundStatus').': '.$langs->trans('FlowPlaceholder'),
+		$langs->trans('FlowDeadlines').': '.$langs->trans('FlowPlaceholder'),
 	),
 );
+
 $flowSteps[] = array(
 	'label'  => $langs->trans('FlowNodeWire'),
 	'icon'   => 'fa-exchange-alt',
-	'status' => !empty($object->taler_wired) ? 'flow-ok' : (!empty($object->taler_wtid) ? 'flow-warn' : 'flow-open'),
-	'badge'  => !empty($object->taler_wired) ? $langs->trans('FlowDone') : (!empty($object->taler_wtid) ? $langs->trans('FlowAttention') : $langs->trans('FlowPending')),
+	'status' => 'flow-open flow-disabled',
+	'badge'  => $langs->trans('FlowUnderDevelopment'),
 	'lines'  => array(
-		$langs->trans('FlowWireStatus').': '.(!empty($object->taler_wired) ? $langs->trans('Yes') : $langs->trans('No')),
-		$langs->trans('WTID').': '.dol_escape_htmltag($object->taler_wtid ?: '-'),
+		$langs->trans('FlowWireStatus').': '.$langs->trans('FlowPlaceholder'),
+		$langs->trans('WTID').': '.$langs->trans('FlowPlaceholder'),
 	),
 );
 
 print '<div class="taler-flow-wrap">';
 print '<div class="taler-flow-heading"><span class="fa fa-sitemap"></span>'.$langs->trans('OrderFlow').'</div>';
-// Group steps into 3 rows: Taler order + Sales order, Invoice + Payment, Refund + Wire
+// Group steps into rows: base flow, then refund + wire row
 $flowRows = array(
 	array($flowSteps[0], $flowSteps[1]),
 	array($flowSteps[2], $flowSteps[3]),
