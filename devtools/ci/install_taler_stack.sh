@@ -115,7 +115,7 @@ ensure_node_runtime() {
   if (( needs_nodesource == 1 )); then
     log "Installing Node.js ${desired_major}.x (and npm) from NodeSource (current: ${node_version:-absent} at ${node_path:-unset})"
     ensure_packages curl ca-certificates gnupg
-    curl -fsSL "git://deb.nodesource.com/setup_${desired_major}.x" | sudo -E bash -
+    curl -fsSL "https://deb.nodesource.com/setup_${desired_major}.x" | sudo -E bash -
     sudo apt-get install -y nodejs
     hash -r
     node_path=$(command -v node || true)
@@ -129,7 +129,7 @@ ensure_node_runtime() {
   if ! command -v npm >/dev/null 2>&1; then
     log "npm not found; reinstalling Node.js ${desired_major}.x from NodeSource"
     ensure_packages curl ca-certificates gnupg
-    curl -fsSL "git://deb.nodesource.com/setup_${desired_major}.x" | sudo -E bash -
+    curl -fsSL "https://deb.nodesource.com/setup_${desired_major}.x" | sudo -E bash -
     sudo apt-get install -y nodejs
     hash -r
   fi
