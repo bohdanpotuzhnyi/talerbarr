@@ -80,6 +80,63 @@ if (empty($object->id)) {
 	exit;
 }
 
+$computeTalerRate = static function (?string $taxJson, ?string $priceStr): ?float {
+	$taxes = json_decode((string) $taxJson, true);
+	if (!is_array($taxes) || empty($taxes)) return null;
+	foreach ($taxes as $tax) {
+		if (!is_array($tax)) continue;
+		if (isset($tax['rate']) && is_numeric($tax['rate'])) return (float) $tax['rate'];
+		if (isset($tax['percent']) && is_numeric($tax['percent'])) return (float) $tax['percent'];
+	}
+	if (!$priceStr) return null;
+	$parseAmount = static function (string $s): ?float {
+		$s = trim($s);
+		if ($s === '' || strpos($s, ':') === false) return null;
+		$parts = explode(':', $s, 2);
+		if (count($parts) !== 2) return null;
+		$amt = trim($parts[1]);
+		if (!is_numeric($amt)) return null;
+		return (float) $amt;
+	};
+	$priceVal = $parseAmount($priceStr);
+	if ($priceVal === null || $priceVal <= 0) return null;
+	$taxVal = 0.0;
+	foreach ($taxes as $tax) {
+		if (!is_array($tax) || empty($tax['tax'])) continue;
+		$val = $parseAmount((string) $tax['tax']);
+		if ($val !== null) $taxVal += $val;
+	}
+	if ($taxVal <= 0) return null;
+	return ($taxVal / $priceVal) * 100.0;
+};
+
+$talerTaxesDisplay = $langs->trans('None');
+if (!empty($object->taler_taxes_json)) {
+	$taxLines = array();
+	$decoded = json_decode((string) $object->taler_taxes_json, true);
+	if (is_array($decoded)) {
+		foreach ($decoded as $tax) {
+			if (!is_array($tax)) continue;
+			$name = isset($tax['name']) ? (string) $tax['name'] : $langs->trans('Tax');
+			$parts = array();
+			if (isset($tax['tax'])) {
+				if (is_string($tax['tax'])) {
+					$parts[] = $tax['tax'];
+				} elseif (is_array($tax['tax']) && isset($tax['tax']['currency'], $tax['tax']['value'])) {
+					$parts[] = $tax['tax']['currency'].':'.$tax['tax']['value'];
+				}
+			}
+			if (isset($tax['rate']) && $tax['rate'] !== '') {
+				$parts[] = ((string) $tax['rate']).'%';
+			}
+			$taxLines[] = dol_escape_htmltag($name.(empty($parts) ? '' : ' ('.implode(', ', $parts).')'));
+		}
+	}
+	if (!empty($taxLines)) {
+		$talerTaxesDisplay = implode(', ', $taxLines);
+	}
+}
+
 foreach ($object->fields as &$def) {
 	$def['visible'] = 1;
 }
@@ -90,6 +147,28 @@ if (!empty($object->fk_product)) {
 	$productTmp = new Product($db);
 	if ($productTmp->fetch((int) $object->fk_product) > 0) {
 		$product = $productTmp;
+	}
+}
+
+$vatDiag = array(
+	'taler_rate' => $computeTalerRate($object->taler_taxes_json ?? null, $object->taler_amount_str ?? null),
+	'doli_rate'  => $product ? (float) $product->tva_tx : null,
+	'status'     => 'unknown',
+	'note'       => '',
+);
+if ($vatDiag['taler_rate'] !== null) {
+	if ($vatDiag['doli_rate'] !== null) {
+		$delta = abs($vatDiag['taler_rate'] - $vatDiag['doli_rate']);
+		if ($delta < 0.01) {
+			$vatDiag['status'] = 'match';
+			$vatDiag['note'] = $langs->trans('VATMatch');
+		} else {
+			$vatDiag['status'] = 'mismatch';
+			$vatDiag['note'] = $langs->trans('VATMismatch');
+		}
+	} else {
+		$vatDiag['status'] = 'missing_doli';
+		$vatDiag['note'] = $langs->trans('VATMissingOnDolibarr');
 	}
 }
 
@@ -155,6 +234,7 @@ $blocks = array(
 			$langs->trans('TalerAmountStr') => dol_escape_htmltag($object->taler_amount_str ?: '-'),
 			$langs->trans('Currency') => dol_escape_htmltag($object->taler_currency ?: '-'),
 			$langs->trans('PriceTTC') => !empty($object->price_is_ttc) ? $langs->trans('Yes') : $langs->trans('No'),
+			$langs->trans('Taxes') => $talerTaxesDisplay,
 		),
 	),
 	array(
@@ -162,8 +242,8 @@ $blocks = array(
 		'icon'  => 'fa-archive',
 		'items' => array(
 			$langs->trans('TotalStock') => dol_escape_htmltag(isset($object->taler_total_stock) ? (string) $object->taler_total_stock : '-'),
-			$langs->trans('TotalSold') => dol_escape_htmltag(isset($object->taler_total_sold) ? (string) $object->taler_total_sold : '-'),
-			$langs->trans('TotalLost') => dol_escape_htmltag(isset($object->taler_total_lost) ? (string) $object->taler_total_lost : '-'),
+			$langs->trans('TotalSold') => dol_escape_htmltag((string) ($object->taler_total_sold ?? 0)),
+			$langs->trans('TotalLost') => dol_escape_htmltag((string) ($object->taler_total_lost ?? 0)),
 			$langs->trans('NextRestock') => (!empty($object->taler_next_restock) ? dol_print_date($object->taler_next_restock, 'dayhour') : $langs->trans('None')),
 		),
 	),
@@ -179,6 +259,29 @@ $blocks = array(
 		),
 	),
 );
+
+$taxNotes = array();
+if ($vatDiag['taler_rate'] !== null) {
+	$taxNotes[] = $langs->trans('Taler VAT').': '.round($vatDiag['taler_rate'], 3).'%';
+	if ($vatDiag['doli_rate'] !== null) {
+		$taxNotes[] = $langs->trans('Dolibarr VAT').': '.round($vatDiag['doli_rate'], 3).'%';
+	}
+	if ($vatDiag['status'] === 'mismatch') {
+		$taxNotes[] = $langs->trans('VATMismatchAction', round($vatDiag['taler_rate'], 3));
+	} elseif ($vatDiag['status'] === 'missing_doli') {
+		$taxNotes[] = $langs->trans('VATMissingOnDolibarrAction', round($vatDiag['taler_rate'], 3));
+	}
+}
+
+if (!empty($taxNotes)) {
+	$blocks[] = array(
+		'title' => $langs->trans('TaxMapping'),
+		'icon'  => 'fa-exclamation-triangle',
+		'items' => array(
+			$langs->trans('VATStatus') => implode('<br>', array_map('dol_escape_htmltag', $taxNotes)),
+		),
+	);
+}
 print '<div class="taler-info-grid">';
 foreach ($blocks as $block) {
 	print '<div class="taler-info-card">';

@@ -300,13 +300,15 @@ class TalerTaxMap extends CommonObject
 	 * @param User   $user     Current user.
 	 * @param string $instance Taler instance.
 	 * @param array|object $tax One element of Taler’s “taxes” array (name/tax fields expected).
+	 * @param string|null $priceHint Optional price string "CUR:amount" of the product to guess rate from tax amount.
 	 * @return int             >0 rowid, 0 ignored, <0 error.
 	 */
 	public static function upsertFromTaler(
 		DoliDB $db,
 		User   $user,
 		string $instance,
-		$tax
+		$tax,
+		?string $priceHint = null
 	): int {
 		$arr = is_object($tax) ? (array) $tax : (array) $tax;
 		$name = trim((string) ($arr['name'] ?? ''));
@@ -314,9 +316,26 @@ class TalerTaxMap extends CommonObject
 
 		$rate = self::guessVatRateFromName($name);
 		$amountHint = isset($arr['tax']) ? (string) $arr['tax'] : null;
+		// If rate is still unknown but we have tax+price, try to derive it.
+		if ($rate === null && $amountHint && $priceHint) {
+			$taxAmt   = self::parseAmountHint($amountHint);
+			$priceAmt = self::parseAmountHint($priceHint);
+			if ($taxAmt && $priceAmt && $taxAmt['currency'] === $priceAmt['currency']) {
+				$taxVal = (float) $taxAmt['amount'];
+				$priceVal = (float) $priceAmt['amount'];
+				if ($taxVal > 0 && $priceVal > 0) {
+					$rate = ($taxVal / $priceVal) * 100.0;
+				}
+			}
+		}
 
 		$tmp = new self($db);
-		return $tmp->upsert($user, $instance, $name, $amountHint, $rate, null);
+		$fkCtvA = null;
+		if ($rate !== null) {
+			$fkCtvA = $tmp->resolveCtvAByRate($tmp->normalizeRate((float) $rate), 0.2) ?? null;
+		}
+
+		return $tmp->upsert($user, $instance, $name, $amountHint, $rate, $fkCtvA);
 	}
 
 	/* ================== Helpers ================== */

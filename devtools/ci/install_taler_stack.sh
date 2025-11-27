@@ -507,16 +507,10 @@ provision_sandcastle() {
   ensure_packages git podman
   ensure_podman_override
 
-  local override_env_explicit=0
-  if [[ "${SANDCASTLE_OVERRIDE_NAME+x}" == "x" ]]; then
-    override_env_explicit=1
-  fi
-
   local container_name="${SANDCASTLE_CONTAINER_NAME:-taler-sandcastle}"
   local repo="${SANDCASTLE_REPO:-git://git.taler.net/sandcastle-ng.git}"
   local ref="${SANDCASTLE_REF:-1531b7ac8a398af78af638b8a2f11f6b5f4b2f07}"
   local checkout_dir="${SANDCASTLE_ROOT:-$TALER_BUILD_ROOT/sandcastle-ng}"
-  local requested_override="${SANDCASTLE_OVERRIDE_NAME:-ci}"
 
   # shellcheck disable=SC2206
   local build_args=(${SANDCASTLE_BUILD_ARGS:-})
@@ -539,15 +533,6 @@ provision_sandcastle() {
     head_subject=$(git show -s --format=%s HEAD 2>/dev/null || printf 'unknown commit')
     log "sandcastle-ng HEAD ${head_commit} (${head_subject}) from ref '${ref}'"
 
-    local overrides_dir="${checkout_dir}/overrides"
-    local resolved_override="${requested_override}"
-    if [[ -n $resolved_override && ! -f "${overrides_dir}/${resolved_override}" ]]; then
-      log "Requested sandcastle override '${resolved_override}' not found in ${overrides_dir}"
-      resolved_override=""
-      if (( override_env_explicit == 1 )); then
-        log "Environment provided sandcastle override but file is missing; continuing without override"
-      fi
-    fi
 
     if [[ -z $resolved_override && -d "$overrides_dir" ]]; then
       if (( override_env_explicit == 0 )); then

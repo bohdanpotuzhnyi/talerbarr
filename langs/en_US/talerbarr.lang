@@ -179,3 +179,11 @@ Refunded = Refunded
 Expired = Expired
 Aborted = Aborted
 State = State
+
+VATMatch=VAT matches Dolibarr
+VATMismatch=VAT differs between Taler and Dolibarr
+VATMissingOnDolibarr=VAT from Taler is missing on Dolibarr product
+VATMismatchAction=Adjust Dolibarr VAT dictionary or Taler VAT to %.3f%% so they match
+VATMissingOnDolibarrAction=Add a Dolibarr VAT at %.3f%% or change Taler VAT to an existing rate
+TaxMapping=Tax mapping
+VATStatus=VAT status

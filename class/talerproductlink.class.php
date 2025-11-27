@@ -33,6 +33,7 @@ require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
 dol_include_once('/talerbarr/class/talerconfig.class.php');
 dol_include_once('/talerbarr/class/talermerchantclient.class.php');
 dol_include_once('/talerbarr/class/talererrorlog.class.php');
+dol_include_once('/talerbarr/class/talertaxmap.class.php');
 
 /**
  * Class TalerProductLink
@@ -510,13 +511,15 @@ class TalerProductLink extends CommonObject
 			if ($link->fk_product) {
 				$prod = new Product($db);
 				if ($prod->fetch($link->fk_product) > 0) {
-					$fields = self::dolibarrArrayFromTalerDetail($detail);
+					$vatInfo = self::resolveVatFromTalerTaxes($detail, $instance, $db);
+					$fields = self::dolibarrArrayFromTalerDetail($detail, $vatInfo['rate']);
 
 					if (isset($detail['total_stock']))
 						$prod->stock_reel = (int) $detail['total_stock'];
 
 					$prod->status = 1;
 					$prod->status_buy = 1;
+					self::applyVatToProduct($prod, $vatInfo);
 
 					$needPriceUpdate = false;
 					if ($fields['price_ttc'] !== null) {
@@ -545,6 +548,8 @@ class TalerProductLink extends CommonObject
 						'instance'=>$instance,
 						'taler_product_id'=>$pid,
 						'create_link'=>false,
+						'vat_rate' => self::resolveVatFromTalerTaxes($detail, $instance, $db)['rate'],
+						'vat_fk_ctva' => self::resolveVatFromTalerTaxes($detail, $instance, $db)['fk_c_tva'],
 					]);
 			}
 		}
@@ -561,12 +566,16 @@ class TalerProductLink extends CommonObject
 			: '';
 		$link->taler_amount_str   = $detail['price']        ?? null;
 		$link->taler_total_stock  = $detail['total_stock']  ?? null;
+		$link->taler_total_sold   = isset($detail['total_sold']) ? (int) $detail['total_sold'] : 0;
+		$link->taler_total_lost   = isset($detail['total_lost']) ? (int) $detail['total_lost'] : 0;
 		$link->taler_categories_json = json_encode($detail['categories'] ?? []);
-		if (!empty($detail['taxes']) && is_array($detail['taxes']) && class_exists('TalerTaxMap')) {
-			foreach ($detail['taxes'] as $oneTax) {
-				TalerTaxMap::upsertFromTaler($db, $user, $instance, $oneTax);
-			}
+		if (!empty($detail['taxes']) && is_array($detail['taxes'])) {
 			$link->taler_taxes_json = json_encode($detail['taxes']);
+			if (class_exists('TalerTaxMap')) {
+				foreach ($detail['taxes'] as $oneTax) {
+					TalerTaxMap::upsertFromTaler($db, $user, $instance, $oneTax, isset($detail['price']) ? (string) $detail['price'] : null);
+				}
+			}
 		}
 
 		$link->fillPriceFromAmountStr();
@@ -627,6 +636,135 @@ class TalerProductLink extends CommonObject
 		$frac = (int) $fracStr;
 
 		return array('currency'=>$currency, 'value'=>$maj, 'fraction'=>$frac);
+	}
+
+	/**
+	 * Convert "CUR:amount" into float, null on error.
+	 *
+	 * @param string|null $amountStr Amount string as returned by Taler (e.g. "KUDOS:12.34")
+	 * @return float|null Parsed amount as float, or null on failure
+	 */
+	private static function amountStringToFloat(?string $amountStr): ?float
+	{
+		if ($amountStr === null || trim($amountStr) === '') return null;
+		$parsed = self::parseTalerAmount($amountStr);
+		if ($parsed['value'] === null) return null;
+		$val = (float) $parsed['value'];
+		if ($parsed['fraction'] !== null) {
+			$val += ((float) $parsed['fraction']) / 100000000.0;
+		}
+		return $val;
+	}
+
+	/**
+	 * Try to resolve VAT rate/fk_c_tva from Taler taxes + price.
+	 *
+	 * @param array|object $detail   Taler product detail
+	 * @param string       $instance Taler instance name
+	 * @param DoliDB       $db       DB handler
+	 * @return array{rate:float|null,fk_c_tva:int|null} Rate in percent and matching c_tva rowid if found
+	 */
+	private static function resolveVatFromTalerTaxes($detail, string $instance, DoliDB $db): array
+	{
+		$arr = is_object($detail) ? (array) $detail : (array) $detail;
+		$taxes = isset($arr['taxes']) && is_array($arr['taxes']) ? $arr['taxes'] : [];
+		$priceStr = isset($arr['price']) ? (string) $arr['price'] : null;
+		$rate = null;
+		$fkCtvA = null;
+
+		foreach ($taxes as $tax) {
+			$t = is_object($tax) ? (array) $tax : (array) $tax;
+			if (isset($t['rate']) && is_numeric($t['rate'])) {
+				$rate = (float) $t['rate'];
+			} elseif (isset($t['percent']) && is_numeric($t['percent'])) {
+				$rate = (float) $t['percent'];
+			} elseif (isset($t['tax']) && $priceStr) {
+				$taxVal = self::amountStringToFloat((string) $t['tax']);
+				$priceVal = self::amountStringToFloat($priceStr);
+				if ($taxVal !== null && $priceVal !== null && $priceVal > 0) {
+					$rate = ($taxVal / $priceVal) * 100.0;
+				}
+			} elseif (isset($t['name']) && class_exists('TalerTaxMap')) {
+				$rate = TalerTaxMap::guessVatRateFromName((string) $t['name']);
+			}
+
+			if ($rate !== null) {
+				break;
+			}
+		}
+
+		if ($rate !== null && class_exists('TalerTaxMap')) {
+			$map = new TalerTaxMap($db);
+			$fkCtvA = $map->resolveCtvAByRate($map->normalizeRate((float) $rate), 0.2);
+		} elseif ($rate === null && class_exists('TalerTaxMap') && !empty($taxes)) {
+			// Try best-effort: if map already exists for this name, reuse its rate/fk_c_tva
+			$firstTax = is_object($taxes[0]) ? (array) $taxes[0] : (array) $taxes[0];
+			if (!empty($firstTax['name'])) {
+				$map = new TalerTaxMap($db);
+				if ($map->fetchByInstanceName($instance, (string) $firstTax['name']) > 0) {
+					$fkCtvA = $map->fk_c_tva ?: null;
+					$rate = $map->vat_rate ?: null;
+				}
+			}
+		}
+
+		return array('rate' => $rate, 'fk_c_tva' => $fkCtvA);
+	}
+
+	/**
+	 * Fetch VAT details from c_tva to apply on Product.
+	 *
+	 * @param int    $fkCtvA Rowid in c_tva.
+	 * @param DoliDB $db     DB handler.
+	 * @return array<string, mixed>|null VAT fields to copy onto the product, or null on failure
+	 */
+	private static function fetchVatDetails(int $fkCtvA, DoliDB $db): ?array
+	{
+		$sql = "SELECT rowid, taux, code, localtax1, localtax1_type, localtax2, localtax2_type";
+		if (!empty($db->type) && $db->type == 'mysqli') {
+			$sql .= ", localtax1_tx, localtax2_tx";
+		}
+		$sql .= " FROM ".$db->prefix()."c_tva WHERE rowid=".(int) $fkCtvA." AND active = 1";
+		$res = $db->query($sql);
+		if (!$res || !($row = $db->fetch_object($res))) {
+			return null;
+		}
+
+		$details = array(
+			'tva_tx'          => isset($row->taux) ? (float) $row->taux : null,
+			'default_vat_code'=> isset($row->code) ? (string) $row->code : null,
+		);
+		if (isset($row->localtax1)) $details['localtax1_tx'] = (float) $row->localtax1;
+		if (isset($row->localtax1_type)) $details['localtax1_type'] = (int) $row->localtax1_type;
+		if (isset($row->localtax2)) $details['localtax2_tx'] = (float) $row->localtax2;
+		if (isset($row->localtax2_type)) $details['localtax2_type'] = (int) $row->localtax2_type;
+		if (isset($row->localtax1_tx)) $details['localtax1_tx'] = (float) $row->localtax1_tx;
+		if (isset($row->localtax2_tx)) $details['localtax2_tx'] = (float) $row->localtax2_tx;
+
+		return $details;
+	}
+
+	/**
+	 * Apply VAT details to a Product object.
+	 *
+	 * @param Product $prod    Product to update.
+	 * @param array{rate:float|null,fk_c_tva:int|null} $vatInfo Derived VAT info from Taler.
+	 * @return void
+	 */
+	private static function applyVatToProduct(Product $prod, array $vatInfo): void
+	{
+		if (!empty($vatInfo['fk_c_tva'])) {
+			$details = self::fetchVatDetails((int) $vatInfo['fk_c_tva'], $prod->db);
+			if ($details) {
+				foreach ($details as $k => $v) {
+					if ($v !== null) $prod->$k = $v;
+				}
+				return;
+			}
+		}
+		if ($vatInfo['rate'] !== null) {
+			$prod->tva_tx = $vatInfo['rate'];
+		}
 	}
 
 	/**
@@ -932,11 +1070,22 @@ class TalerProductLink extends CommonObject
 		$this->db->begin();
 
 		try {
-			$fields = self::dolibarrArrayFromTalerDetail($detail);
+			$fields = self::dolibarrArrayFromTalerDetail($detail, $opts['vat_rate'] ?? null);
 			$prod = new Product($this->db);
 
 			foreach (['ref','label','description','price','price_ttc','price_base_type','tva_tx','type'] as $k) {
 				if (array_key_exists($k, $fields) && $fields[$k] !== null) $prod->$k = $fields[$k];
+			}
+
+			if (!empty($opts['vat_fk_ctva'])) {
+				$vatDetails = self::fetchVatDetails((int) $opts['vat_fk_ctva'], $this->db);
+				if ($vatDetails) {
+					foreach ($vatDetails as $k => $v) {
+						if ($v !== null) $prod->$k = $v;
+					}
+				}
+			} elseif ($opts['vat_rate'] ?? null) {
+				$prod->tva_tx = $opts['vat_rate'];
 			}
 
 			// Resolve fk_unit by unit code if present
@@ -1402,9 +1551,9 @@ class TalerProductLink extends CommonObject
 
 		// Mirror essential remote fields into link row
 		$this->taler_amount_str   = $detail['price'] ?? null;
-		$this->taler_total_stock  = $detail['total_stock']     ?? null;
-		$this->taler_total_sold   = $detail['total_sold']      ?? null;
-		$this->taler_total_lost   = $detail['total_lost']      ?? null;
+		$this->taler_total_stock  = $detail['total_stock'] ?? null;
+		$this->taler_total_sold   = isset($detail['total_sold']) ? (int) $detail['total_sold'] : 0;
+		$this->taler_total_lost   = isset($detail['total_lost']) ? (int) $detail['total_lost'] : 0;
 		$this->taler_categories_json = json_encode($detail['categories'] ?? []);
 		$this->fillPriceFromAmountStr();
 

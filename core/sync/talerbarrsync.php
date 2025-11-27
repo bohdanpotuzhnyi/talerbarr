@@ -129,12 +129,103 @@ register_shutdown_function(function () use ($lockHdl, $lockFile) {
  *
  * @return void
  */
+/**
+ * Persist a human-readable sync status JSON file.
+ *
+ * @param array $s Arbitrary status payload to serialize; function adds an RFC date in "ts".
+ *
+ * @return void
+ */
 function writeStatus(array $s)
 {
 	global $statusFile;
 	$s['ts'] = dol_print_date(dol_now(), 'dayhourrfc');
 	dol_syslog("TalerBarrSync: saving the status into ".$statusFile, LOG_DEBUG);
 	file_put_contents($statusFile, json_encode($s, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES));
+}
+
+/**
+ * Remove stale product_link rows:
+ *  - links pointing to a deleted Dolibarr product
+ *  - links that no longer exist on Taler (and have no local product)
+ *
+ * @param DoliDB $db
+ * @param string $instance
+ * @param array  $remoteIds  List of product_id values seen on the Taler side during this run
+ * @param User   $user
+ * @return array{checked:int,deleted:int,errors:int}
+ */
+/**
+ * Remove stale product_link rows:
+ *  - links pointing to a deleted Dolibarr product
+ *  - links that no longer exist on Taler
+ *
+ * @param DoliDB $db        DB handler
+ * @param string $instance  Taler instance id
+ * @param array  $remoteIds Product ids seen on Taler during this run
+ * @param User   $user      Current user
+ * @return array{checked:int,deleted:int,errors:int}
+ */
+function cleanOrphanProductLinks(DoliDB $db, string $instance, array $remoteIds, User $user): array
+{
+	// Do not wipe everything if the remote list is empty (API failure)
+	if (empty($remoteIds)) {
+		dol_syslog('TalerBarrSync: skip cleaning orphan links because remote list is empty', LOG_WARNING);
+		return array('checked' => 0, 'deleted' => 0, 'errors' => 0);
+	}
+
+	$entityFilter = getEntity('talerproductlink');
+	$remoteSet    = array_fill_keys($remoteIds, true);
+	$sql = "SELECT l.rowid, l.fk_product, l.taler_product_id, l.syncdirection_override, p.rowid AS prod_rowid
+			FROM ".MAIN_DB_PREFIX."talerbarr_product_link AS l
+			LEFT JOIN ".MAIN_DB_PREFIX."product AS p ON p.rowid = l.fk_product
+			WHERE l.taler_instance = '".$db->escape($instance)."'
+			  AND l.entity IN (".$entityFilter.")";
+
+	$res = $db->query($sql);
+	if (!$res) {
+		dol_syslog('TalerBarrSync: cleanOrphanProductLinks query error '.$db->lasterror(), LOG_ERR);
+		return array('checked' => 0, 'deleted' => 0, 'errors' => 1);
+	}
+
+	$checked = 0; $deleted = 0; $errors = 0;
+	$toDelete = array();
+	while ($obj = $db->fetch_object($res)) {
+		$checked++;
+		$productMissing = empty($obj->prod_rowid);
+		$remoteMissing  = !isset($remoteSet[$obj->taler_product_id]);
+
+		// Delete if local product is gone OR if the Taler product vanished (stale link).
+		if ($productMissing || $remoteMissing) {
+			$toDelete[] = (int) $obj->rowid;
+		}
+	}
+	$db->free($res);
+
+	foreach ($toDelete as $id) {
+		$link = new TalerProductLink($db);
+		if ($link->fetch($id) > 0) {
+			$resDel = $link->delete($user, 1);
+			if ($resDel > 0) {
+				$deleted++;
+			} else {
+				$errors++;
+				dol_syslog('TalerBarrSync: failed deleting orphan link id='.$id.' err='.$link->error, LOG_ERR);
+			}
+		}
+	}
+
+	dol_syslog(
+		sprintf(
+			'TalerBarrSync: cleaned orphan product links (checked=%d, deleted=%d, errors=%d)',
+			$checked,
+			$deleted,
+			$errors
+		),
+		$errors ? LOG_WARNING : LOG_INFO
+	);
+
+	return array('checked' => $checked, 'deleted' => $deleted, 'errors' => $errors);
 }
 
 
@@ -322,6 +413,7 @@ $limit  = 1_000;
 $offset = 0;
 $done   = 0;
 $total  = 0;
+$remoteProductIds = array();
 
 do {
 	try {
@@ -341,7 +433,6 @@ do {
 			// fetch the full ProductDetail *now*
 			$detail = $client->getProduct($summary['product_id']);
 			$detail["product_id"] = $summary['product_id']; // of course it is missing from getProduct
-			//hm, what is
 			TalerProductLink::upsertFromTaler(
 				$GLOBALS['db'],
 				$detail,
@@ -359,6 +450,7 @@ do {
 		}
 
 		$done++;
+		$remoteProductIds[$summary['product_id']] = true;
 		if ($done % 25 === 0) {
 			writeStatus(['phase'=>'pull-products','direction'=>'pull','processed'=>$done,'total'=>null]);
 		}
@@ -379,6 +471,11 @@ if ($productProcessed > 0) {
 		'processed'  => $productProcessed,
 		'total'      => $productTotal > 0 ? $productTotal : null,
 	]);
+}
+
+$cleanupStats = array('checked' => 0, 'deleted' => 0, 'errors' => 0);
+if (!empty($cfg->username)) {
+	$cleanupStats = cleanOrphanProductLinks($db, (string) $cfg->username, array_keys($remoteProductIds), $user);
 }
 
 // -------------------------------------------------------------
@@ -514,6 +611,7 @@ writeStatus([
 		'synced'    => $orderSynced,
 		'total'     => $orderTotalKnown,
 	],
+	'cleanup' => $cleanupStats,
 ]);
 dol_syslog(
 	sprintf(
