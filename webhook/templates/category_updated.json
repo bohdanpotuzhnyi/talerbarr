@@ -3,12 +3,5 @@
     "Content-Type": "application/json",
     "X-Auth-Header": "__AUTH_HASH__"
   },
-  "body": {
-    "event_type": "category_updated",
-    "category_serial": "{{category_serial}}",
-    "old_category_name": "{{old_category_name}}",
-    "category_name": "{{category_name}}",
-    "old_category_name_i18n": "{{old_category_name_i18n}}",
-    "category_name_i18n": "{{category_name_i18n}}"
-  }
+  "body_template": "{\"event_type\":\"category_updated\",\"category_serial\":\"{{category_serial}}\",\"old_category_name\":\"{{old_category_name}}\",\"category_name\":\"{{category_name}}\",\"old_category_name_i18n\":{{old_category_name_i18n}},\"category_name_i18n\":{{category_name_i18n}},\"auth_signature\":\"__AUTH_HASH__\"}"
 }

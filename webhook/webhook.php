@@ -84,6 +84,40 @@ function talerbarrWebhookRespond(int $status, string $message, array $extra = []
 }
 
 /**
+ * Escape unescaped quotes inside stringified JSON blobs embedded in a JSON payload.
+ *
+ * This is a defensive fix for Taler payloads that wrap arrays/objects in strings
+ * without escaping inner quotes (e.g., "taxes":"[{\"tax\":\"...\"}]").
+ *
+ * @param string $raw Raw body
+ * @return string Sanitised body
+ */
+function talerbarrEscapeNestedJsonStrings(string $raw): string
+{
+	$keys = array(
+		'taxes',
+		'old_taxes',
+		'address',
+		'old_address',
+		'description_i18n',
+		'old_description_i18n',
+		'products',
+		'product',
+	);
+
+	$pattern = '~"('.implode('|', array_map('preg_quote', $keys)).')"\\s*:\\s*"(.*?)"(?=\\s*[},])~s';
+
+	return preg_replace_callback(
+		$pattern,
+		static function ($m) {
+			$escaped = addcslashes($m[2], "\\\"");
+			return '"'.$m[1].'":"'.$escaped.'"';
+		},
+		$raw
+	);
+}
+
+/**
  * Decode a JSON payload with a couple of sanitation fallbacks.
  *
  * @param string      $raw         Raw HTTP body.
@@ -102,12 +136,21 @@ function talerbarrDecodeWebhookJson(string $raw, ?string &$error = null, ?string
 		$trimmed = substr($trimmed, 3);
 	}
 
+	$escapedNested = talerbarrEscapeNestedJsonStrings($trimmed);
+
 	$candidates = [
 		['body' => $trimmed, 'flags' => 0],
 	];
 
 	if (defined('JSON_INVALID_UTF8_IGNORE')) {
 		$candidates[] = ['body' => $trimmed, 'flags' => JSON_INVALID_UTF8_IGNORE];
+	}
+
+	if ($escapedNested !== $trimmed) {
+		$candidates[] = ['body' => $escapedNested, 'flags' => 0];
+		if (defined('JSON_INVALID_UTF8_IGNORE')) {
+			$candidates[] = ['body' => $escapedNested, 'flags' => JSON_INVALID_UTF8_IGNORE];
+		}
 	}
 
 	$sanitised = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $trimmed);
@@ -236,6 +279,13 @@ if ($rawAuth === '' && is_array($payload)) {
 		$rawAuth = (string) $payload['auth_signature'];
 	} elseif (!empty($payload['auth_token']) && is_scalar($payload['auth_token'])) {
 		$rawAuth = (string) $payload['auth_token'];
+	}
+}
+if ($rawAuth === '' && $rawBody !== '') {
+	if (preg_match('~"auth_signature"\\s*:\\s*"([^"]+)"~', $rawBody, $m)) {
+		$rawAuth = $m[1];
+	} elseif (preg_match('~"auth_token"\\s*:\\s*"([^"]+)"~', $rawBody, $m)) {
+		$rawAuth = $m[1];
 	}
 }
 if ($rawAuth === '') {

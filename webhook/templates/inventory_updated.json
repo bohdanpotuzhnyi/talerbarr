@@ -3,33 +3,5 @@
     "Content-Type": "application/json",
     "X-Auth-Header": "__AUTH_HASH__"
   },
-  "body": {
-    "event_type": "inventory_updated",
-    "product_serial": "{{product_serial}}",
-    "product_id": "{{product_id}}",
-    "old_description": "{{old_description}}",
-    "description": "{{description}}",
-    "old_description_i18n": "{{old_description_i18n}}",
-    "description_i18n": "{{description_i18n}}",
-    "old_unit": "{{old_unit}}",
-    "unit": "{{unit}}",
-    "old_image": "{{old_image}}",
-    "image": "{{image}}",
-    "old_taxes": "{{old_taxes}}",
-    "taxes": "{{taxes}}",
-    "old_price": "{{old_price}}",
-    "price": "{{price}}",
-    "old_total_stock": "{{old_total_stock}}",
-    "total_stock": "{{total_stock}}",
-    "old_total_sold": "{{old_total_sold}}",
-    "total_sold": "{{total_sold}}",
-    "old_total_lost": "{{old_total_lost}}",
-    "total_lost": "{{total_lost}}",
-    "old_address": "{{old_address}}",
-    "address": "{{address}}",
-    "old_next_restock": "{{old_next_restock}}",
-    "next_restock": "{{next_restock}}",
-    "old_minimum_age": "{{old_minimum_age}}",
-    "minimum_age": "{{minimum_age}}"
-  }
+  "body_template": "{\"event_type\":\"inventory_updated\",\"product_serial\":\"{{product_serial}}\",\"product_id\":\"{{product_id}}\",\"old_description\":\"{{old_description}}\",\"description\":\"{{description}}\",\"old_description_i18n\":{{old_description_i18n}},\"description_i18n\":{{description_i18n}},\"old_unit\":\"{{old_unit}}\",\"unit\":\"{{unit}}\",\"old_image\":\"{{old_image}}\",\"image\":\"{{image}}\",\"old_taxes\":{{old_taxes}},\"taxes\":{{taxes}},\"old_price\":\"{{old_price}}\",\"price\":\"{{price}}\",\"old_total_stock\":{{old_total_stock}},\"total_stock\":{{total_stock}},\"old_total_sold\":{{old_total_sold}},\"total_sold\":{{total_sold}},\"old_total_lost\":{{old_total_lost}},\"total_lost\":{{total_lost}},\"old_address\":{{old_address}},\"address\":{{address}},\"old_next_restock\":{{old_next_restock}},\"next_restock\":{{next_restock}},\"old_minimum_age\":{{old_minimum_age}},\"minimum_age\":{{minimum_age}},\"auth_signature\":\"__AUTH_HASH__\"}"
 }

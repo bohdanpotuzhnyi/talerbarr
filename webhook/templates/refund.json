@@ -3,11 +3,5 @@
     "Content-Type": "application/json",
     "X-Auth-Header": "__AUTH_HASH__"
   },
-  "body": {
-    "event_type": "refund",
-    "order_id": "{{order_id}}",
-    "timestamp": "{{timestamp}}",
-    "refund_amount": "{{refund_amount}}",
-    "reason": "{{reason}}"
-  }
+  "body_template": "{\"event_type\":\"refund\",\"order_id\":\"{{order_id}}\",\"timestamp\":{{timestamp}},\"refund_amount\":\"{{refund_amount}}\",\"reason\":\"{{reason}}\",\"contract_terms\":{{contract_terms}},\"auth_signature\":\"__AUTH_HASH__\"}"
 }

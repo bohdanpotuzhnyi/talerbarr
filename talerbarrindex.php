@@ -216,13 +216,13 @@ print '<style>
 .taler-chart-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;margin-bottom:8px;}
 .taler-chart-legend-item{display:flex;align-items:center;gap:6px;padding:4px 6px;border:1px solid #e2e7f0;border-radius:8px;background:#fff;}
 .taler-chart-legend .swatch{width:12px;height:12px;border-radius:2px;margin-right:6px;display:inline-block;border:1px solid #dfe3eb;}
-.taler-chart{display:flex;align-items:flex-end;gap:10px;height:240px;padding:8px 4px;border:1px dashed #e2e7f0;border-radius:10px;background:#f9fbfd;}
-.taler-chart-col{flex:1 1 0;min-width:34px;text-align:center;}
+.taler-chart{display:grid;align-items:flex-end;gap:var(--taler-chart-gap,10px);height:240px;padding:8px 4px;border:1px dashed #e2e7f0;border-radius:10px;background:#f9fbfd;grid-template-columns:repeat(var(--taler-chart-columns,1), minmax(0, 1fr));}
+.taler-chart-col{min-width:0;text-align:center;}
 .taler-chart-bar{display:flex;flex-direction:column-reverse;justify-content:flex-start;align-items:stretch;border-radius:6px 6px 0 0;overflow:hidden;background:linear-gradient(180deg,rgba(40,48,168,0.08),rgba(82,85,151,0.08));}
 .taler-chart-seg{width:100%;position:relative;transition:transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;cursor:pointer;}
 .taler-chart-seg:hover{transform:translateY(-2px) scaleX(1.06);box-shadow:0 0 0 2px rgba(37,99,235,0.35);opacity:0.95;}
 .taler-chart-seg-empty{background:rgba(82,85,151,0.08);box-shadow:inset 0 0 0 1px #e2e7f0;cursor:default;}
-.taler-chart-label{font-size:11px;color:#4a505c;margin-top:4px;word-break:break-word;}
+.taler-chart-label{font-size:11px;color:#4a505c;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .taler-chart-empty{padding:10px;border:1px dashed #e2e7f0;border-radius:8px;background:#f8fafc;color:#6b7280;font-size:13px;text-align:center;}
 .taler-chart-tooltip{position:fixed;z-index:9999;padding:6px 8px;border-radius:6px;font-size:12px;line-height:1.3;background:rgba(15,23,42,0.95);color:#fff;box-shadow:0 8px 15px rgba(15,23,42,0.35);max-width:220px;pointer-events:none;transform:translate(-50%, calc(-100% - 8px));white-space:nowrap;}
 .taler-sync-debug{margin-top:8px;padding:8px;border:1px dashed #e2e7f0;border-radius:8px;background:#f8fafc;font-size:11px;color:#374151;max-height:220px;overflow:auto;}
@@ -267,7 +267,7 @@ if ($resqlProducts) {
 	dol_print_error($db);
 }
 
-// --- Orders chart dataset (for timeline) ---
+// --- Orders chart dataset (time buckets) ---
 $ordersChartRows = array();
 $chartRanges = array('day', 'week', 'month', 'year');
 $chartMinTs = null;
@@ -285,7 +285,7 @@ if ($chartMinTs === null) {
 }
 $chartMinDateSql = $db->idate($chartMinTs);
 
-$ordersChartSql = "SELECT datec, tms, taler_claimed_at, taler_paid_at, wire_execution_time, taler_wired, order_value, order_fraction, order_amount_str, order_currency";
+$ordersChartSql = "SELECT datec, tms, taler_claimed_at, taler_paid_at, wire_execution_time, taler_wired, taler_refund_pending, taler_refunded_total, taler_state, order_value, order_fraction, order_amount_str, order_currency";
 $ordersChartSql .= " FROM ".MAIN_DB_PREFIX."talerbarr_order_link";
 $ordersChartSql .= " WHERE entity IN (".getEntity('talerorderlink').")";
 $ordersChartSql .= " AND (";
@@ -373,84 +373,53 @@ function talerbarr_build_chart_buckets($rangeKey, $nowTs)
 }
 
 $ordersChartSeriesMeta = array(
-	'created' => array(
-		'color' => '#b9a5ff',
-		'label' => 'Created orders',
-		'tooltip' => 'Created orders',
+	'wired' => array(
+		'color' => '#2830a8',
+		'label' => 'Wired orders',
+		'tooltip' => 'Wired orders',
 	),
-	'claimed' => array(
-		'color' => '#647cda',
-		'label' => 'Claimed orders',
-		'tooltip' => 'Claimed orders',
+	'refunded' => array(
+		'color' => '#525597',
+		'label' => 'Refunded orders',
+		'tooltip' => 'Refunded orders',
 	),
 	'paid' => array(
-		'color' => '#525597',
-		'label' => 'Paid orders',
-		'tooltip' => 'Paid orders',
+		'color' => '#647cda',
+		'label' => 'Paid (incl. refunded & wired)',
+		'tooltip' => 'Paid',
 	),
-	'settled' => array(
-		'color' => '#2830a8',
-		'label' => 'Settled orders',
-		'tooltip' => 'Settled orders',
+	'claimed' => array(
+		'color' => '#8a9ff0',
+		'label' => 'Claimed (incl. paid)',
+		'tooltip' => 'Claimed',
+	),
+	'created' => array(
+		'color' => '#b9a5ff',
+		'label' => 'Created (incl. claimed)',
+		'tooltip' => 'Created',
 	),
 );
+$ordersChartHiddenSeries = array(
+	'wired' => true,
+	'refunded' => true,
+);
+$ordersChartVisibleSeriesKeys = array_values(array_filter(array_keys($ordersChartSeriesMeta),
+	function ($key) use ($ordersChartHiddenSeries) {
+		return empty($ordersChartHiddenSeries[$key]);
+	}));
 
 $ordersChartData = array();
-foreach ($chartRanges as $rangeKey) {
-	$buckets = talerbarr_build_chart_buckets($rangeKey, $now);
-	$seriesData = array();
-	foreach (array_keys($ordersChartSeriesMeta) as $seriesKey) {
-		$seriesData[$seriesKey] = array_fill(0, count($buckets), 0);
-	}
-
-	foreach ($ordersChartRows as $row) {
-		$createdTs = !empty($row->datec) ? $db->jdate($row->datec) : null;
-		$claimedTs = !empty($row->taler_claimed_at) ? $db->jdate($row->taler_claimed_at) : null;
-		$paidTs = !empty($row->taler_paid_at) ? $db->jdate($row->taler_paid_at) : null;
-		$settledTs = null;
-		if (!empty($row->wire_execution_time)) {
-			$settledTs = $db->jdate($row->wire_execution_time);
-		} elseif (!empty($row->taler_wired) && !empty($row->tms)) {
-			$settledTs = $db->jdate($row->tms);
-		}
-
-		$events = array(
-			'created' => $createdTs,
-			'claimed' => $claimedTs,
-			'paid'    => $paidTs,
-			'settled' => $settledTs,
-		);
-
-		foreach ($events as $eventKey => $ts) {
-			if (empty($ts)) {
-				continue;
-			}
-			foreach ($buckets as $idx => $bucket) {
-				if ($ts >= $bucket['start'] && $ts < $bucket['end']) {
-					$seriesData[$eventKey][$idx]++;
-					break;
-				}
-			}
-		}
-	}
-
-	$ordersChartData[$rangeKey] = array(
-		'labels' => array_map(function ($bucket) {
-			return $bucket['label'];
-		},
-			$buckets),
-	'series' => $seriesData,
-	);
-}
-
 // Amount dataset
 $ordersChartAmountData = array();
 $ordersChartCurrency = '';
+
 foreach ($chartRanges as $rangeKey) {
 	$buckets = talerbarr_build_chart_buckets($rangeKey, $now);
 	$seriesData = array();
+	$seriesAmountData = array();
 	foreach (array_keys($ordersChartSeriesMeta) as $seriesKey) {
 		$seriesData[$seriesKey] = array_fill(0, count($buckets), 0);
+		$seriesAmountData[$seriesKey] = array_fill(0, count($buckets), 0);
 	}
 
 	foreach ($ordersChartRows as $row) {
@@ -462,6 +431,12 @@ foreach ($chartRanges as $rangeKey) {
 			$settledTs = $db->jdate($row->wire_execution_time);
 		} elseif (!empty($row->taler_wired) && !empty($row->tms)) {
 			$settledTs = $db->jdate($row->tms);
+		}
+		$refundedTs = null;
+		if (isset($row->taler_state) && (int) $row->taler_state === 70) {
+			$refundedTs = !empty($row->tms) ? $db->jdate($row->tms) : $settledTs;
+		} elseif (!empty($row->taler_refund_pending)) {
+			$refundedTs = !empty($row->tms) ? $db->jdate($row->tms) : $paidTs;
 		}
 
 		// Resolve amount as float major units
@@ -486,31 +461,90 @@ foreach ($chartRanges as $rangeKey) {
 		}
 
 		$events = array(
-			'created' => $createdTs,
+			'wired' => $settledTs,
+			'refunded' => $refundedTs,
+			'paid' => $paidTs,
 			'claimed' => $claimedTs,
-			'paid'    => $paidTs,
-			'settled' => $settledTs,
+			'created' => $createdTs,
 		);
 
-		foreach ($events as $eventKey => $ts) {
-			if (empty($ts) || $amount <= 0) {
-				continue;
-			}
-			foreach ($buckets as $idx => $bucket) {
+		foreach ($buckets as $idx => $bucket) {
+			$base = array(
+				'wired' => 0,
+				'refunded' => 0,
+				'paid_only' => 0,
+				'claimed_only' => 0,
+				'created_only' => 0,
+			);
+			$baseAmount = $base;
+			foreach ($events as $eventKey => $ts) {
+				if (empty($ts)) {
+					continue;
+				}
 				if ($ts >= $bucket['start'] && $ts < $bucket['end']) {
-					$seriesData[$eventKey][$idx] += $amount;
-					break;
+					if ($eventKey === 'wired') {
+						$base['wired']++;
+						if ($amount > 0) $baseAmount['wired'] += $amount;
+					} elseif ($eventKey === 'refunded') {
+						$base['refunded']++;
+						if ($amount > 0) $baseAmount['refunded'] += $amount;
+					} elseif ($eventKey === 'paid') {
+						$base['paid_only']++;
+						if ($amount > 0) $baseAmount['paid_only'] += $amount;
+					} elseif ($eventKey === 'claimed') {
+						$base['claimed_only']++;
+						if ($amount > 0) $baseAmount['claimed_only'] += $amount;
+					} elseif ($eventKey === 'created') {
+						$base['created_only']++;
+						if ($amount > 0) $baseAmount['created_only'] += $amount;
+					}
 				}
 			}
+
+			// Build cumulative hierarchy for this bucket
+			$wiredVal = $base['wired'];
+			$wiredAmt = $baseAmount['wired'];
+
+			$refundedVal = $base['refunded'];
+			$refundedAmt = $baseAmount['refunded'];
+
+			$paidVal = $base['paid_only'] + $refundedVal + $wiredVal;
+			$paidAmt = $baseAmount['paid_only'] + $refundedAmt + $wiredAmt;
+
+			$claimedVal = $base['claimed_only'] + $paidVal;
+			$claimedAmt = $baseAmount['claimed_only'] + $paidAmt;
+
+			$createdVal = $base['created_only'] + $claimedVal;
+			$createdAmt = $baseAmount['created_only'] + $claimedAmt;
+
+			$seriesData['wired'][$idx] += $wiredVal;
+			$seriesData['refunded'][$idx] += $refundedVal;
+			$seriesData['paid'][$idx] += $paidVal;
+			$seriesData['claimed'][$idx] += $claimedVal;
+			$seriesData['created'][$idx] += $createdVal;
+
+			$seriesAmountData['wired'][$idx] += $wiredAmt;
+			$seriesAmountData['refunded'][$idx] += $refundedAmt;
+			$seriesAmountData['paid'][$idx] += $paidAmt;
+			$seriesAmountData['claimed'][$idx] += $claimedAmt;
+			$seriesAmountData['created'][$idx] += $createdAmt;
 		}
 	}
+
+	$ordersChartData[$rangeKey] = array(
+		'labels' => array_map(function ($bucket) {
+			return $bucket['label'];
+		},
+			$buckets),
+	'series' => $seriesData,
+	);
 
 	$ordersChartAmountData[$rangeKey] = array(
 		'labels' => array_map(function ($bucket) {
 			return $bucket['label'];
 		},
 			$buckets),
-		'series' => $seriesData,
+		'series' => $seriesAmountData,
 	);
 }
 
@@ -529,7 +563,7 @@ $rangeOptions = array(
 	'month' => $langs->trans('Month'),
 	'year' => $langs->trans('Year'),
 );
-print '<div class="taler-card-heading"><span><span class="fa fa-chart-bar"></span>Orders timeline</span><span class="right-actions">';
+print '<div class="taler-card-heading"><span><span class="fa fa-chart-bar"></span>Orders by type</span><span class="right-actions">';
 print '<select id="taler-orders-metric" style="margin-right:6px;"><option value="count" selected>'.dol_escape_htmltag($langs->transnoentities('NumberOfOrders', 'Number of orders')).'</option><option value="amount">'.dol_escape_htmltag($langs->transnoentities('OrderAmounts', 'Order amounts')).'</option></select>';
 print '<select id="taler-orders-range">';
 foreach ($rangeOptions as $key => $label) {
@@ -540,6 +574,10 @@ print '</select>';
 print '</span></div>';
 print '<div class="taler-chart-legend">';
 foreach ($ordersChartSeriesMeta as $key => $meta) {
+	if (!empty($ordersChartHiddenSeries[$key])) {
+		// Hidden for now (not fully tested)
+		continue;
+	}
 	print '<span class="taler-chart-legend-item"><span class="swatch" style="background:'.dol_escape_htmltag($meta['color']).'"></span>'.dol_escape_htmltag($meta['label']).'</span>';
 }
 print '</div>';
@@ -825,7 +863,7 @@ print '</div>'; // end bottom grid
 
 $ordersChartDataJson = json_encode($ordersChartData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 $ordersChartSeriesJson = json_encode($ordersChartSeriesMeta, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-$ordersChartSeriesKeysJson = json_encode(array_keys($ordersChartSeriesMeta), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+$ordersChartSeriesKeysJson = json_encode($ordersChartVisibleSeriesKeys, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 $ordersChartAmountJson = json_encode($ordersChartAmountData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 $ordersChartCurrency = dol_escape_js(dol_escape_htmltag($ordersChartCurrency));
 $syncStatusJson = json_encode($status, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
@@ -845,7 +883,7 @@ print '<script>
 	var chartHeight = 200;
 	var currency = "'.$ordersChartCurrency.'";
 
-	if (!chartEl || !selectEl || !metricEl) {
+	if (!chartEl || !metricEl || !selectEl) {
 		return;
 	}
 
@@ -883,58 +921,57 @@ print '<script>
 		var labels = data.labels || [];
 		var series = data.series || {};
 
-		var totals = labels.map(function(_, idx) {
-			var sum = 0;
+		var globalMax = 0;
+		labels.forEach(function(_, idx) {
 			seriesKeys.forEach(function(key) {
 				var arr = series[key] || [];
 				var rawVal = arr[idx];
 				var val = isAmount ? parseFloat(rawVal) : parseInt(rawVal, 10);
-				if (!isNaN(val)) {
-					sum += val;
+				if (!isNaN(val) && val > globalMax) {
+					globalMax = val;
 				}
 			});
-			return sum;
 		});
 
-		var maxTotal = Math.max.apply(null, totals.concat([0]));
 		chartEl.innerHTML = "";
 
-		chartEl.style.display = "flex";
+		var bucketCount = labels.length;
+		var chartWidth = chartEl.clientWidth || chartEl.offsetWidth || 0;
+		var gapPx = 10;
+		if (bucketCount > 1 && chartWidth > 0) {
+			gapPx = Math.max(2, Math.min(12, Math.floor(chartWidth / Math.max(bucketCount * 6, 1))));
+		}
+		var columnCount = Math.max(bucketCount, 1);
+		chartEl.style.setProperty("--taler-chart-gap", gapPx + "px");
+		chartEl.style.setProperty("--taler-chart-columns", columnCount);
+		chartEl.style.gridTemplateColumns = "repeat(" + columnCount + ", minmax(0, 1fr))";
+
+		chartEl.style.display = "grid";
 		if (emptyEl) emptyEl.style.display = "none";
 
 		labels.forEach(function(label, idx) {
-			var total = totals[idx] || 0;
 			var col = document.createElement("div");
 			col.className = "taler-chart-col";
 
 			var bar = document.createElement("div");
-			bar.className = "taler-chart-bar";
-
-			var barHeight;
-			if (maxTotal === 0) {
-				barHeight = 12;
-			} else {
-				barHeight = total > 0 ? Math.max(8, Math.round((total / maxTotal) * chartHeight)) : 0;
-			}
-			var remainingHeight = barHeight;
+			bar.className = "taler-chart-bar taler-chart-bar-group";
+			bar.style.display = "grid";
+			bar.style.gridTemplateColumns = "repeat(" + seriesKeys.length + ", 1fr)";
+			bar.style.alignItems = "flex-end";
+			bar.style.gap = "4px";
+			bar.style.height = chartHeight + "px";
 
 			seriesKeys.forEach(function(key) {
 				var rawVal = (series[key] && series[key][idx]) ? series[key][idx] : 0;
 				var val = isAmount ? parseFloat(rawVal) : parseInt(rawVal, 10);
-				if (!val) {
-					return;
-				}
 				var seg = document.createElement("div");
 				seg.className = "taler-chart-seg";
 
-				var segHeight = total > 0 ? Math.round((val / total) * barHeight) : 0;
-				if (segHeight < 4 && val > 0 && barHeight >= 8) {
-					segHeight = 4;
+				var denom = globalMax;
+				var segHeight = 0;
+				if (denom > 0 && val > 0) {
+					segHeight = Math.max(8, Math.round((val / denom) * chartHeight));
 				}
-				if (segHeight > remainingHeight) {
-					segHeight = remainingHeight;
-				}
-				remainingHeight -= segHeight;
 
 				seg.style.height = segHeight + "px";
 				seg.style.backgroundColor = seriesMeta[key] ? seriesMeta[key].color : "#b9a5ff";
@@ -945,6 +982,9 @@ print '<script>
 				seg.dataset.label = label;
 				seg.dataset.value = val;
 				seg.dataset.isAmount = isAmount ? "1" : "0";
+				if (val <= 0) {
+					seg.classList.add("taler-chart-seg-empty");
+				}
 
 				seg.addEventListener("mouseenter", function(e) {
 					var text = "<strong>" + titleBase + "</strong>: " + val + suffix + "<br>" + label;
@@ -958,15 +998,6 @@ print '<script>
 				});
 				bar.appendChild(seg);
 			});
-
-			if (bar.childNodes.length === 0) {
-				var placeholder = document.createElement("div");
-				placeholder.className = "taler-chart-seg taler-chart-seg-empty";
-				placeholder.style.height = (barHeight > 0 ? barHeight : 8) + "px";
-				bar.appendChild(placeholder);
-			}
-
-			bar.style.height = barHeight + "px";
 
 			var labelEl = document.createElement("div");
 			labelEl.className = "taler-chart-label";
@@ -982,7 +1013,7 @@ print '<script>
 		render(e.target.value, metricEl.value || "count");
 	});
 	metricEl.addEventListener("change", function(e) {
-		render(selectEl.value || "week", e.target.value);
+		render(selectEl.value || "week", e.target.value || "count");
 	});
 
 	render(selectEl.value || "week", metricEl.value || "count");

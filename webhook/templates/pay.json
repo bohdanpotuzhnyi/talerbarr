@@ -3,8 +3,5 @@
     "Content-Type": "application/json",
     "X-Auth-Header": "__AUTH_HASH__"
   },
-  "body": {
-    "event_type": "pay",
-    "order_id": "{{order_id}}"
-  }
+  "body_template": "{\"event_type\":\"pay\",\"order_id\":\"{{order_id}}\",\"contract_terms\":{{contract_terms}},\"auth_signature\":\"__AUTH_HASH__\"}"
 }

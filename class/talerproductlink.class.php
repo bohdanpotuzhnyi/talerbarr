@@ -657,6 +657,201 @@ class TalerProductLink extends CommonObject
 	}
 
 	/**
+	 * Guess how many decimals are present in a Taler amount string.
+	 *
+	 * @param string $amountStr Raw amount string (e.g., "EUR:3.65000000").
+	 * @return int              Number of decimals to keep (min 2, max 8).
+	 */
+	private static function guessDecimalsFromAmount(string $amountStr): int
+	{
+		$decimals = 2;
+		$parts = explode(':', $amountStr, 2);
+		$numPart = $parts[1] ?? $parts[0];
+		if (($pos = strpos($numPart, '.')) !== false) {
+			$frac = rtrim(substr($numPart, $pos + 1), '0');
+			$len = strlen($frac);
+			if ($len > 0) {
+				$decimals = max(2, min(8, $len));
+			}
+		}
+		return $decimals;
+	}
+
+	/**
+	 * Parse a tax amount coming from Taler into float, updating decimals/currency hints.
+	 *
+	 * @param mixed  $rawAmount Raw tax amount (string or structured array).
+	 * @param int    $decimals  Current decimals guess (updated in-place).
+	 * @param string $currency  Current currency guess (updated in-place).
+	 * @return float|null       Parsed float amount or null if unavailable.
+	 */
+	private static function parseTaxAmountToFloat($rawAmount, int &$decimals, string &$currency): ?float
+	{
+		if (is_string($rawAmount)) {
+			$decimals = max($decimals, self::guessDecimalsFromAmount($rawAmount));
+			$parsed = self::parseTalerAmount($rawAmount);
+			if (!empty($parsed['currency']) && $currency === '') {
+				$currency = $parsed['currency'];
+			}
+			return self::amountStringToFloat($rawAmount);
+		}
+		if (is_array($rawAmount)) {
+			if (isset($rawAmount['amount'])) {
+				return self::parseTaxAmountToFloat($rawAmount['amount'], $decimals, $currency);
+			}
+			if (isset($rawAmount['currency'], $rawAmount['value'])) {
+				$amountStr = (string) $rawAmount['currency'].':'.$rawAmount['value'];
+				if (isset($rawAmount['fraction'])) {
+					$amountStr .= '.'.str_pad((string) $rawAmount['fraction'], 8, '0', STR_PAD_LEFT);
+				}
+				return self::parseTaxAmountToFloat($amountStr, $decimals, $currency);
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Find the nearest active VAT line in Dolibarr's dictionary.
+	 *
+	 * @param float  $ratePercent Target VAT rate in percent.
+	 * @param DoliDB $db          DB handler.
+	 * @param int|null $countryId Optional country filter (fk_pays); defaults to company country.
+	 * @return array{fk_c_tva:int,rate:float,diff:float}|null Nearest VAT info or null if none.
+	 */
+	private static function findNearestVat(float $ratePercent, DoliDB $db, ?int $countryId = null): ?array
+	{
+		global $mysoc;
+		if ($countryId === null && !empty($mysoc->country_id)) {
+			$countryId = (int) $mysoc->country_id;
+		}
+
+		$sql = "SELECT rowid, taux FROM ".$db->prefix()."c_tva";
+		$sql .= " WHERE active = 1";
+		if ($countryId) {
+			$sql .= " AND fk_pays = ".((int) $countryId);
+		}
+		$sql .= " ORDER BY ABS(taux - ".((float) $ratePercent).") ASC";
+		$sql .= $db->plimit(1);
+
+		$res = $db->query($sql);
+		if (!$res) {
+			return null;
+		}
+		$obj = $db->fetch_object($res);
+		$db->free($res);
+		if (!$obj) {
+			if ($countryId) {
+				return self::findNearestVat($ratePercent, $db, null);
+			}
+			return null;
+		}
+
+		$rate = (float) $obj->taux;
+		return array(
+			'fk_c_tva' => (int) $obj->rowid,
+			'rate'     => $rate,
+			'diff'     => abs($rate - $ratePercent),
+		);
+	}
+
+	/**
+	 * Derive VAT diagnostics and a safe tax suggestion for UI warnings.
+	 *
+	 * @param string|null $taxJson   JSON from taler_taxes_json.
+	 * @param string|null $priceStr  Taler price string (CUR:amount).
+	 * @param DoliDB      $db        DB handler.
+	 * @return array<string, mixed>  Diagnostic payload (rates, amounts, suggestion).
+	 */
+	public static function buildVatDiagnosis(?string $taxJson, ?string $priceStr, DoliDB $db): array
+	{
+		$result = array(
+			'taler_rate'         => null,
+			'taler_tax_amount'   => null,
+			'taler_price_amount' => null,
+			'matched_rate'       => null,
+			'matched_fk_c_tva'   => null,
+			'matched_diff'       => null,
+			'suggested_tax_amount' => null,
+			'suggested_rate'     => null,
+			'currency'           => '',
+			'decimals'           => 2,
+		);
+
+		$taxes = json_decode((string) $taxJson, true);
+		if (!is_array($taxes) || empty($taxes)) {
+			return $result;
+		}
+
+		$priceParsed = self::parseTalerAmount((string) $priceStr);
+		if (!empty($priceParsed['currency'])) {
+			$result['currency'] = $priceParsed['currency'];
+		}
+		$priceVal = self::amountStringToFloat($priceStr);
+		if ($priceVal !== null && $priceVal > 0) {
+			$result['taler_price_amount'] = $priceVal;
+			$result['decimals'] = max($result['decimals'], self::guessDecimalsFromAmount((string) $priceStr));
+		}
+
+		$totalTax = 0.0;
+		$hasTaxAmount = false;
+		$rate = null;
+		foreach ($taxes as $tax) {
+			$t = is_object($tax) ? (array) $tax : (array) $tax;
+			if ($rate === null) {
+				if (isset($t['rate']) && is_numeric($t['rate'])) {
+					$rate = (float) $t['rate'];
+				} elseif (isset($t['percent']) && is_numeric($t['percent'])) {
+					$rate = (float) $t['percent'];
+				} elseif (isset($t['name']) && class_exists('TalerTaxMap')) {
+					$rate = TalerTaxMap::guessVatRateFromName((string) $t['name']);
+				}
+			}
+			if (isset($t['tax'])) {
+				$amt = self::parseTaxAmountToFloat($t['tax'], $result['decimals'], $result['currency']);
+				if ($amt !== null) {
+					$totalTax += $amt;
+					$hasTaxAmount = true;
+				}
+			}
+		}
+		if ($hasTaxAmount) {
+			$result['taler_tax_amount'] = $totalTax;
+			if ($rate === null && $priceVal !== null && $priceVal > 0) {
+				$base = $priceVal - $totalTax;
+				if ($base > 0) {
+					$rate = ($totalTax / $base) * 100.0;
+				} else {
+					$rate = ($totalTax / $priceVal) * 100.0;
+				}
+			}
+		}
+
+		if ($rate !== null) {
+			$result['taler_rate'] = $rate;
+			$nearest = self::findNearestVat((float) $rate, $db);
+			if ($nearest) {
+				$result['matched_rate'] = (float) $nearest['rate'];
+				$result['matched_fk_c_tva'] = (int) $nearest['fk_c_tva'];
+				$result['matched_diff'] = (float) $nearest['diff'];
+			}
+		}
+
+		$decimals = max(0, min(8, (int) $result['decimals']));
+		if ($result['taler_price_amount'] !== null && $result['matched_rate'] !== null) {
+			$base = $result['taler_price_amount'];
+			if ($result['taler_tax_amount'] !== null && $result['taler_price_amount'] > $result['taler_tax_amount']) {
+				$base = $result['taler_price_amount'] - $result['taler_tax_amount'];
+			}
+			$targetTax = $base * ((float) $result['matched_rate']) / 100.0;
+			$factor = pow(10, $decimals ?: 2);
+			$result['suggested_tax_amount'] = ($factor > 0) ? ceil($targetTax * $factor) / $factor : $targetTax;
+			$result['suggested_rate'] = $result['matched_rate'];
+		}
+
+		return $result;
+	}
+
+	/**
 	 * Try to resolve VAT rate/fk_c_tva from Taler taxes + price.
 	 *
 	 * @param array|object $detail   Taler product detail
@@ -682,7 +877,12 @@ class TalerProductLink extends CommonObject
 				$taxVal = self::amountStringToFloat((string) $t['tax']);
 				$priceVal = self::amountStringToFloat($priceStr);
 				if ($taxVal !== null && $priceVal !== null && $priceVal > 0) {
-					$rate = ($taxVal / $priceVal) * 100.0;
+					$base = $priceVal - $taxVal;
+					if ($base > 0) {
+						$rate = ($taxVal / $base) * 100.0;
+					} else {
+						$rate = ($taxVal / $priceVal) * 100.0;
+					}
 				}
 			} elseif (isset($t['name']) && class_exists('TalerTaxMap')) {
 				$rate = TalerTaxMap::guessVatRateFromName((string) $t['name']);
@@ -695,7 +895,14 @@ class TalerProductLink extends CommonObject
 
 		if ($rate !== null && class_exists('TalerTaxMap')) {
 			$map = new TalerTaxMap($db);
-			$fkCtvA = $map->resolveCtvAByRate($map->normalizeRate((float) $rate), 0.2);
+			$fkCtvA = $map->resolveCtvAByRate($map->normalizeRate((float) $rate), 0.1);
+			if ($fkCtvA === null) {
+				$nearest = self::findNearestVat((float) $rate, $db);
+				if ($nearest) {
+					$fkCtvA = (int) $nearest['fk_c_tva'];
+					$rate = (float) $nearest['rate'];
+				}
+			}
 		} elseif ($rate === null && class_exists('TalerTaxMap') && !empty($taxes)) {
 			// Try best-effort: if map already exists for this name, reuse its rate/fk_c_tva
 			$firstTax = is_object($taxes[0]) ? (array) $taxes[0] : (array) $taxes[0];
@@ -705,6 +912,12 @@ class TalerProductLink extends CommonObject
 					$fkCtvA = $map->fk_c_tva ?: null;
 					$rate = $map->vat_rate ?: null;
 				}
+			}
+		} elseif ($rate !== null) {
+			$nearest = self::findNearestVat((float) $rate, $db);
+			if ($nearest) {
+				$fkCtvA = (int) $nearest['fk_c_tva'];
+				$rate = (float) $nearest['rate'];
 			}
 		}
 
@@ -763,7 +976,14 @@ class TalerProductLink extends CommonObject
 			}
 		}
 		if ($vatInfo['rate'] !== null) {
-			$prod->tva_tx = $vatInfo['rate'];
+			$nearest = self::findNearestVat((float) $vatInfo['rate'], $prod->db);
+			if ($nearest && ($vat = self::fetchVatDetails((int) $nearest['fk_c_tva'], $prod->db))) {
+				foreach ($vat as $k => $v) {
+					if ($v !== null) $prod->$k = $v;
+				}
+			} else {
+				$prod->tva_tx = $vatInfo['rate'];
+			}
 		}
 	}
 

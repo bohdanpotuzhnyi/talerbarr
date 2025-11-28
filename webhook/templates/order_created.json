@@ -3,5 +3,5 @@
     "Content-Type": "application/json",
     "X-Auth-Header": "__AUTH_HASH__"
   },
-  "body_template": "{\"event_type\":\"order_created\",\"order_id\":\"{{order_id}}\",\"instance_id\":\"{{instance_id}}\",\"merchant_instance\":\"{{instance_id}}\",\"auth_signature\":\"__AUTH_HASH__\",\"contract\":{{{contract}}},\"contract_terms\":{{{contract}}}}"
+  "body_template": "{\"event_type\":\"order_created\",\"order_id\":\"{{order_id}}\",\"instance_id\":\"{{instance_id}}\",\"merchant_instance\":\"{{instance_id}}\",\"auth_signature\":\"__AUTH_HASH__\",\"contract\":{{contract}},\"contract_terms\":{{contract}}}"
 }

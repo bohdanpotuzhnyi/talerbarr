@@ -3,9 +3,5 @@
     "Content-Type": "application/json",
     "X-Auth-Header": "__AUTH_HASH__"
   },
-  "body": {
-    "event_type": "category_deleted",
-    "category_serial": "{{category_serial}}",
-    "category_name": "{{category_name}}"
-  }
+  "body_template": "{\"event_type\":\"category_deleted\",\"category_serial\":\"{{category_serial}}\",\"category_name\":\"{{category_name}}\",\"auth_signature\":\"__AUTH_HASH__\"}"
 }

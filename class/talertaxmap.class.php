@@ -324,7 +324,12 @@ class TalerTaxMap extends CommonObject
 				$taxVal = (float) $taxAmt['amount'];
 				$priceVal = (float) $priceAmt['amount'];
 				if ($taxVal > 0 && $priceVal > 0) {
-					$rate = ($taxVal / $priceVal) * 100.0;
+					$base = $priceVal - $taxVal;
+					if ($base > 0) {
+						$rate = ($taxVal / $base) * 100.0;
+					} else {
+						$rate = ($taxVal / $priceVal) * 100.0;
+					}
 				}
 			}
 		}
@@ -387,16 +392,25 @@ class TalerTaxMap extends CommonObject
 	/**
 	 * Try to resolve a c_tva id by exact/nearest taux.
 	 *
-	 * @param float $ratePercent Rate in percent, e.g., 7.0.
-	 * @param float $tolerance   Allowed absolute delta, e.g., 0.001 for exact.
-	 * @return int|null          Matching c_tva.rowid or null if none within tolerance.
+	 * @param float    $ratePercent Rate in percent, e.g., 7.0.
+	 * @param float    $tolerance   Allowed absolute delta, e.g., 0.001 for exact.
+	 * @param int|null $countryId   Optional country filter (fk_pays); defaults to company country.
+	 * @return int|null             Matching c_tva.rowid or null if none within tolerance.
 	 */
-	public function resolveCtvAByRate(float $ratePercent, float $tolerance = 0.001): ?int
+	public function resolveCtvAByRate(float $ratePercent, float $tolerance = 0.001, ?int $countryId = null): ?int
 	{
+		global $mysoc;
+		if ($countryId === null && !empty($mysoc->country_id)) {
+			$countryId = (int) $mysoc->country_id;
+		}
+
 		$rate = $this->normalizeRate($ratePercent);
 
 		$sql = "SELECT rowid, taux FROM " . $this->db->prefix() . "c_tva";
 		$sql .= " WHERE active = 1";
+		if ($countryId) {
+			$sql .= " AND fk_pays = ".((int) $countryId);
+		}
 		// Some Dolibarr versions have recuperableonly; we ignore it for matching.
 		$sql .= " ORDER BY ABS(taux - " . ((float) $rate) . ") ASC";
 		$sql .= $this->db->plimit(1);
@@ -405,7 +419,12 @@ class TalerTaxMap extends CommonObject
 		if (!$res) return null;
 
 		$obj = $this->db->fetch_object($res);
-		if (!$obj) return null;
+		if (!$obj) {
+			if ($countryId) {
+				return $this->resolveCtvAByRate($ratePercent, $tolerance, null);
+			}
+			return null;
+		}
 
 		$diff = abs(((float) $obj->taux) - $rate);
 		$this->db->free($res);

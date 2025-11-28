@@ -49,6 +49,7 @@ require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 require_once DOL_DOCUMENT_ROOT.'/compta/paiement/class/paiement.class.php';
 
 dol_include_once('/talerbarr/class/talerorderlink.class.php');
+dol_include_once('/talerbarr/class/talerproductlink.class.php');
 
 $langs->loadLangs(array('talerbarr@talerbarr', 'other'));
 
@@ -119,6 +120,12 @@ if (!empty($object->fk_paiement)) {
 	}
 }
 
+if ($commande && method_exists($commande, 'fetch_lines')) {
+	if (empty($commande->lines) || !is_array($commande->lines)) {
+		$commande->fetch_lines();
+	}
+}
+
 $title = $langs->trans("TalerOrderLink").' #'.((int) $object->id);
 
 llxHeader('', $title, '', '', 0, 0, array(), array(), '');
@@ -147,6 +154,64 @@ if ((int) $object->taler_state >= 50) {
 	$stateClass = 'flow-warn';
 } elseif (in_array((int) $object->taler_state, array(90, 91), true)) {
 	$stateClass = 'flow-missing';
+}
+
+$formatDiagAmount = static function (?float $amount, array $diag): string {
+	if ($amount === null) return '-';
+	$dec = isset($diag['decimals']) ? (int) $diag['decimals'] : 2;
+	$dec = max(0, min(8, $dec));
+	$prefix = !empty($diag['currency']) ? $diag['currency'].':' : '';
+	return $prefix.number_format($amount, $dec, '.', '');
+};
+
+$taxWarnings = array();
+if ($commande && !empty($commande->lines) && is_array($commande->lines)) {
+	$seenProducts = array();
+	foreach ($commande->lines as $line) {
+		$pid = isset($line->fk_product) ? (int) $line->fk_product : 0;
+		if ($pid <= 0 || isset($seenProducts[$pid])) continue;
+		$seenProducts[$pid] = 1;
+
+		$linkProd = new TalerProductLink($db);
+		if ($linkProd->fetchByProductId($pid) <= 0) continue;
+		if (strcasecmp((string) $linkProd->taler_instance, (string) $object->taler_instance) !== 0) continue;
+		if (empty($linkProd->taler_taxes_json)) continue;
+
+		$diag = TalerProductLink::buildVatDiagnosis($linkProd->taler_taxes_json, $linkProd->taler_amount_str, $db);
+		if ($diag['taler_rate'] === null || $diag['matched_rate'] === null) continue;
+		$delta = abs((float) $diag['taler_rate'] - (float) $diag['matched_rate']);
+		if ($delta < 0.001) continue;
+
+		$label = '';
+		if (!empty($line->product_ref)) {
+			$label = (string) $line->product_ref;
+		} elseif (!empty($line->product_label)) {
+			$label = (string) $line->product_label;
+		} elseif (!empty($line->label)) {
+			$label = (string) $line->label;
+		} else {
+			$label = $langs->trans('Product').' #'.$pid;
+		}
+
+		$warnText = $langs->trans(
+			'TalerTaxWarningRateShort',
+			round($diag['taler_rate'], 4),
+			round($diag['matched_rate'], 3)
+		);
+		if ($diag['suggested_tax_amount'] !== null && $diag['taler_tax_amount'] !== null && $diag['taler_price_amount'] !== null) {
+			$warnText .= ' '.$langs->trans(
+				'TalerTaxWarningAdjustShort',
+				$formatDiagAmount($diag['suggested_tax_amount'], $diag),
+				$formatDiagAmount($diag['taler_tax_amount'], $diag),
+				round($diag['matched_rate'], 3)
+			);
+		}
+
+		$taxWarnings[] = array(
+			'label' => $label,
+			'message' => $warnText,
+		);
+	}
 }
 
 print '<style>
@@ -182,6 +247,20 @@ print '<style>
 
 print load_fiche_titre($title, '', $object->picto);
 print dol_get_fiche_head();
+
+$hasTaxWarnings = !empty($taxWarnings);
+if ($hasTaxWarnings) {
+	print '<div class="taler-info-grid">';
+	print '<div class="taler-info-card">';
+	print '<h3><span class="fa fa-exclamation-triangle"></span>'.$langs->trans('TaxWarnings').'</h3>';
+	print '<ul class="taler-info-list">';
+	foreach ($taxWarnings as $warn) {
+		print '<li><span class="taler-info-label">'.dol_escape_htmltag($warn['label']).'</span><span class="taler-info-value">'.dol_escape_htmltag($warn['message']).'</span></li>';
+	}
+	print '</ul>';
+	print '</div>';
+	print '</div>';
+}
 
 $flowSteps = array();
 $flowSteps[] = array(

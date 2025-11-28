@@ -80,36 +80,6 @@ if (empty($object->id)) {
 	exit;
 }
 
-$computeTalerRate = static function (?string $taxJson, ?string $priceStr): ?float {
-	$taxes = json_decode((string) $taxJson, true);
-	if (!is_array($taxes) || empty($taxes)) return null;
-	foreach ($taxes as $tax) {
-		if (!is_array($tax)) continue;
-		if (isset($tax['rate']) && is_numeric($tax['rate'])) return (float) $tax['rate'];
-		if (isset($tax['percent']) && is_numeric($tax['percent'])) return (float) $tax['percent'];
-	}
-	if (!$priceStr) return null;
-	$parseAmount = static function (string $s): ?float {
-		$s = trim($s);
-		if ($s === '' || strpos($s, ':') === false) return null;
-		$parts = explode(':', $s, 2);
-		if (count($parts) !== 2) return null;
-		$amt = trim($parts[1]);
-		if (!is_numeric($amt)) return null;
-		return (float) $amt;
-	};
-	$priceVal = $parseAmount($priceStr);
-	if ($priceVal === null || $priceVal <= 0) return null;
-	$taxVal = 0.0;
-	foreach ($taxes as $tax) {
-		if (!is_array($tax) || empty($tax['tax'])) continue;
-		$val = $parseAmount((string) $tax['tax']);
-		if ($val !== null) $taxVal += $val;
-	}
-	if ($taxVal <= 0) return null;
-	return ($taxVal / $priceVal) * 100.0;
-};
-
 $talerTaxesDisplay = $langs->trans('None');
 if (!empty($object->taler_taxes_json)) {
 	$taxLines = array();
@@ -150,12 +120,10 @@ if (!empty($object->fk_product)) {
 	}
 }
 
-$vatDiag = array(
-	'taler_rate' => $computeTalerRate($object->taler_taxes_json ?? null, $object->taler_amount_str ?? null),
-	'doli_rate'  => $product ? (float) $product->tva_tx : null,
-	'status'     => 'unknown',
-	'note'       => '',
-);
+$vatDiag = TalerProductLink::buildVatDiagnosis($object->taler_taxes_json ?? null, $object->taler_amount_str ?? null, $db);
+$vatDiag['doli_rate'] = $product ? (float) $product->tva_tx : null;
+$vatDiag['status'] = 'unknown';
+$vatDiag['note'] = '';
 if ($vatDiag['taler_rate'] !== null) {
 	if ($vatDiag['doli_rate'] !== null) {
 		$delta = abs($vatDiag['taler_rate'] - $vatDiag['doli_rate']);
@@ -260,26 +228,57 @@ $blocks = array(
 	),
 );
 
+$formatDiagAmount = static function (?float $amount, array $diag): string {
+	if ($amount === null) return '-';
+	$dec = isset($diag['decimals']) ? (int) $diag['decimals'] : 2;
+	$dec = max(0, min(8, $dec));
+	$prefix = !empty($diag['currency']) ? $diag['currency'].':' : '';
+	return $prefix.number_format($amount, $dec, '.', '');
+};
+
 $taxNotes = array();
 if ($vatDiag['taler_rate'] !== null) {
-	$taxNotes[] = $langs->trans('Taler VAT').': '.round($vatDiag['taler_rate'], 3).'%';
+	$taxNotes[] = $langs->trans('Taler VAT').': '.round($vatDiag['taler_rate'], 4).'%';
+	if ($vatDiag['matched_rate'] !== null) {
+		$taxNotes[] = $langs->trans('NearestDolibarrVAT').': '.round($vatDiag['matched_rate'], 3).'%';
+	}
 	if ($vatDiag['doli_rate'] !== null) {
 		$taxNotes[] = $langs->trans('Dolibarr VAT').': '.round($vatDiag['doli_rate'], 3).'%';
 	}
-	if ($vatDiag['status'] === 'mismatch') {
-		$taxNotes[] = $langs->trans('VATMismatchAction', round($vatDiag['taler_rate'], 3));
-	} elseif ($vatDiag['status'] === 'missing_doli') {
-		$taxNotes[] = $langs->trans('VATMissingOnDolibarrAction', round($vatDiag['taler_rate'], 3));
+}
+
+$warningLines = array();
+if ($vatDiag['taler_rate'] !== null && $vatDiag['matched_rate'] !== null) {
+	$rateDelta = abs((float) $vatDiag['taler_rate'] - (float) $vatDiag['matched_rate']);
+	if ($rateDelta >= 0.001) {
+		$warningLines[] = dol_escape_htmltag($langs->trans(
+			'TalerTaxWarningRate',
+			round($vatDiag['taler_rate'], 4),
+			round($vatDiag['matched_rate'], 3)
+		));
+		if ($vatDiag['suggested_tax_amount'] !== null && $vatDiag['taler_tax_amount'] !== null && $vatDiag['taler_price_amount'] !== null) {
+			$warningLines[] = dol_escape_htmltag($langs->trans(
+				'TalerTaxWarningAdjust',
+				$formatDiagAmount($vatDiag['taler_tax_amount'], $vatDiag),
+				$formatDiagAmount($vatDiag['suggested_tax_amount'], $vatDiag),
+				round($vatDiag['matched_rate'], 3)
+			));
+		}
 	}
 }
 
-if (!empty($taxNotes)) {
+if (!empty($taxNotes) || !empty($warningLines)) {
+	$items = array();
+	if (!empty($taxNotes)) {
+		$items[$langs->trans('VATStatus')] = implode('<br>', array_map('dol_escape_htmltag', $taxNotes));
+	}
+	if (!empty($warningLines)) {
+		$items[$langs->trans('TaxWarnings')] = implode('<br>', $warningLines);
+	}
 	$blocks[] = array(
 		'title' => $langs->trans('TaxMapping'),
 		'icon'  => 'fa-exclamation-triangle',
-		'items' => array(
-			$langs->trans('VATStatus') => implode('<br>', array_map('dol_escape_htmltag', $taxNotes)),
-		),
+		'items' => $items,
 	);
 }
 print '<div class="taler-info-grid">';

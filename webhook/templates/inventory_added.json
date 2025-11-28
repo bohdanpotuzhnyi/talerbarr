@@ -3,21 +3,5 @@
     "Content-Type": "application/json",
     "X-Auth-Header": "__AUTH_HASH__"
   },
-  "body": {
-    "event_type": "inventory_added",
-    "product_serial": "{{product_serial}}",
-    "product_id": "{{product_id}}",
-    "description": "{{description}}",
-    "description_i18n": "{{description_i18n}}",
-    "unit": "{{unit}}",
-    "image": "{{image}}",
-    "taxes": "{{taxes}}",
-    "price": "{{price}}",
-    "total_stock": "{{total_stock}}",
-    "total_sold": "{{total_sold}}",
-    "total_lost": "{{total_lost}}",
-    "address": "{{address}}",
-    "next_restock": "{{next_restock}}",
-    "minimum_age": "{{minimum_age}}"
-  }
+  "body_template": "{\"event_type\":\"inventory_added\",\"product_serial\":\"{{product_serial}}\",\"product_id\":\"{{product_id}}\",\"description\":\"{{description}}\",\"description_i18n\":{{description_i18n}},\"unit\":\"{{unit}}\",\"image\":\"{{image}}\",\"taxes\":{{taxes}},\"price\":\"{{price}}\",\"total_stock\":{{total_stock}},\"total_sold\":{{total_sold}},\"total_lost\":{{total_lost}},\"address\":{{address}},\"next_restock\":{{next_restock}},\"minimum_age\":{{minimum_age}},\"auth_signature\":\"__AUTH_HASH__\"}"
 }
