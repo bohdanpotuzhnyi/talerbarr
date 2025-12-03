@@ -58,7 +58,7 @@ class ActionsTalerBarr extends CommonHookActions
 	 */
 	public function doActions($parameters, &$object, &$action, $hookmanager): int
 	{
-		global $user;
+		global $user, $langs, $conf;
 
 		if (empty($parameters['currentcontext']) || !in_array($parameters['currentcontext'], array('invoicecard'), true)) {
 			return 0;
@@ -66,6 +66,18 @@ class ActionsTalerBarr extends CommonHookActions
 
 		if (empty($object) || empty($object->id)) {
 			return 0;
+		}
+
+		// For already-validated credit notes, run refund automation on card open as a
+		// fallback to trigger-time execution (idempotent thanks to note markers).
+		if ((int) ($object->type ?? 0) === 2 && (int) ($object->statut ?? 0) > 0) {
+			try {
+				require_once dol_buildpath('/talerbarr/core/triggers/interface_99_modTalerBarr_TalerBarrTriggers.class.php', 0);
+				$trigger = new InterfaceTalerBarrTriggers($this->db);
+				$trigger->billValidate('BILL_VALIDATE', $object, $user, $langs, $conf);
+			} catch (Throwable $e) {
+				dol_syslog('ActionsTalerBarr::doActions credit-note refund fallback failed: '.$e->getMessage(), LOG_WARNING);
+			}
 		}
 
 		dol_include_once('/core/lib/date.lib.php');
@@ -127,7 +139,16 @@ class ActionsTalerBarr extends CommonHookActions
 		}
 
 		try {
-			TalerOrderLink::upsertFromTalerOfPayment($this->db, $statusPayload, $user);
+			$statusKey = strtolower((string) ($statusPayload['order_status'] ?? $statusPayload['status'] ?? ''));
+			$hasRefundSignal = TalerOrderLink::payloadHasRefundEvidence((array) $statusPayload);
+			$hasWireEvidence = TalerOrderLink::payloadHasWireSettlementEvidence((array) $statusPayload);
+			if (($statusKey === 'wired' || !empty($statusPayload['wired'])) && $hasWireEvidence) {
+				TalerOrderLink::upsertFromTalerOfWireTransfer($this->db, $statusPayload, $user);
+			} elseif ($hasRefundSignal) {
+				TalerOrderLink::upsertFromTalerOfRefund($this->db, $statusPayload, $user);
+			} else {
+				TalerOrderLink::upsertFromTalerOfPayment($this->db, $statusPayload, $user);
+			}
 			dol_syslog('ActionsTalerBarr::doActions refreshed Taler order '.$link->taler_order_id.' for invoice '.$invoiceId, LOG_DEBUG);
 		} catch (Throwable $e) {
 			dol_syslog('ActionsTalerBarr::doActions unable to persist Taler order '.$link->taler_order_id.': '.$e->getMessage(), LOG_ERR);

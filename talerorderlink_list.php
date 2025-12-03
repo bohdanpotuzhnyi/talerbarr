@@ -68,11 +68,126 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/commande/class/commande.class.php';
 require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
+require_once DOL_DOCUMENT_ROOT.'/compta/paiement/class/paiement.class.php';
+require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';
 
 dol_include_once('/talerbarr/class/talerorderlink.class.php');
 
 // Translations
 $langs->loadLangs(array("talerbarr@talerbarr", "other"));
+
+/**
+ * Ensure relation/link columns are present and visible in the order-link list.
+ *
+ * @param array       $arrayfields Column configuration array (modified in-place)
+ * @param TalerOrderLink $object   Current list object definition
+ * @param Translate   $langs       Translator
+ * @return void
+ */
+function talerbarr_force_orderlink_list_columns(array &$arrayfields, TalerOrderLink $object, Translate $langs): void
+{
+	$forced = array();
+
+	foreach ($forced as $fieldKey => $meta) {
+		if (!isset($object->fields[$fieldKey])) {
+			continue;
+		}
+		$arrayKey = 't.'.$fieldKey;
+		if (!isset($arrayfields[$arrayKey])) {
+			$fieldDef = $object->fields[$fieldKey];
+			$visible = isset($fieldDef['visible']) ? (int) dol_eval((string) $fieldDef['visible'], 1) : 1;
+			$enabled = (string) (int) (abs($visible) != 3 && (bool) dol_eval((string) ($fieldDef['enabled'] ?? 1), 1));
+			$arrayfields[$arrayKey] = array(
+				'label' => $meta['label'],
+				'checked' => 1,
+				'enabled' => $enabled,
+				'position' => $meta['position'],
+				'help' => isset($fieldDef['help']) ? $fieldDef['help'] : '',
+			);
+		} else {
+			$arrayfields[$arrayKey]['checked'] = 1;
+			$arrayfields[$arrayKey]['label'] = $meta['label'];
+		}
+	}
+
+	// Hide legacy object-backed link columns in favor of explicit custom columns below.
+	foreach (array('fk_commande', 'fk_facture', 'fk_paiement', 'taler_status_url', 'taler_exchange_url') as $legacyKey) {
+		$arrayKey = 't.'.$legacyKey;
+		if (isset($arrayfields[$arrayKey])) {
+			$arrayfields[$arrayKey]['checked'] = 0;
+		}
+	}
+}
+
+/**
+ * Custom relation/external link columns rendered explicitly in the list.
+ *
+ * @param Translate $langs Translator
+ * @return array<string,string>
+ */
+function talerbarr_orderlink_extra_link_columns(Translate $langs): array
+{
+	return array(
+		'order' => $langs->trans('Commande').' (link)',
+		'facture' => $langs->trans('Facture').' (link)',
+		'payment' => $langs->trans('CustomerPayment').' (link)',
+		'refund' => $langs->trans('FlowNodeRefund').' (credit note)',
+		'wire' => $langs->trans('FlowNodeWire').' (accounts)',
+	);
+}
+
+/**
+ * Resolve the latest credit note linked to a source invoice.
+ *
+ * @param DoliDB $db Database handle
+ * @param int    $sourceInvoiceId Source invoice rowid
+ * @return int Credit note rowid (0 if none found)
+ */
+function talerbarr_find_credit_note_for_invoice(DoliDB $db, int $sourceInvoiceId): int
+{
+	static $cache = array();
+
+	$sourceInvoiceId = (int) $sourceInvoiceId;
+	if ($sourceInvoiceId <= 0) {
+		return 0;
+	}
+	if (isset($cache[$sourceInvoiceId])) {
+		return (int) $cache[$sourceInvoiceId];
+	}
+
+	$creditId = 0;
+	$sql = sprintf(
+		'SELECT rowid FROM %sfacture WHERE fk_facture_source = %d ORDER BY rowid DESC LIMIT 1',
+		MAIN_DB_PREFIX,
+		(int) $sourceInvoiceId
+	);
+	$resql = $db->query($sql);
+	if ($resql) {
+		if ($obj = $db->fetch_object($resql)) {
+			$creditId = (int) $obj->rowid;
+		}
+		$db->free($resql);
+	}
+
+	if ($creditId <= 0) {
+		$sql = sprintf(
+			"SELECT f.rowid FROM %selement_element ee JOIN %sfacture f ON f.rowid = ee.fk_target WHERE ee.sourcetype = 'facture' AND ee.targettype = 'facture' AND ee.fk_source = %d ORDER BY ee.rowid DESC LIMIT 1",
+			MAIN_DB_PREFIX,
+			MAIN_DB_PREFIX,
+			(int) $sourceInvoiceId
+		);
+		$resql = $db->query($sql);
+		if ($resql) {
+			if ($obj = $db->fetch_object($resql)) {
+				$creditId = (int) $obj->rowid;
+			}
+			$db->free($resql);
+		}
+	}
+
+	$cache[$sourceInvoiceId] = $creditId;
+	return $creditId;
+}
 
 // Parameters
 $action      = GETPOST('action', 'aZ09') ?: 'view';
@@ -109,9 +224,9 @@ $hookmanager->initHooks(array($contextpage));
 $extrafields->fetch_name_optionals_label($object->table_element);
 $search_array_options = $extrafields->getOptionalsFromPost($object->table_element, '', 'search_');
 
-// Default sort
-if (!$sortfield) { reset($object->fields); $sortfield = "t.".key($object->fields); }
-if (!$sortorder) { $sortorder = "ASC"; }
+// Default sort: newest creations first.
+if (!$sortfield) { $sortfield = "t.datec,t.rowid"; }
+if (!$sortorder) { $sortorder = "DESC,DESC"; }
 
 // Search criteria
 $search_all = trim(GETPOST('search_all', 'alphanohtml'));
@@ -139,10 +254,22 @@ foreach ($object->fields as $key => $val) {
 		);
 	}
 }
+// Expose one canonical timestamp column for list sorting/filtering.
+if (isset($object->fields['datec'])) {
+	$arrayfields['t.datec'] = array(
+		'label'    => $langs->trans('DateCreation'),
+		'checked'  => 1,
+		'enabled'  => '1',
+		'position' => 11,
+		'help'     => ''
+	);
+}
 include DOL_DOCUMENT_ROOT.'/core/tpl/extrafields_list_array_fields.tpl.php';
 
 $object->fields = dol_sort_array($object->fields, 'position');
 $arrayfields    = dol_sort_array($arrayfields, 'position');
+talerbarr_force_orderlink_list_columns($arrayfields, $object, $langs);
+$arrayfields = dol_sort_array($arrayfields, 'position');
 
 // Permissions
 $enablepermissioncheck = getDolGlobalInt('TALERBARR_ENABLE_PERMISSION_CHECK');
@@ -171,8 +298,10 @@ if ($reshook < 0) setEventMessages($hookmanager->error, $hookmanager->errors, 'e
 
 if (empty($reshook)) {
 	include DOL_DOCUMENT_ROOT.'/core/actions_changeselectedfields.inc.php';
+	talerbarr_force_orderlink_list_columns($arrayfields, $object, $langs);
+	$arrayfields = dol_sort_array($arrayfields, 'position');
 
-	// Purge search
+		// Purge search
 	if (GETPOST('button_removefilter_x', 'alpha') || GETPOST('button_removefilter.x', 'alpha') || GETPOST('button_removefilter', 'alpha')) {
 		foreach ($object->fields as $key => $val) {
 			$search[$key] = '';
@@ -211,6 +340,18 @@ $morecss = array();
 
 // Build SQL
 $sql = "SELECT ".$object->getFieldList('t');
+$sql .= ", t.fk_commande AS tb_link_fk_commande";
+$sql .= ", t.fk_facture AS tb_link_fk_facture";
+$sql .= ", t.fk_paiement AS tb_link_fk_paiement";
+$sql .= ", t.taler_status_url AS tb_link_taler_status_url";
+$sql .= ", t.taler_exchange_url AS tb_link_taler_exchange_url";
+$sql .= ", t.wire_details_json AS tb_link_wire_details_json";
+$sql .= ", t.fk_bank AS tb_link_fk_bank";
+$sql .= ", t.fk_bank_account AS tb_link_fk_bank_account";
+$sql .= ", t.fk_bank_account_dest AS tb_link_fk_bank_account_dest";
+$sql .= ", t.taler_wired AS tb_link_taler_wired";
+$sql .= ", t.taler_wtid AS tb_link_taler_wtid";
+$sql .= ", t.wire_execution_time AS tb_link_wire_execution_time";
 // Extrafields
 if (!empty($extrafields->attributes[$object->table_element]['label'])) {
 	foreach ($extrafields->attributes[$object->table_element]['label'] as $key => $val) {
@@ -397,6 +538,7 @@ $varpage = empty($contextpage) ? $_SERVER["PHP_SELF"] : $contextpage;
 $htmlofselectarray = $form->multiSelectArrayWithCheckbox('selectedfields', $arrayfields, $varpage, $conf->main_checkbox_left_column);
 $selectedfields = (($mode != 'kanban' && $mode != 'kanbangroupby') ? $htmlofselectarray : '');
 $selectedfields .= (count($arrayofmassactions) ? $form->showCheckAddButtons('checkforselect', 1) : '');
+$extraLinkColumns = talerbarr_orderlink_extra_link_columns($langs);
 
 print '<div class="div-table-responsive">';
 print '<table class="tagtable nobottomiftotal noborder liste'.($moreforfilter ? " listwithfilterbefore" : "").'">'."\n";
@@ -434,10 +576,13 @@ foreach ($object->fields as $key => $val) {
 // Extrafields inputs
 include DOL_DOCUMENT_ROOT.'/core/tpl/extrafields_list_search_input.tpl.php';
 
-// Hook cols
-$parameters = array('arrayfields' => $arrayfields);
-$reshook = $hookmanager->executeHooks('printFieldListOption', $parameters, $object, $action);
-print $hookmanager->resPrint;
+	// Hook cols
+	$parameters = array('arrayfields' => $arrayfields);
+	$reshook = $hookmanager->executeHooks('printFieldListOption', $parameters, $object, $action);
+	print $hookmanager->resPrint;
+foreach ($extraLinkColumns as $unusedLabel) {
+	print '<td class="liste_titre center"></td>';
+}
 
 if (!$conf->main_checkbox_left_column) {
 	print '<td class="liste_titre center maxwidthsearch">'.$form->showFilterButtons().'</td>';
@@ -464,9 +609,13 @@ foreach ($object->fields as $key => $val) {
 	}
 }
 include DOL_DOCUMENT_ROOT.'/core/tpl/extrafields_list_search_title.tpl.php';
-$parameters = array('arrayfields' => $arrayfields, 'param' => $param, 'sortfield' => $sortfield, 'sortorder' => $sortorder, 'totalarray' => &$totalarray);
-$reshook = $hookmanager->executeHooks('printFieldListTitle', $parameters, $object, $action);
-print $hookmanager->resPrint;
+	$parameters = array('arrayfields' => $arrayfields, 'param' => $param, 'sortfield' => $sortfield, 'sortorder' => $sortorder, 'totalarray' => &$totalarray);
+	$reshook = $hookmanager->executeHooks('printFieldListTitle', $parameters, $object, $action);
+	print $hookmanager->resPrint;
+foreach ($extraLinkColumns as $label) {
+	print getTitleFieldOfList($label, 0, $_SERVER['PHP_SELF'], '', '', '', 'class="center"', $sortfield, $sortorder, 'center ')."\n";
+	$totalarray['nbfield']++;
+}
 if (!$conf->main_checkbox_left_column) {
 	print getTitleFieldOfList($selectedfields, 0, $_SERVER["PHP_SELF"], '', '', '', '', $sortfield, $sortorder, 'center maxwidthsearch ')."\n";
 	$totalarray['nbfield']++;
@@ -484,6 +633,11 @@ if (!empty($extrafields->attributes[$object->table_element]['computed'])) {
 // Loop
 $i = 0; $savnbfield = $totalarray['nbfield']; $totalarray = array(); $totalarray['nbfield'] = 0;
 $imaxinloop = ($limit ? min($num, $limit) : $num);
+$tbOrderLinkCache = array();
+$tbInvoiceLinkCache = array();
+$tbPaymentLinkCache = array();
+$tbCreditNoteLinkCache = array();
+$tbAccountLinkCache = array();
 while ($i < $imaxinloop) {
 	$obj = $db->fetch_object($resql);
 	if (empty($obj)) break;
@@ -555,6 +709,41 @@ while ($i < $imaxinloop) {
 					} else {
 						print (int) $object->fk_facture;
 					}
+				} elseif ($key == 'fk_paiement' && !empty($object->fk_paiement)) {
+					$payment = new Paiement($db);
+					if ($payment->fetch((int) $object->fk_paiement) > 0) {
+						print $payment->getNomUrl(1);
+					} else {
+						print (int) $object->fk_paiement;
+					}
+				} elseif ($key == 'taler_status_url') {
+					$url = trim((string) ($object->taler_status_url ?? ''));
+					$hasRefundInfo = !empty($object->taler_refund_pending)
+						|| !empty($object->taler_refunded_total)
+						|| !empty($object->taler_refund_taken_total)
+						|| !empty($object->taler_refund_last_at)
+						|| !empty($object->taler_refund_last_reason)
+						|| ((int) ($object->taler_state ?? 0) === 70)
+						|| (strcasecmp((string) ($object->merchant_status_raw ?? ''), 'refunded') === 0);
+					if ($url !== '' && preg_match('~^https?://~i', $url) && $hasRefundInfo) {
+						print '<a href="'.dol_escape_htmltag($url).'" target="_blank" rel="noopener">'.$langs->trans('FlowNodeRefund').'</a>';
+					} elseif ($url !== '' && preg_match('~^https?://~i', $url)) {
+						print '<a href="'.dol_escape_htmltag($url).'" target="_blank" rel="noopener">'.$langs->trans('Open').'</a>';
+					} else {
+						print '';
+					}
+				} elseif ($key == 'taler_exchange_url') {
+					$url = trim((string) ($object->taler_exchange_url ?? ''));
+					$hasWireInfo = !empty($object->taler_wired)
+						|| !empty($object->taler_wtid)
+						|| !empty($object->wire_execution_time);
+					if ($url !== '' && preg_match('~^https?://~i', $url) && $hasWireInfo) {
+						print '<a href="'.dol_escape_htmltag($url).'" target="_blank" rel="noopener">'.$langs->trans('FlowNodeWire').'</a>';
+					} elseif ($url !== '' && preg_match('~^https?://~i', $url)) {
+						print '<a href="'.dol_escape_htmltag($url).'" target="_blank" rel="noopener">'.$langs->trans('Open').'</a>';
+					} else {
+						print '';
+					}
 				} else {
 					if ($val['type'] == 'html') print '<div class="small lineheightsmall twolinesmax-normallineheight">';
 					print $object->showOutputField($val, $key, (string) $object->$key, '');
@@ -575,22 +764,134 @@ while ($i < $imaxinloop) {
 		// Extrafields row
 		include DOL_DOCUMENT_ROOT.'/core/tpl/extrafields_list_print_fields.tpl.php';
 
-		// Hook cols
-		$parameters = array('arrayfields' => $arrayfields, 'object' => $object, 'obj' => $obj, 'i' => $i, 'totalarray' => &$totalarray);
-		$reshook = $hookmanager->executeHooks('printFieldListValue', $parameters, $object, $action);
-		print $hookmanager->resPrint;
+			// Hook cols
+			$parameters = array('arrayfields' => $arrayfields, 'object' => $object, 'obj' => $obj, 'i' => $i, 'totalarray' => &$totalarray);
+			$reshook = $hookmanager->executeHooks('printFieldListValue', $parameters, $object, $action);
+			print $hookmanager->resPrint;
+				$extraCells = array(
+					'order' => (int) ($obj->tb_link_fk_commande ?? 0),
+					'facture' => (int) ($obj->tb_link_fk_facture ?? 0),
+					'payment' => (int) ($obj->tb_link_fk_paiement ?? 0),
+					'refund' => 0,
+					'wire' => array(
+						'fk_bank' => (int) ($obj->tb_link_fk_bank ?? 0),
+						'fk_bank_account' => (int) ($obj->tb_link_fk_bank_account ?? 0),
+						'fk_bank_account_dest' => (int) ($obj->tb_link_fk_bank_account_dest ?? 0),
+						'wire_details_json' => (string) ($obj->tb_link_wire_details_json ?? ''),
+						'taler_wired' => (int) (!empty($obj->tb_link_taler_wired) ? 1 : 0),
+						'taler_wtid' => trim((string) ($obj->tb_link_taler_wtid ?? '')),
+						'wire_execution_time' => (string) ($obj->tb_link_wire_execution_time ?? ''),
+					),
+				);
+				if (!empty($extraCells['facture'])) {
+					$extraCells['refund'] = talerbarr_find_credit_note_for_invoice($db, (int) $extraCells['facture']);
+				}
+				foreach ($extraLinkColumns as $extraKey => $extraLabel) {
+					print '<td class="center nowrap">';
+					if ($extraKey === 'order' && !empty($extraCells['order'])) {
+						$orderIdLink = (int) $extraCells['order'];
+						if (!isset($tbOrderLinkCache[$orderIdLink])) {
+							$orderObj = new Commande($db);
+							$tbOrderLinkCache[$orderIdLink] = ($orderObj->fetch($orderIdLink) > 0) ? $orderObj->getNomUrl(1) : (string) $orderIdLink;
+						}
+						print $tbOrderLinkCache[$orderIdLink];
+					} elseif ($extraKey === 'facture' && !empty($extraCells['facture'])) {
+						$invoiceIdLink = (int) $extraCells['facture'];
+						if (!isset($tbInvoiceLinkCache[$invoiceIdLink])) {
+							$invoiceObj = new Facture($db);
+							$tbInvoiceLinkCache[$invoiceIdLink] = ($invoiceObj->fetch($invoiceIdLink) > 0) ? $invoiceObj->getNomUrl(1) : (string) $invoiceIdLink;
+						}
+						print $tbInvoiceLinkCache[$invoiceIdLink];
+					} elseif ($extraKey === 'payment' && !empty($extraCells['payment'])) {
+						$paymentIdLink = (int) $extraCells['payment'];
+						if (!isset($tbPaymentLinkCache[$paymentIdLink])) {
+							$paymentObj = new Paiement($db);
+							$tbPaymentLinkCache[$paymentIdLink] = ($paymentObj->fetch($paymentIdLink) > 0) ? $paymentObj->getNomUrl(1) : (string) $paymentIdLink;
+						}
+						print $tbPaymentLinkCache[$paymentIdLink];
+					} elseif ($extraKey === 'refund' && !empty($extraCells['refund'])) {
+						$creditIdLink = (int) $extraCells['refund'];
+						if (!isset($tbCreditNoteLinkCache[$creditIdLink])) {
+							$creditObj = new Facture($db);
+							$tbCreditNoteLinkCache[$creditIdLink] = ($creditObj->fetch($creditIdLink) > 0) ? $creditObj->getNomUrl(1) : (string) $creditIdLink;
+						}
+						print $tbCreditNoteLinkCache[$creditIdLink];
+					} elseif ($extraKey === 'wire') {
+						$wire = is_array($extraCells['wire']) ? $extraCells['wire'] : array();
+						$wireMeta = array();
+						$wireDetailsJson = (string) ($wire['wire_details_json'] ?? '');
+						if ($wireDetailsJson !== '') {
+							$decodedWireMeta = json_decode($wireDetailsJson, true);
+							if (is_array($decodedWireMeta)) {
+								$wireMeta = $decodedWireMeta;
+							}
+						}
+						$wireBankLineFromId = (int) ($wireMeta['bank_line_from'] ?? 0);
+						$wireBankLineToId = (int) ($wireMeta['bank_line_to'] ?? 0);
+						// This column represents the internal Dolibarr bank transfer (clearing -> final account),
+						// which is tracked in wire_details_json (bank_line_from/to), not in fk_bank (payment bank line).
+						$hasInternalWireSettlement = ($wireBankLineFromId > 0 || $wireBankLineToId > 0);
+						if (!$hasInternalWireSettlement) {
+							print '';
+							print '</td>';
+							if (!$i) {
+								$totalarray['nbfield']++;
+							}
+							continue;
+						}
+						$parts = array();
+						foreach (array('fk_bank_account', 'fk_bank_account_dest') as $bankAccountField) {
+							$accountId = (int) ($wire[$bankAccountField] ?? 0);
+							if ($accountId <= 0) {
+								continue;
+							}
+							if (!isset($tbAccountLinkCache[$accountId])) {
+								$accountObj = new Account($db);
+								$tbAccountLinkCache[$accountId] = ($accountObj->fetch($accountId) > 0) ? $accountObj->getNomUrl(1) : (string) $accountId;
+							}
+							$parts[] = $tbAccountLinkCache[$accountId];
+						}
+						if (count($parts) === 2) {
+							print $parts[0].' &rarr; '.$parts[1];
+						} elseif (count($parts) === 1) {
+							print $parts[0];
+						}
+						$wireLineIds = array();
+						if ($wireBankLineFromId > 0) {
+							$wireLineIds[] = $wireBankLineFromId;
+						}
+						if ($wireBankLineToId > 0 && $wireBankLineToId !== $wireBankLineFromId) {
+							$wireLineIds[] = $wireBankLineToId;
+						}
+						if (!empty($wireLineIds)) {
+							if (!empty($parts)) {
+								print '<br>';
+							}
+							$wireLinks = array();
+							foreach ($wireLineIds as $wireLineId) {
+								$bankLineUrl = dol_buildpath('/compta/bank/line.php', 1).'?rowid='.$wireLineId;
+								$wireLinks[] = '<a href="'.dol_escape_htmltag($bankLineUrl).'">#'.((int) $wireLineId).'</a>';
+							}
+							print implode(' / ', $wireLinks);
+						}
+					}
+					print '</td>';
+					if (!$i) {
+						$totalarray['nbfield']++;
+					}
+				}
 
-		if (empty($conf->main_checkbox_left_column)) {
-			print '<td class="nowrap center">';
-			if ($massactionbutton || $massaction) {
-				$selected = in_array($object->id, (array) $toselect) ? 1 : 0;
-				print '<input id="cb'.$object->id.'" class="flat checkforselect" type="checkbox" name="toselect[]" value="'.$object->id.'"'.($selected ? ' checked="checked"' : '').'>';
-			}
-			print '</td>';
-			if (!$i) $totalarray['nbfield']++;
-		}
+				if (empty($conf->main_checkbox_left_column)) {
+					print '<td class="nowrap center">';
+					if ($massactionbutton || $massaction) {
+						$selected = in_array($object->id, (array) $toselect) ? 1 : 0;
+						print '<input id="cb'.$object->id.'" class="flat checkforselect" type="checkbox" name="toselect[]" value="'.$object->id.'"'.($selected ? ' checked="checked"' : '').'>';
+					}
+					print '</td>';
+					if (!$i) $totalarray['nbfield']++;
+				}
 
-		print '</tr>'."\n";
+				print '</tr>'."\n";
 	}
 
 	$i++;

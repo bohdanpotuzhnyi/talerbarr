@@ -129,13 +129,6 @@ register_shutdown_function(function () use ($lockHdl, $lockFile) {
  *
  * @return void
  */
-/**
- * Persist a human-readable sync status JSON file.
- *
- * @param array $s Arbitrary status payload to serialize; function adds an RFC date in "ts".
- *
- * @return void
- */
 function writeStatus(array $s)
 {
 	global $statusFile;
@@ -144,17 +137,6 @@ function writeStatus(array $s)
 	file_put_contents($statusFile, json_encode($s, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES));
 }
 
-/**
- * Remove stale product_link rows:
- *  - links pointing to a deleted Dolibarr product
- *  - links that no longer exist on Taler (and have no local product)
- *
- * @param DoliDB $db
- * @param string $instance
- * @param array  $remoteIds  List of product_id values seen on the Taler side during this run
- * @param User   $user
- * @return array{checked:int,deleted:int,errors:int}
- */
 /**
  * Remove stale product_link rows:
  *  - links pointing to a deleted Dolibarr product
@@ -251,6 +233,44 @@ $user->fetch($cfg->fk_user_modif ?: $cfg->fk_user_creat ?: 0);
 if (empty($user->id)) {
 	dol_syslog("TalerBarrSync: user not found", LOG_ERR);
 	$user->fetch(1);
+}
+$user->getrights();
+
+$hasSyncBizRights = static function (User $candidate): bool {
+	return !empty($candidate->id)
+		&& $candidate->hasRight('commande', 'creer')
+		&& $candidate->hasRight('facture', 'creer');
+};
+
+if (!$hasSyncBizRights($user)) {
+	dol_syslog('TalerBarrSync: configured user #'.((int) $user->id).' lacks required rights (commande->creer and/or facture->creer), searching fallback user', LOG_WARNING);
+	$sqlUsers = "SELECT rowid FROM ".MAIN_DB_PREFIX."user";
+	$sqlUsers .= " WHERE statut = 1";
+	$sqlUsers .= " AND entity IN (0,".((int) $conf->entity).")";
+	$sqlUsers .= " ORDER BY admin DESC, rowid ASC";
+	$resUsers = $GLOBALS['db']->query($sqlUsers);
+	if ($resUsers) {
+		while ($objUser = $GLOBALS['db']->fetch_object($resUsers)) {
+			$candidateId = (int) ($objUser->rowid ?? 0);
+			if ($candidateId <= 0 || $candidateId === (int) $user->id) {
+				continue;
+			}
+			$candidate = new User($GLOBALS['db']);
+			if ($candidate->fetch($candidateId) <= 0) {
+				continue;
+			}
+			$candidate->getrights();
+			if ($hasSyncBizRights($candidate)) {
+				$user = $candidate;
+				dol_syslog('TalerBarrSync: switched to fallback user #'.((int) $user->id).' for sync operations', LOG_WARNING);
+				break;
+			}
+		}
+		$GLOBALS['db']->free($resUsers);
+	}
+	if (!$hasSyncBizRights($user)) {
+		dol_syslog('TalerBarrSync: no fallback user with required rights found; order/invoice validation may fail', LOG_WARNING);
+	}
 }
 
 /* -------------------------------------------------------------
@@ -574,10 +594,14 @@ do {
 			$orderSynced++;
 		}
 
-		$statusKey = strtolower((string) ($statusPayload['order_status'] ?? $statusPayload['status'] ?? ''));
-		if ($statusKey === 'wired' || (!empty($statusPayload['wired']) && $statusKey !== 'refunded')) {
+			$statusKey = strtolower((string) ($statusPayload['order_status'] ?? $statusPayload['status'] ?? ''));
+			$hasRefundSignal = TalerOrderLink::payloadHasRefundEvidence((array) $statusPayload);
+			$hasWireEvidence = TalerOrderLink::payloadHasWireSettlementEvidence((array) $statusPayload);
+		if (($statusKey === 'wired' || !empty($statusPayload['wired'])) && $hasWireEvidence) {
 			TalerOrderLink::upsertFromTalerOfWireTransfer($db, $statusPayload, $user);
-		} elseif (in_array($statusKey, ['paid', 'delivered', 'refunded'], true)) {
+		} elseif ($hasRefundSignal) {
+			TalerOrderLink::upsertFromTalerOfRefund($db, $statusPayload, $user);
+		} elseif (in_array($statusKey, ['paid', 'delivered'], true)) {
 			TalerOrderLink::upsertFromTalerOfPayment($db, $statusPayload, $user);
 		}
 

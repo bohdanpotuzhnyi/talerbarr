@@ -28,7 +28,7 @@ The CI helper script at `devtools/ci/install_taler_stack.sh` supports two bootst
 - `TALER_STACK_MODE=sandcastle` (default) provisions services via the [`sandcastle-ng`](https://git.taler.net/sandcastle-ng.git) container, building the image with Podman and waiting for systemd inside the container to become ready.
 - `TALER_STACK_MODE=build` compiles the GNU Taler exchange/merchant stack from source.
 
-When using sandcastle in CI environments without systemd for cgroup management, set `TALER_PODMAN_OVERRIDE_CONF` to a writable path (Travis uses `/tmp/taler-podman-containers.conf`). The helper script writes a minimal Podman override there—as well as a root drop-in at `/etc/containers/containers.conf.d/99-taler-sandcastle.conf` (override path tunable via `TALER_PODMAN_SYSTEM_OVERRIDE`)—to force `cgroupfs`, switch to the `runc` runtime, and use a file-based events logger so builds succeed under Podman.
+When using sandcastle in CI environments without systemd for cgroup management, set `TALER_PODMAN_OVERRIDE_CONF` to a writable path (for example `/tmp/taler-podman-containers.conf`). The helper script writes a minimal Podman override there—as well as a root drop-in at `/etc/containers/containers.conf.d/99-taler-sandcastle.conf` (override path tunable via `TALER_PODMAN_SYSTEM_OVERRIDE`)—to force `cgroupfs`, switch to the `runc` runtime, and use a file-based events logger so builds succeed under Podman.
 
 Additional environment variables customise the container workflow:
 
@@ -39,4 +39,4 @@ Additional environment variables customise the container workflow:
 
 If the requested override is missing, the helper automatically tries `ci`, then `demo`, and finally the first available override file. Set `SANDCASTLE_OVERRIDE_NAME` to an empty string to opt out of this fallback and launch without an override.
 
-The Travis configuration enables sandcastle mode by default so module integration tests run against a self-contained GNU Taler deployment.
+The GitHub Actions Podman CI configuration enables sandcastle mode by default so module integration tests run against a self-contained GNU Taler deployment.

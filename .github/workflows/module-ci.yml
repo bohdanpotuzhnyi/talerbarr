@@ -1,8 +1,9 @@
 name: "CI-PUSH"
 
-on: [push]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 jobs:
-  gh-travis:  # Runs travis script on github runner (not on travis)
-    uses: ./.github/workflows/gh-travis.yml
-    with:
-      gh_event: ${{ github.event_name }}
+  podman-ci:
+    uses: ./.github/workflows/podman-ci.yml

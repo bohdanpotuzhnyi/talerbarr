@@ -615,13 +615,8 @@ class TalerProductLink extends CommonObject
 			return array('currency'=>'', 'value'=>null, 'fraction'=>null);
 		}
 		list($cur, $amt) = explode(':', $amountStr, 2);
-		$map = [
-			'KUDOS' => 'EUR',
-		];
 		$currency = strtoupper(trim($cur));
-		if (isset($map[$currency])) {
-			$currency = $map[$currency];
-		}
+		$currency = TalerConfig::mapCurrencyFromTaler($currency);
 		$amt = trim($amt);
 
 		if (!preg_match('~^\d+(\.\d+)?$~', $amt)) {

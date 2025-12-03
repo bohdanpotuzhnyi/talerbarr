@@ -34,6 +34,7 @@
 require_once DOL_DOCUMENT_ROOT.'/core/triggers/dolibarrtriggers.class.php';
 require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
 require_once DOL_DOCUMENT_ROOT.'/commande/class/commande.class.php';
+require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/functions.lib.php';
 
 // Our classes
@@ -371,6 +372,693 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 	}
 
 	/**
+	 * On credit-note validation, attempt native Taler refund and annotate the note.
+	 *
+	 * @param string       $action Triggered action code.
+	 * @param CommonObject $object Invoice object.
+	 * @param User         $user   Current user.
+	 * @param Translate    $langs  Translation handler.
+	 * @param Conf         $conf   Global configuration.
+	 * @return int                 1 if handled/refund created, 0 if ignored or blocked.
+	 */
+	public function billValidate($action, $object, User $user, Translate $langs, Conf $conf): int
+	{
+		$langs->loadLangs(array('talerbarr@talerbarr'));
+
+		if (!($object instanceof Facture)) {
+			return 0;
+		}
+		if ((int) ($object->type ?? 0) !== (int) Facture::TYPE_CREDIT_NOTE) {
+			return 0;
+		}
+
+		$creditNoteId = (int) ($object->id ?? 0);
+		if ($creditNoteId <= 0) {
+			return 0;
+		}
+
+		$creditRef = (string) ($object->ref ?? '');
+		if ($creditRef === '') {
+			$creditRef = 'ID'.$creditNoteId;
+		}
+		$marker = '[taler-credit-note-refund '.$creditRef.']';
+		$payoutSummaryPrefix = $marker.' [taler-wallet-payout]';
+		$creditAmount = abs((float) price2num($object->total_ttc ?? 0, 'MT'));
+		if ($creditAmount <= 0.0) {
+			$creditAmount = abs((float) price2num($object->total_ht ?? 0, 'MT'));
+		}
+		$alreadyRefunded = $this->invoiceNoteHasSuccessfulRefundMarker($object, $marker);
+
+		$sourceInvoiceId = $this->resolveSourceInvoiceId($object);
+		if ($sourceInvoiceId <= 0) {
+			if ($alreadyRefunded) {
+				return 0;
+			}
+			$this->appendInvoiceNoteLine($object, $marker.' Taler refund skipped: source invoice not found.');
+			return 0;
+		}
+
+		$link = new TalerOrderLink($this->db);
+		$resLink = $link->fetchByInvoiceOrOrder($sourceInvoiceId, 0);
+		if ($resLink <= 0 || empty($link->taler_order_id)) {
+			return 0;
+		}
+		if ($alreadyRefunded) {
+			$statusUrl = trim((string) ($link->taler_status_url ?? ''));
+			$summaryStatusPayload = null;
+			$summaryCurrency = '';
+			$cfgErr = null;
+			$config = $this->fetchVerifiedConfigForInstance((string) ($link->taler_instance ?? ''), $cfgErr);
+			if ($config && !empty($config->verification_ok)) {
+				try {
+					$client = $config->talerMerchantClient();
+					$summaryStatusPayload = $client->getOrderStatus((string) $link->taler_order_id, array('allow_refunded_for_repurchase' => 'YES'));
+					if (!is_array($summaryStatusPayload)) {
+						$summaryStatusPayload = (array) $summaryStatusPayload;
+					}
+					$summaryStatusPayload['order_id'] = $summaryStatusPayload['order_id'] ?? $summaryStatusPayload['orderId'] ?? $link->taler_order_id;
+					$summaryStatusPayload['merchant_instance'] = $summaryStatusPayload['merchant_instance']
+						?? ($summaryStatusPayload['merchant']['instance'] ?? $summaryStatusPayload['merchant']['id'] ?? null)
+						?? $link->taler_instance;
+					$freshStatusUrl = trim((string) ($summaryStatusPayload['order_status_url'] ?? $summaryStatusPayload['status_url'] ?? ''));
+					if ($freshStatusUrl !== '') {
+						$statusUrl = $freshStatusUrl;
+					}
+					TalerOrderLink::upsertFromTalerOfRefund($this->db, $summaryStatusPayload, $user);
+					$link->fetch((int) $link->id);
+				} catch (Throwable $statusError) {
+					dol_syslog(__METHOD__.' refund summary refresh failed: '.$statusError->getMessage(), LOG_WARNING);
+				}
+			}
+
+			$policy = $link->getRefundPolicy();
+			$summaryCurrency = strtoupper((string) ($policy['currency'] ?? $link->order_currency ?? ''));
+			$summaryCurrency = $this->mapRefundCurrencyForTaler($summaryCurrency, $config ?? null);
+			if ($summaryCurrency === '' && is_array($summaryStatusPayload)) {
+				$summaryCurrency = self::extractCurrencyFromAmountString((string) ($summaryStatusPayload['refund_amount'] ?? $summaryStatusPayload['amount_refunded'] ?? ''));
+			}
+
+			if ($statusUrl !== '' && preg_match('~^https?://~i', $statusUrl)) {
+				$currentNote = (string) ($object->note_public ?? '');
+				if (strpos($currentNote, $statusUrl) === false) {
+					$this->appendInvoiceNoteLine(
+						$object,
+						$marker.' '.$langs->trans('TalerRefundStatusURL').': '.$statusUrl
+					);
+				}
+			}
+			if ($creditAmount > 0.0 && $summaryCurrency !== '' && is_array($summaryStatusPayload)) {
+				$payout = self::summarizeCreditNotePayoutFromStatus($summaryStatusPayload, $creditRef, $creditAmount);
+				if (is_array($payout)) {
+					$paidOutLabel = TalerOrderLink::toTalerAmountString($summaryCurrency, (float) $payout['paid_out']);
+					$remainingLabel = TalerOrderLink::toTalerAmountString($summaryCurrency, (float) $payout['remaining']);
+					$this->upsertInvoiceNoteLineByPrefix(
+						$object,
+						$payoutSummaryPrefix,
+						$payoutSummaryPrefix.' '.$langs->trans('TalerRefundPayoutSummary', $paidOutLabel, $remainingLabel)
+					);
+					$syncResult = TalerOrderLink::syncCreditNotePayoutToDolibarr($this->db, $object, $user, (float) $payout['paid_out']);
+					if ($syncResult < 0) {
+						dol_syslog(__METHOD__.' failed to sync payout amounts to Dolibarr for credit note '.$creditRef, LOG_WARNING);
+					}
+				}
+			}
+			return 0;
+		}
+
+		$intendedCode = (string) ($link->intended_payment_code ?? '');
+		if ($intendedCode !== '' && strcasecmp($intendedCode, 'TLR') !== 0) {
+			return 0;
+		}
+
+		$cfgErr = null;
+		$config = $this->fetchVerifiedConfigForInstance((string) ($link->taler_instance ?? ''), $cfgErr);
+		if (!$config || empty($config->verification_ok)) {
+			$message = $marker.' '.$langs->trans('TalerRefundConfigInvalid');
+			if (!empty($cfgErr)) {
+				$message .= ': '.$cfgErr;
+			}
+			$this->appendInvoiceNoteLine($object, $message);
+			return 0;
+		}
+
+		try {
+			$client = $config->talerMerchantClient();
+		} catch (Throwable $e) {
+			$this->appendInvoiceNoteLine(
+				$object,
+				$marker.' '.$langs->trans('TalerRefundConfigInvalid').': '.$e->getMessage()
+			);
+			return 0;
+		}
+
+		try {
+			$statusPayload = $client->getOrderStatus((string) $link->taler_order_id, array('allow_refunded_for_repurchase' => 'YES'));
+			if (!is_array($statusPayload)) {
+				$statusPayload = (array) $statusPayload;
+			}
+			$statusPayload['order_id'] = $statusPayload['order_id'] ?? $statusPayload['orderId'] ?? $link->taler_order_id;
+			$statusPayload['merchant_instance'] = $statusPayload['merchant_instance']
+				?? ($statusPayload['merchant']['instance'] ?? $statusPayload['merchant']['id'] ?? null)
+				?? $link->taler_instance;
+
+			$statusKey = strtolower((string) ($statusPayload['order_status'] ?? $statusPayload['status'] ?? ''));
+			if (TalerOrderLink::payloadHasRefundEvidence((array) $statusPayload)) {
+				TalerOrderLink::upsertFromTalerOfRefund($this->db, $statusPayload, $user);
+			} else {
+				TalerOrderLink::upsertFromTalerOfPayment($this->db, $statusPayload, $user);
+			}
+			$link->fetch((int) $link->id);
+		} catch (Throwable $e) {
+			$this->appendInvoiceNoteLine(
+				$object,
+				$marker.' '.$langs->trans('TalerRefundPreflightFailed').': '.$e->getMessage()
+			);
+			return 0;
+		}
+
+		$policy = $link->getRefundPolicy();
+		if (empty($policy['eligible'])) {
+			$reasonKey = (string) ($policy['message_key'] ?? 'TalerRefundBlockedUnknown');
+			$this->appendInvoiceNoteLine(
+				$object,
+				$marker.' '.$langs->trans($reasonKey).' '.$langs->trans('TalerRefundUseAlternativeMethod')
+			);
+			return 0;
+		}
+
+		if ($creditAmount <= 0.0) {
+			$this->appendInvoiceNoteLine(
+				$object,
+				$marker.' '.$langs->trans('TalerRefundAmountInvalid').' '.$langs->trans('TalerRefundUseAlternativeMethod')
+			);
+			return 0;
+		}
+
+		$remaining = $policy['remaining_total'] ?? null;
+		if ($remaining !== null && ($creditAmount - (float) $remaining) > 0.00000001) {
+			$this->appendInvoiceNoteLine(
+				$object,
+				$marker.' '.$langs->trans('TalerRefundAmountTooHigh').' '.$langs->trans('TalerRefundUseAlternativeMethod')
+			);
+			return 0;
+		}
+
+		$currency = strtoupper((string) ($policy['currency'] ?? $link->order_currency ?? ''));
+		$currency = $this->mapRefundCurrencyForTaler($currency, $config);
+		if ($currency === '') {
+			$this->appendInvoiceNoteLine(
+				$object,
+				$marker.' '.$langs->trans('TalerRefundBlockedMissingCurrency').' '.$langs->trans('TalerRefundUseAlternativeMethod')
+			);
+			return 0;
+		}
+
+		$refundPayload = array(
+			'refund' => TalerOrderLink::toTalerAmountString($currency, (float) $creditAmount),
+			'reason' => 'Dolibarr credit note '.$creditRef,
+		);
+
+		try {
+			$refundResponse = $client->refundOrder((string) $link->taler_order_id, $refundPayload);
+			$statusUrl = '';
+			$summaryStatusPayload = null;
+
+			try {
+				$statusPayload = $client->getOrderStatus((string) $link->taler_order_id, array('allow_refunded_for_repurchase' => 'YES'));
+				if (!is_array($statusPayload)) {
+					$statusPayload = (array) $statusPayload;
+				}
+				$statusPayload['order_id'] = $statusPayload['order_id'] ?? $statusPayload['orderId'] ?? $link->taler_order_id;
+				$statusPayload['merchant_instance'] = $statusPayload['merchant_instance']
+					?? ($statusPayload['merchant']['instance'] ?? $statusPayload['merchant']['id'] ?? null)
+					?? $link->taler_instance;
+				$statusUrl = trim((string) ($statusPayload['order_status_url'] ?? $statusPayload['status_url'] ?? ''));
+				$summaryStatusPayload = $statusPayload;
+				TalerOrderLink::upsertFromTalerOfRefund($this->db, $statusPayload, $user);
+			} catch (Throwable $statusError) {
+				$fallbackPayload = array(
+					'order_id' => (string) $link->taler_order_id,
+					'merchant_instance' => (string) $link->taler_instance,
+					'status' => 'refunded',
+					'refund_amount' => $refundPayload['refund'],
+					'reason' => $refundPayload['reason'],
+				);
+				$summaryStatusPayload = $fallbackPayload;
+				TalerOrderLink::upsertFromTalerOfRefund($this->db, $fallbackPayload, $user);
+				dol_syslog(__METHOD__.' refund post-refresh failed: '.$statusError->getMessage(), LOG_WARNING);
+			}
+
+			$line = $marker.' '.$langs->trans('TalerRefundCreated', $refundPayload['refund']);
+			if (!empty($refundResponse['taler_refund_uri'])) {
+				$line .= ' '.$langs->trans('TalerRefundURI').': '.(string) $refundResponse['taler_refund_uri'];
+			}
+			if ($statusUrl === '' && !empty($link->taler_status_url)) {
+				$statusUrl = trim((string) $link->taler_status_url);
+			}
+			if ($statusUrl !== '' && preg_match('~^https?://~i', $statusUrl)) {
+				$line .= ' '.$langs->trans('TalerRefundStatusURL').': '.$statusUrl;
+			}
+			$this->appendInvoiceNoteLine($object, $line);
+			$payout = null;
+			if (is_array($summaryStatusPayload)) {
+				$payout = self::summarizeCreditNotePayoutFromStatus($summaryStatusPayload, $creditRef, $creditAmount);
+			}
+			if (is_array($payout)) {
+				$paidOutLabel = TalerOrderLink::toTalerAmountString($currency, (float) $payout['paid_out']);
+				$remainingLabel = TalerOrderLink::toTalerAmountString($currency, (float) $payout['remaining']);
+				$this->upsertInvoiceNoteLineByPrefix(
+					$object,
+					$payoutSummaryPrefix,
+					$payoutSummaryPrefix.' '.$langs->trans('TalerRefundPayoutSummary', $paidOutLabel, $remainingLabel)
+				);
+				$syncResult = TalerOrderLink::syncCreditNotePayoutToDolibarr($this->db, $object, $user, (float) $payout['paid_out']);
+				if ($syncResult < 0) {
+					dol_syslog(__METHOD__.' failed to sync payout amounts to Dolibarr for credit note '.$creditRef, LOG_WARNING);
+				}
+			}
+			return 1;
+		} catch (Throwable $e) {
+			$httpStatus = self::extractHttpStatus($e);
+			$hint = self::extractHttpHint($e);
+			switch ($httpStatus) {
+				case 410:
+					$message = $langs->trans('TalerRefundBlockedDeadline');
+					break;
+				case 403:
+					$message = $langs->trans('TalerRefundBlockedForbidden');
+					break;
+				case 409:
+					$message = self::isCurrencyConflictHint($hint)
+						? $langs->trans('TalerRefundBlockedCurrencyMismatch')
+						: $langs->trans('TalerRefundAmountTooHigh');
+					break;
+				case 451:
+					$message = $langs->trans('TalerRefundBlockedLegal');
+					break;
+				case 404:
+					$message = $langs->trans('TalerRefundBlockedNotFound');
+					break;
+				default:
+					$message = $langs->trans('TalerRefundFailedGeneric');
+					break;
+			}
+			if ($hint !== '') {
+				$message .= ' ('.$hint.')';
+			}
+			$message .= ' '.$langs->trans('TalerRefundUseAlternativeMethod');
+			$this->appendInvoiceNoteLine($object, $marker.' '.$message);
+			return 0;
+		}
+	}
+
+	/**
+	 * Resolve the source invoice for a credit note.
+	 *
+	 * @param Facture $creditNote Credit note object.
+	 * @return int                Source invoice id (0 if unknown).
+	 */
+	private function resolveSourceInvoiceId(Facture $creditNote): int
+	{
+		if (!empty($creditNote->fk_facture_source)) {
+			return (int) $creditNote->fk_facture_source;
+		}
+
+		if (!empty($creditNote->linkedObjectsIds['facture']) && is_array($creditNote->linkedObjectsIds['facture'])) {
+			$ids = array_keys($creditNote->linkedObjectsIds['facture']);
+			if (!empty($ids)) {
+				return (int) $ids[0];
+			}
+		}
+
+		$creditNoteId = (int) ($creditNote->id ?? 0);
+		if ($creditNoteId <= 0) {
+			return 0;
+		}
+
+		$sql = "SELECT fk_target FROM ".MAIN_DB_PREFIX."element_element WHERE fk_source = ".((int) $creditNoteId).
+			" AND sourcetype = 'facture' AND targettype = 'facture' ORDER BY rowid DESC LIMIT 1";
+		$resql = $this->db->query($sql);
+		if ($resql) {
+			if ($obj = $this->db->fetch_object($resql)) {
+				$this->db->free($resql);
+				return (int) $obj->fk_target;
+			}
+			$this->db->free($resql);
+		}
+
+		$sql = "SELECT fk_source FROM ".MAIN_DB_PREFIX."element_element WHERE fk_target = ".((int) $creditNoteId).
+			" AND targettype = 'facture' AND sourcetype = 'facture' ORDER BY rowid DESC LIMIT 1";
+		$resql = $this->db->query($sql);
+		if ($resql) {
+			if ($obj = $this->db->fetch_object($resql)) {
+				$this->db->free($resql);
+				return (int) $obj->fk_source;
+			}
+			$this->db->free($resql);
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Resolve a verified Taler config, preferring the instance if provided.
+	 *
+	 * @param string      $instance Taler instance name.
+	 * @param string|null $error    Filled with error details on failure.
+	 * @return TalerConfig|null
+	 */
+	private function fetchVerifiedConfigForInstance(string $instance, ?string &$error = null): ?TalerConfig
+	{
+		$error = null;
+		$instance = trim($instance);
+
+		if ($instance !== '') {
+			$candidate = new TalerConfig($this->db);
+			$sql = "SELECT rowid FROM ".MAIN_DB_PREFIX.$candidate->table_element.
+				" WHERE username = '".$this->db->escape($instance)."'".
+				' AND entity IN ('.getEntity('talerconfig', true).') ORDER BY rowid DESC LIMIT 1';
+			$resql = $this->db->query($sql);
+			if ($resql && ($obj = $this->db->fetch_object($resql))) {
+				if ($candidate->fetch((int) $obj->rowid) > 0) {
+					if (empty($candidate->verification_ok)) {
+						$verifyErr = null;
+						$isValid = $candidate->verifyConfig($verifyErr);
+						$candidate->verification_ok = $isValid;
+						$candidate->verification_error = $isValid ? null : $verifyErr;
+					}
+					if (!empty($candidate->verification_ok)) {
+						$this->db->free($resql);
+						return $candidate;
+					}
+					if (!empty($candidate->verification_error)) {
+						$error = (string) $candidate->verification_error;
+					}
+				}
+			}
+			if ($resql) {
+				$this->db->free($resql);
+			}
+		}
+
+		$cfgErr = null;
+		$config = TalerConfig::fetchSingletonVerified($this->db, $cfgErr);
+		if ($config && !empty($config->verification_ok)) {
+			return $config;
+		}
+		$error = $cfgErr ?: $error;
+		return null;
+	}
+
+	/**
+	 * Check if a note already contains a marker (plain or entity-decoded).
+	 *
+	 * @param Facture $invoice Invoice object.
+	 * @param string  $marker  Marker text.
+	 * @return bool
+	 */
+	private function invoiceNoteContains(Facture $invoice, string $marker): bool
+	{
+		$note = (string) ($invoice->note_public ?? '');
+		if ($note === '' || $marker === '') {
+			return false;
+		}
+		if (strpos($note, $marker) !== false) {
+			return true;
+		}
+		$decoded = html_entity_decode($note, ENT_QUOTES | ENT_HTML5);
+		return strpos($decoded, $marker) !== false;
+	}
+
+	/**
+	 * Detect whether note already contains a successful refund marker for this credit note.
+	 *
+	 * Failed attempts should not block retries after config/code fixes.
+	 *
+	 * @param Facture $invoice Invoice object.
+	 * @param string  $marker  Marker text.
+	 * @return bool
+	 */
+	private function invoiceNoteHasSuccessfulRefundMarker(Facture $invoice, string $marker): bool
+	{
+		$note = (string) ($invoice->note_public ?? '');
+		if ($note === '' || $marker === '') {
+			return false;
+		}
+		$decoded = html_entity_decode($note, ENT_QUOTES | ENT_HTML5);
+		$haystack = $note."\n".$decoded;
+
+		// Must carry marker and clear success evidence.
+		if (strpos($haystack, $marker) === false) {
+			return false;
+		}
+		return (strpos($haystack, 'taler://refund/') !== false);
+	}
+
+	/**
+	 * Append a line to credit-note public note without duplication.
+	 *
+	 * @param Facture $invoice Invoice object.
+	 * @param string  $line    Line to append.
+	 * @return void
+	 */
+	private function appendInvoiceNoteLine(Facture $invoice, string $line): void
+	{
+		$line = trim((string) preg_replace('/\s+/u', ' ', trim($line)));
+		if ($line === '' || empty($invoice->id)) {
+			return;
+		}
+
+		$existing = (string) ($invoice->note_public ?? '');
+		$decoded = html_entity_decode($existing, ENT_QUOTES | ENT_HTML5);
+		if (strpos($existing, $line) !== false || strpos($decoded, $line) !== false) {
+			return;
+		}
+
+		$updated = rtrim($existing);
+		if ($updated !== '') {
+			$updated .= "\n";
+		}
+		$updated .= $line;
+
+		$res = $invoice->update_note_public($updated);
+		if ($res <= 0) {
+			dol_syslog(__METHOD__.' failed to update invoice note for '.$invoice->id.': '.($invoice->error ?: 'unknown error'), LOG_WARNING);
+			return;
+		}
+		$invoice->note_public = $updated;
+	}
+
+	/**
+	 * Upsert a note line identified by a stable prefix.
+	 *
+	 * Existing lines starting with the same prefix are replaced.
+	 *
+	 * @param Facture $invoice Invoice object.
+	 * @param string  $prefix  Stable line prefix.
+	 * @param string  $line    Full line to store.
+	 * @return void
+	 */
+	private function upsertInvoiceNoteLineByPrefix(Facture $invoice, string $prefix, string $line): void
+	{
+		$prefix = trim((string) preg_replace('/\s+/u', ' ', trim($prefix)));
+		$line = trim((string) preg_replace('/\s+/u', ' ', trim($line)));
+		if ($prefix === '' || $line === '' || empty($invoice->id)) {
+			return;
+		}
+
+		$existing = (string) ($invoice->note_public ?? '');
+		$lines = preg_split('/\R/u', $existing) ?: array();
+		$kept = array();
+		foreach ($lines as $rawLine) {
+			$rawLine = (string) $rawLine;
+			$trimmed = trim($rawLine);
+			if ($trimmed === '') {
+				continue;
+			}
+			$decoded = trim(html_entity_decode($trimmed, ENT_QUOTES | ENT_HTML5));
+			if (strpos($trimmed, $prefix) === 0 || strpos($decoded, $prefix) === 0) {
+				continue;
+			}
+			$kept[] = $trimmed;
+		}
+		$kept[] = $line;
+		$updated = implode("\n", $kept);
+
+		if (trim($updated) === trim($existing)) {
+			return;
+		}
+		$res = $invoice->update_note_public($updated);
+		if ($res <= 0) {
+			dol_syslog(__METHOD__.' failed to update invoice note for '.$invoice->id.': '.($invoice->error ?: 'unknown error'), LOG_WARNING);
+			return;
+		}
+		$invoice->note_public = $updated;
+	}
+
+	/**
+	 * Build per-credit-note payout summary from Taler order status payload.
+	 *
+	 * @param array<string,mixed> $statusPayload Latest status payload.
+	 * @param string              $creditRef     Credit-note reference.
+	 * @param float               $creditAmount  Credit-note amount to refund.
+	 * @return array<string,float>|null
+	 */
+	private static function summarizeCreditNotePayoutFromStatus(array $statusPayload, string $creditRef, float $creditAmount): ?array
+	{
+		$creditRef = trim($creditRef);
+		if ($creditRef === '' || $creditAmount <= 0.0) {
+			return null;
+		}
+
+		$matchedAny = false;
+		$totalMatched = 0.0;
+		$paidOut = 0.0;
+		$details = $statusPayload['refund_details'] ?? null;
+		if (is_array($details)) {
+			foreach ($details as $detail) {
+				if (!is_array($detail)) {
+					continue;
+				}
+				$reason = trim((string) ($detail['reason'] ?? $detail['comment'] ?? ''));
+				if ($reason !== '' && stripos($reason, $creditRef) === false) {
+					continue;
+				}
+				$amountRaw = (string) ($detail['amount'] ?? $detail['refund_amount'] ?? '');
+				$amountValue = TalerOrderLink::amountStringToFloat($amountRaw);
+				if ($amountValue === null || $amountValue <= 0.0) {
+					continue;
+				}
+				$matchedAny = true;
+				$totalMatched += $amountValue;
+				$isPending = !empty($detail['pending']);
+				if (!$isPending) {
+					$paidOut += $amountValue;
+				}
+			}
+		}
+
+		if (!$matchedAny) {
+			$totalRaw = (string) ($statusPayload['refund_amount'] ?? $statusPayload['amount_refunded'] ?? '');
+			$totalValue = TalerOrderLink::amountStringToFloat($totalRaw);
+			if ($totalValue === null || $totalValue <= 0.0) {
+				return null;
+			}
+			$totalMatched = $totalValue;
+			$isPending = !empty($statusPayload['refund_pending']);
+			$paidOut = $isPending ? 0.0 : $totalMatched;
+		}
+
+		$paidOut = max(0.0, min($creditAmount, $paidOut));
+		$remaining = max(0.0, $creditAmount - $paidOut);
+
+		return array(
+			'paid_out' => $paidOut,
+			'remaining' => $remaining,
+		);
+	}
+
+	/**
+	 * Extract currency prefix from CUR:value amount strings.
+	 *
+	 * @param string $amountString Amount candidate.
+	 * @return string
+	 */
+	private static function extractCurrencyFromAmountString(string $amountString): string
+	{
+		$amountString = trim($amountString);
+		if ($amountString === '' || strpos($amountString, ':') === false) {
+			return '';
+		}
+		list($currency) = explode(':', $amountString, 2);
+		return strtoupper(trim($currency));
+	}
+
+	/**
+	 * Extract HTTP status code from merchant exception messages.
+	 *
+	 * @param Throwable $e Exception to inspect.
+	 * @return int
+	 */
+	private static function extractHttpStatus(Throwable $e): int
+	{
+		$msg = (string) $e->getMessage();
+		if (preg_match('/HTTP\s+([0-9]{3})\s+for/i', $msg, $m)) {
+			return (int) $m[1];
+		}
+		return 0;
+	}
+
+	/**
+	 * Extract optional "hint/detail" from JSON payload embedded in exception text.
+	 *
+	 * @param Throwable $e Exception to inspect.
+	 * @return string
+	 */
+	private static function extractHttpHint(Throwable $e): string
+	{
+		$msg = (string) $e->getMessage();
+		$jsonPos = strpos($msg, '{');
+		if ($jsonPos === false) {
+			return '';
+		}
+		$decoded = json_decode(substr($msg, $jsonPos), true);
+		if (!is_array($decoded)) {
+			return '';
+		}
+		$hint = trim((string) ($decoded['hint'] ?? $decoded['detail'] ?? ''));
+		return $hint;
+	}
+
+	/**
+	 * Detect whether a refund conflict hint indicates currency/state mismatch.
+	 *
+	 * @param string $hint Hint extracted from backend error.
+	 * @return bool
+	 */
+	private static function isCurrencyConflictHint(string $hint): bool
+	{
+		$normalized = strtolower(trim($hint));
+		if ($normalized === '') {
+			return false;
+		}
+
+		return (
+			str_contains($normalized, 'currency specified in the operation')
+			|| (str_contains($normalized, 'currency') && str_contains($normalized, 'current state'))
+			|| str_contains($normalized, 'currency mismatch')
+		);
+	}
+
+	/**
+	 * Map a Dolibarr-facing currency to the Taler-facing one for refund calls.
+	 *
+	 * @param string            $currency Input currency candidate.
+	 * @param TalerConfig|null  $config   Active configuration (for alias).
+	 * @return string
+	 */
+	private function mapRefundCurrencyForTaler(string $currency, ?TalerConfig $config = null): string
+	{
+		$normalized = strtoupper(trim($currency));
+		if ($normalized === '') {
+			return '';
+		}
+
+		$alias = '';
+		if ($config instanceof TalerConfig && !empty($config->taler_currency_alias)) {
+			$alias = strtoupper(trim((string) $config->taler_currency_alias));
+		}
+		if ($alias === '') {
+			$alias = TalerConfig::getCurrencyAlias();
+		}
+
+		if ($alias !== '' && $normalized === TalerConfig::getDolibarrCurrency()) {
+			return $alias;
+		}
+		return $normalized;
+	}
+
+	/**
 	 * Resolve active Taler config (username + syncdirection).
 	 * Returns ['username'=>'', 'syncdirection'=>null] if none found.
 	 * We might want to change it to the fetchSingletonVerified from TalerConfig
@@ -486,4 +1174,8 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 		}
 		return $this->upsertProduct($prod, $user);
 	}
+}
+
+if (!class_exists('modTalerBarr_TalerBarrTriggers', false) && class_exists('InterfaceTalerBarrTriggers', false)) {
+	class_alias('InterfaceTalerBarrTriggers', 'modTalerBarr_TalerBarrTriggers');
 }

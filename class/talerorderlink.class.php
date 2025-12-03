@@ -48,6 +48,9 @@ dol_include_once('/talerbarr/class/talermerchantclient.class.php');
  */
 class TalerOrderLink extends CommonObject
 {
+	/** @var array<string,array<string,bool>> */
+	private static array $tableColumnsCache = array();
+
 	/** @var string */
 	public $module = 'talerbarr';
 	/** @var string */
@@ -123,11 +126,16 @@ class TalerOrderLink extends CommonObject
 		'taler_claimed_at'     => array('type' => 'datetime', 'label' => 'ClaimedAt',      'visible' => 0, 'notnull' => 0, 'position' => 81),
 		'taler_paid_at'        => array('type' => 'datetime', 'label' => 'PaidAt',         'visible' => 0, 'notnull' => 0, 'position' => 82),
 		'taler_refunded_total' => array('type' => 'varchar(64)', 'label' => 'RefundedTotal', 'visible' => 0, 'notnull' => 0, 'position' => 83),
-		'taler_refund_pending' => array('type' => 'boolean', 'label' => 'RefundPending',  'visible' => 0, 'notnull' => 1, 'default' => 0, 'position' => 84),
-		'last_status_check_at' => array('type' => 'datetime', 'label' => 'LastStatusChk', 'visible' => 0, 'notnull' => 0, 'position' => 87),
+		'taler_refund_taken_total' => array('type' => 'varchar(64)', 'label' => 'RefundTakenTotal', 'visible' => 0, 'notnull' => 0, 'position' => 84),
+		'taler_refund_pending' => array('type' => 'boolean', 'label' => 'RefundPending',  'visible' => 0, 'notnull' => 1, 'default' => 0, 'position' => 85),
+		'taler_refund_last_reason' => array('type' => 'varchar(255)', 'label' => 'RefundLastReason', 'visible' => 0, 'notnull' => 0, 'position' => 86),
+		'taler_refund_last_amount' => array('type' => 'varchar(64)', 'label' => 'RefundLastAmount', 'visible' => 0, 'notnull' => 0, 'position' => 87),
+		'taler_refund_last_at' => array('type' => 'datetime', 'label' => 'RefundLastAt', 'visible' => 0, 'notnull' => 0, 'position' => 88),
+		'taler_refund_details_json' => array('type' => 'text', 'label' => 'RefundDetails', 'visible' => -1, 'notnull' => 0, 'position' => 89),
+		'last_status_check_at' => array('type' => 'datetime', 'label' => 'LastStatusChk', 'visible' => 0, 'notnull' => 0, 'position' => 90),
 
 		// Meta
-		'idempotency_key' => array('type' => 'varchar(128)', 'label' => 'IdempotencyKey', 'visible' => 0, 'notnull' => 0, 'position' => 90),
+		'idempotency_key' => array('type' => 'varchar(128)', 'label' => 'IdempotencyKey', 'visible' => 0, 'notnull' => 0, 'position' => 91),
 		'datec'           => array('type' => 'datetime',     'label' => 'DateCreation',  'visible' => -2, 'notnull' => 0, 'position' => 500),
 		'tms'             => array('type' => 'timestamp',    'label' => 'DateModification', 'visible' => -2, 'notnull' => 1, 'position' => 501),
 	);
@@ -258,6 +266,139 @@ class TalerOrderLink extends CommonObject
 			return json_decode(json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), true) ?: [];
 		}
 		return [];
+	}
+
+	/**
+	 * Parse loosely-typed boolean payload values without PHP string-cast pitfalls.
+	 *
+	 * @param mixed $value Raw payload value
+	 * @return bool|null   Null when value is absent/unsupported
+	 */
+	private static function parseBoolish($value): ?bool
+	{
+		if (is_bool($value)) {
+			return $value;
+		}
+		if ($value === null) {
+			return null;
+		}
+		if (is_int($value) || is_float($value)) {
+			return ((float) $value) != 0.0;
+		}
+		if (is_string($value)) {
+			$normalized = strtolower(trim($value));
+			if ($normalized === '') {
+				return null;
+			}
+			if (in_array($normalized, array('1', 'true', 'yes', 'on'), true)) {
+				return true;
+			}
+			if (in_array($normalized, array('0', 'false', 'no', 'off'), true)) {
+				return false;
+			}
+			if (is_numeric($normalized)) {
+				return ((float) $normalized) != 0.0;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Check whether a status payload contains concrete wire settlement evidence.
+	 *
+	 * `wired=true` alone is not enough because fully-refunded orders may still expose that flag
+	 * while having no merchant payout wire details.
+	 *
+	 * @param array<string,mixed> $statusData Status payload
+	 * @return bool
+	 */
+	public static function payloadHasWireSettlementEvidence(array $statusData): bool
+	{
+		if (!empty($statusData['wtid'])) {
+			return true;
+		}
+		if (!empty($statusData['wire_execution_time'])) {
+			return true;
+		}
+
+		$wireReports = $statusData['wire_reports'] ?? null;
+		if (is_array($wireReports) && !empty($wireReports)) {
+			return true;
+		}
+
+		foreach (array('wire_details', 'wire_transfer', 'wire') as $wireKey) {
+			if (!array_key_exists($wireKey, $statusData)) {
+				continue;
+			}
+
+			$rawWire = $statusData[$wireKey];
+			if (is_object($rawWire)) {
+				$rawWire = self::normalizeToArray($rawWire);
+			}
+			if (!is_array($rawWire) || empty($rawWire)) {
+				continue;
+			}
+
+			// Sequential list: any item is evidence.
+			if (array_keys($rawWire) === range(0, count($rawWire) - 1)) {
+				return true;
+			}
+
+			foreach (array('wtid', 'execution_time', 'wired_at', 'amount', 'amount_wire', 'exchange_url') as $field) {
+				if (!empty($rawWire[$field])) {
+					return true;
+				}
+			}
+
+			// Non-empty associative payload is still meaningful evidence.
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check whether a status payload contains concrete refund evidence (> 0 or explicit flags/details).
+	 *
+	 * `refund_amount: CUR:0` is not considered a refund.
+	 *
+	 * @param array<string,mixed> $statusData Status payload
+	 * @return bool
+	 */
+	public static function payloadHasRefundEvidence(array $statusData): bool
+	{
+		$refundedFlag = self::parseBoolish($statusData['refunded'] ?? null);
+		if ($refundedFlag === true) {
+			return true;
+		}
+		$refundPendingFlag = self::parseBoolish($statusData['refund_pending'] ?? null);
+		if ($refundPendingFlag === true) {
+			return true;
+		}
+
+		$statusText = strtolower(trim((string) ($statusData['status'] ?? $statusData['order_status'] ?? '')));
+		if ($statusText === 'refunded') {
+			return true;
+		}
+
+		foreach (array('refund_amount', 'amount_refunded', 'refund', 'refund_taken', 'amount_refund_taken') as $field) {
+			if (!array_key_exists($field, $statusData)) {
+				continue;
+			}
+			$parsed = self::extractAmount($statusData[$field]);
+			$amount = self::amountToFloat($parsed);
+			if ($amount > 0.00000001) {
+				return true;
+			}
+		}
+
+		$details = self::normalizeRefundDetails($statusData['refund_details'] ?? null);
+		if (!empty($details)) {
+			return true;
+		}
+
+		return false;
 	}
 
 	/**
@@ -503,6 +644,90 @@ class TalerOrderLink extends CommonObject
 	}
 
 	/**
+	 * Ensure the user object has rights loaded (required in NOSESSION/CLI contexts).
+	 *
+	 * @param User $user Current user.
+	 * @return void
+	 */
+	private static function ensureUserRightsLoaded(User $user): void
+	{
+		if (!empty($user->rights) && is_object($user->rights)) {
+			return;
+		}
+		try {
+			$user->getrights();
+		} catch (Throwable $e) {
+			dol_syslog(__METHOD__.' unable to load user rights for user #'.((int) ($user->id ?? 0)).': '.$e->getMessage(), LOG_WARNING);
+		}
+	}
+
+	/**
+	 * Detect Dolibarr provisional references.
+	 *
+	 * @param string $ref Reference candidate.
+	 * @return bool
+	 */
+	private static function isProvisionalRef(string $ref): bool
+	{
+		$ref = trim($ref);
+		if ($ref === '') {
+			return false;
+		}
+		return (bool) preg_match('/^[\(]?PROV/i', $ref);
+	}
+
+	/**
+	 * Replace a provisional invoice ref with a regular next invoice number.
+	 * Useful to repair legacy rows where payment closed an invoice before validation succeeded.
+	 *
+	 * @param DoliDB         $db      Database handler.
+	 * @param Facture        $invoice Invoice to normalize.
+	 * @param User           $user    Current sync user.
+	 * @param TalerOrderLink $link    Related taler link for logging context.
+	 * @return bool                  True when ref was changed.
+	 */
+	private static function normalizeInvoiceReferenceIfProvisional(DoliDB $db, Facture $invoice, User $user, TalerOrderLink $link): bool
+	{
+		$currentRef = (string) ($invoice->ref ?? '');
+		if (!self::isProvisionalRef($currentRef)) {
+			return false;
+		}
+		if (!$user->hasRight('facture', 'creer')) {
+			dol_syslog(__METHOD__.' skip normalize provisional invoice ref for order '.$link->taler_order_id.' because user #'.((int) $user->id).' has no facture->creer right', LOG_WARNING);
+			return false;
+		}
+
+		$thirdparty = new Societe($db);
+		if ($thirdparty->fetch((int) $invoice->socid) <= 0) {
+			dol_syslog(__METHOD__.' failed to fetch thirdparty #'.((int) $invoice->socid).' for invoice #'.((int) $invoice->id).' (order '.$link->taler_order_id.')', LOG_WARNING);
+			return false;
+		}
+
+		$newRef = (string) $invoice->getNextNumRef($thirdparty, 'next');
+		if ($newRef === '' || self::isProvisionalRef($newRef)) {
+			dol_syslog(__METHOD__.' could not compute non-provisional ref for invoice #'.((int) $invoice->id).' (order '.$link->taler_order_id.')', LOG_WARNING);
+			return false;
+		}
+
+		$resRefSet = $invoice->setValueFrom('ref', $newRef, '', 0, '', '', $user, 'BILL_MODIFY');
+		if ($resRefSet <= 0) {
+			dol_syslog(__METHOD__.' failed to set invoice ref '.$currentRef.' -> '.$newRef.' for invoice #'.((int) $invoice->id).' (order '.$link->taler_order_id.'): '.($invoice->error ?: $db->lasterror()), LOG_WARNING);
+			return false;
+		}
+
+		// Legacy repair: a previously paid draft can have no date_valid.
+		if (empty($invoice->date_validation) && empty($invoice->date_valid) && (int) ($invoice->status ?? $invoice->statut ?? 0) >= Facture::STATUS_VALIDATED) {
+			$fallbackTs = !empty($invoice->date) ? (int) $invoice->date : dol_now();
+			$sql = "UPDATE ".MAIN_DB_PREFIX."facture SET date_valid = '".$db->idate($fallbackTs)."', fk_user_valid = ".((int) $user->id)." WHERE rowid = ".((int) $invoice->id)." AND date_valid IS NULL";
+			$db->query($sql); // best-effort repair; no hard failure if date already set
+		}
+
+		$invoice->fetch((int) $invoice->id);
+		dol_syslog(__METHOD__.' normalized provisional invoice ref '.$currentRef.' -> '.((string) ($invoice->ref ?? $newRef)).' for order '.$link->taler_order_id, LOG_INFO);
+		return true;
+	}
+
+	/**
 	 * Helper returning the first non-empty scalar value.
 	 *
 	 * @param mixed ...$values Values to inspect in order.
@@ -601,6 +826,136 @@ class TalerOrderLink extends CommonObject
 	}
 
 	/**
+	 * Convert Taler amount-like values into canonical CUR:value[.fraction] strings when possible.
+	 *
+	 * @param mixed $candidate Amount candidate.
+	 * @return string
+	 */
+	private static function amountToRawString(mixed $candidate): string
+	{
+		if (is_array($candidate)) {
+			$parsed = self::extractAmount($candidate);
+			return (string) ($parsed['amount_str'] ?? '');
+		}
+		return self::coalesceString($candidate);
+	}
+
+	/**
+	 * Normalize refund details payload into a list of associative arrays.
+	 *
+	 * @param mixed $details Raw refund details from API payload.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function normalizeRefundDetails(mixed $details): array
+	{
+		$list = [];
+		if (is_array($details)) {
+			$list = $details;
+		} elseif (is_object($details)) {
+			$list = self::normalizeToArray($details);
+		}
+
+		if (empty($list)) {
+			return [];
+		}
+
+		$isAssoc = array_keys($list) !== range(0, count($list) - 1);
+		if ($isAssoc) {
+			$list = [$list];
+		}
+
+		$normalized = [];
+		foreach ($list as $row) {
+			$item = self::normalizeToArray(is_object($row) ? $row : (is_array($row) ? $row : null));
+			if (!empty($item)) {
+				$normalized[] = $item;
+			}
+		}
+		return $normalized;
+	}
+
+	/**
+	 * Persist refund metadata that can come from payment/status/refund payloads.
+	 *
+	 * @param self               $link       Link being updated.
+	 * @param array<string,mixed> $statusData Status payload.
+	 * @param DoliDB             $db         DB handler for datetime conversion.
+	 * @return void
+	 */
+	private static function applyRefundMetadata(self $link, array $statusData, DoliDB $db): void
+	{
+			$refundPendingFlag = self::parseBoolish($statusData['refund_pending'] ?? null);
+		if ($refundPendingFlag !== null) {
+			$link->taler_refund_pending = (int) $refundPendingFlag;
+		}
+
+		$refundTotalRaw = self::amountToRawString($statusData['refund_amount'] ?? $statusData['amount_refunded'] ?? null);
+		if ($refundTotalRaw !== '') {
+			$link->taler_refunded_total = $refundTotalRaw;
+		}
+
+		$refundTakenRaw = self::amountToRawString($statusData['refund_taken'] ?? $statusData['amount_refund_taken'] ?? null);
+		if ($refundTakenRaw !== '') {
+			$link->taler_refund_taken_total = $refundTakenRaw;
+		}
+
+		$details = self::normalizeRefundDetails($statusData['refund_details'] ?? null);
+		if (!empty($details)) {
+			$link->taler_refund_details_json = json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+			$last = null;
+			$lastTs = null;
+			foreach ($details as $detail) {
+				$ts = self::parseTimestamp($detail['timestamp'] ?? $detail['execution_time'] ?? $detail['time'] ?? null);
+				if ($last === null) {
+					$last = $detail;
+					$lastTs = $ts;
+					continue;
+				}
+				if ($ts !== null && ($lastTs === null || $ts >= $lastTs)) {
+					$last = $detail;
+					$lastTs = $ts;
+				}
+			}
+
+			if ($last !== null) {
+				$lastReason = self::coalesceString($last['reason'] ?? null, $last['comment'] ?? null);
+				if ($lastReason !== '') {
+					$link->taler_refund_last_reason = $lastReason;
+				}
+				$lastAmountRaw = self::amountToRawString($last['amount'] ?? $last['refund_amount'] ?? null);
+				if ($lastAmountRaw !== '') {
+					$link->taler_refund_last_amount = $lastAmountRaw;
+				}
+				if ($lastTs) {
+					$link->taler_refund_last_at = $db->idate($lastTs);
+				}
+			}
+		}
+
+		// Fallback for webhook payloads with compact top-level refund fields.
+		$fallbackReason = self::coalesceString(
+			$statusData['reason'] ?? null,
+			$statusData['refund_reason'] ?? null
+		);
+		if ($fallbackReason !== '' && empty($link->taler_refund_last_reason)) {
+			$link->taler_refund_last_reason = $fallbackReason;
+		}
+
+		$fallbackAmount = self::amountToRawString(
+			$statusData['refund_amount'] ?? $statusData['amount_refunded'] ?? $statusData['refund'] ?? null
+		);
+		if ($fallbackAmount !== '' && empty($link->taler_refund_last_amount)) {
+			$link->taler_refund_last_amount = $fallbackAmount;
+		}
+
+		$fallbackTs = self::parseTimestamp($statusData['timestamp'] ?? $statusData['refund_timestamp'] ?? null);
+		if ($fallbackTs && empty($link->taler_refund_last_at)) {
+			$link->taler_refund_last_at = $db->idate($fallbackTs);
+		}
+	}
+
+	/**
 	 * Format a decimal amount into Taler amount string (CUR:value[.fraction]).
 	 *
 	 * @param string $currency ISO currency code
@@ -627,6 +982,155 @@ class TalerOrderLink extends CommonObject
 	}
 
 	/**
+	 * Public wrapper to format a decimal amount for Taler API payloads.
+	 *
+	 * @param string $currency ISO currency code.
+	 * @param float  $amount   Decimal amount in major units.
+	 * @return string
+	 */
+	public static function toTalerAmountString(string $currency, float $amount): string
+	{
+		return self::formatAmountString($currency, $amount);
+	}
+
+	/**
+	 * Convert an amount string (CUR:value[.fraction]) into float major units.
+	 *
+	 * @param string|null $amountString Amount string candidate.
+	 * @return float|null               Parsed value or null if not parseable.
+	 */
+	public static function amountStringToFloat(?string $amountString): ?float
+	{
+		$amountString = trim((string) $amountString);
+		if ($amountString === '') {
+			return null;
+		}
+		$parsed = self::extractAmount($amountString);
+		if (!isset($parsed['value']) || $parsed['value'] === null) {
+			return null;
+		}
+		return self::amountToFloat($parsed);
+	}
+
+	/**
+	 * Compute monetary snapshot used for refund eligibility checks.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function getRefundAmountsSnapshot(): array
+	{
+		$orderRaw = self::coalesceString($this->order_amount_str ?? null, $this->deposit_total_str ?? null);
+		$refundedRaw = self::coalesceString($this->taler_refunded_total ?? null);
+
+		$orderParsed = self::extractAmount($orderRaw !== '' ? $orderRaw : null);
+		$refundedParsed = self::extractAmount($refundedRaw !== '' ? $refundedRaw : null);
+
+		$currency = (string) ($orderParsed['currency'] ?? '');
+		if ($currency === '') {
+			$currency = (string) ($refundedParsed['currency'] ?? '');
+		}
+		if ($currency === '' && !empty($this->order_currency)) {
+			$currency = strtoupper((string) $this->order_currency);
+		}
+
+		$orderTotal = isset($orderParsed['value']) && $orderParsed['value'] !== null
+			? self::amountToFloat($orderParsed)
+			: null;
+		$refundedTotal = isset($refundedParsed['value']) && $refundedParsed['value'] !== null
+			? self::amountToFloat($refundedParsed)
+			: 0.0;
+
+		$remaining = null;
+		if ($orderTotal !== null) {
+			$remaining = max(0.0, $orderTotal - max(0.0, (float) $refundedTotal));
+		}
+
+		return array(
+			'currency' => $currency,
+			'order_total' => $orderTotal,
+			'refunded_total' => $refundedTotal,
+			'remaining_total' => $remaining,
+			'remaining_amount_str' => ($remaining !== null && $currency !== '')
+				? self::formatAmountString($currency, $remaining)
+				: null,
+		);
+	}
+
+	/**
+	 * Evaluate whether we can still create a Taler refund from this link snapshot.
+	 *
+	 * @param int|null $nowTs Optional unix timestamp used for comparisons.
+	 * @return array<string,mixed>
+	 */
+	public function getRefundPolicy(?int $nowTs = null): array
+	{
+		$nowTs = $nowTs ?? dol_now();
+		$status = strtolower(trim((string) ($this->merchant_status_raw ?? '')));
+		$state = (int) ($this->taler_state ?? 0);
+		$amounts = $this->getRefundAmountsSnapshot();
+
+		$deadlineTs = self::parseTimestamp($this->taler_refund_deadline ?? null);
+		$deadlinePassed = ($deadlineTs !== null && $nowTs > $deadlineTs);
+
+		$policy = array(
+			'eligible' => false,
+			'code' => 'blocked_unknown',
+			'state' => $state,
+			'status' => $status,
+			'deadline_ts' => $deadlineTs,
+			'deadline_passed' => $deadlinePassed,
+			'currency' => (string) ($amounts['currency'] ?? ''),
+			'order_total' => $amounts['order_total'] ?? null,
+			'refunded_total' => $amounts['refunded_total'] ?? null,
+			'remaining_total' => $amounts['remaining_total'] ?? null,
+			'remaining_amount_str' => $amounts['remaining_amount_str'] ?? null,
+			'message_key' => 'TalerRefundBlockedUnknown',
+		);
+
+		if (empty($this->taler_order_id) || empty($this->taler_instance)) {
+			$policy['code'] = 'blocked_missing_order';
+			$policy['message_key'] = 'TalerRefundBlockedMissingOrder';
+			return $policy;
+		}
+
+		if ($deadlinePassed) {
+			$policy['code'] = 'blocked_deadline';
+			$policy['message_key'] = 'TalerRefundBlockedDeadline';
+			return $policy;
+		}
+
+		if (in_array($status, array('expired', 'aborted'), true) || in_array($state, array(90, 91), true)) {
+			$policy['code'] = 'blocked_state';
+			$policy['message_key'] = 'TalerRefundBlockedState';
+			return $policy;
+		}
+
+		if (in_array($status, array('unpaid', 'claimable', 'claimed'), true) || in_array($state, array(10, 15, 20), true)) {
+			$policy['code'] = 'blocked_not_paid';
+			$policy['message_key'] = 'TalerRefundBlockedNotPaid';
+			return $policy;
+		}
+
+		$remaining = $amounts['remaining_total'];
+		if ($remaining !== null && (float) $remaining <= 0.00000001) {
+			$policy['code'] = 'blocked_no_remaining';
+			$policy['message_key'] = 'TalerRefundBlockedNoRemaining';
+			return $policy;
+		}
+
+		if (!empty($amounts['order_total']) && empty($amounts['currency'])) {
+			$policy['code'] = 'blocked_missing_currency';
+			$policy['message_key'] = 'TalerRefundBlockedMissingCurrency';
+			return $policy;
+		}
+
+		$policy['eligible'] = true;
+		$policy['code'] = 'eligible';
+		$policy['message_key'] = 'TalerRefundEligible';
+		return $policy;
+	}
+
+	/**
 	 * Normalize a candidate order identifier to Taler constraints.
 	 *
 	 * @param string $candidate Raw identifier.
@@ -647,6 +1151,74 @@ class TalerOrderLink extends CommonObject
 			$candidate = substr($candidate, 0, 120);
 		}
 		return $candidate;
+	}
+
+	/**
+	 * Detect provisional Dolibarr references like "(PROV 26)" or "PROV26".
+	 *
+	 * @param string $value Candidate reference.
+	 * @return bool
+	 */
+	private static function looksLikeProvisionalRef(string $value): bool
+	{
+		$value = trim($value);
+		if ($value === '') {
+			return false;
+		}
+
+		return (bool) preg_match('/^\(?\s*PROV\b/i', $value);
+	}
+
+	/**
+	 * Generate a Taler order identifier in the format YYYYMMDD-xxxxxx.
+	 *
+	 * The suffix is a 6-digit numeric hash derived from timestamp + business name.
+	 * A retry attempt may be mixed in to avoid collisions while keeping the format.
+	 *
+	 * @param Commande $cmd     Source Dolibarr order.
+	 * @param int      $attempt Collision retry counter (0 for first attempt).
+	 * @return string
+	 */
+	private static function generateTalerOrderIdForCommande(Commande $cmd, int $attempt = 0): string
+	{
+		global $conf, $mysoc;
+
+		$ts = self::parseTimestamp($cmd->date_creation ?? null);
+		if (!$ts) {
+			$ts = self::parseTimestamp($cmd->date_commande ?? null);
+		}
+		if (!$ts) {
+			$ts = self::parseTimestamp($cmd->date ?? null);
+		}
+		if (!$ts) {
+			$ts = self::parseTimestamp($cmd->tms ?? null);
+		}
+		if (!$ts) {
+			$ts = dol_now();
+		}
+
+		$businessName = '';
+		if (isset($mysoc) && is_object($mysoc) && !empty($mysoc->name)) {
+			$businessName = trim((string) $mysoc->name);
+		}
+		if ($businessName === '' && !empty($conf->global->MAIN_INFO_SOCIETE_NOM)) {
+			$businessName = trim((string) $conf->global->MAIN_INFO_SOCIETE_NOM);
+		}
+		if ($businessName === '') {
+			$businessName = 'dolibarr';
+		}
+
+		$prefix = date('Ymd', (int) $ts);
+		$seed = (string) ((int) $ts).'|'.$businessName;
+		if ($attempt > 0) {
+			$seed .= '|'.$attempt;
+		}
+
+		$hashNum = sprintf('%u', crc32($seed));
+		$suffix = substr($hashNum, -6);
+		$suffix = str_pad($suffix, 6, '0', STR_PAD_LEFT);
+
+		return $prefix.'-'.$suffix;
 	}
 
 	/**
@@ -814,11 +1386,15 @@ class TalerOrderLink extends CommonObject
 	private static function buildOrderSummary(Commande $cmd): string
 	{
 		$summary = '';
-		$candidates = array(
-			isset($cmd->note_public) ? dol_string_nohtmltag((string) $cmd->note_public, 0) : '',
-			isset($cmd->ref_client) ? dol_string_nohtmltag((string) $cmd->ref_client, 0) : '',
-			isset($cmd->ref) ? dol_string_nohtmltag((string) $cmd->ref, 0) : '',
-		);
+		if (!self::looksLikeProvisionalRef((string) ($cmd->ref ?? ''))) {
+			$summary = trim((string) dol_string_nohtmltag((string) ($cmd->ref ?? ''), 0));
+		}
+
+		$candidates = array();
+		if ($summary === '' && !self::looksLikeProvisionalRef((string) ($cmd->ref_client ?? ''))) {
+			$candidates[] = isset($cmd->ref_client) ? dol_string_nohtmltag((string) $cmd->ref_client, 0) : '';
+		}
+		$candidates[] = isset($cmd->note_public) ? dol_string_nohtmltag((string) $cmd->note_public, 0) : '';
 		foreach ($candidates as $candidate) {
 			$candidate = trim((string) $candidate);
 			if ($candidate !== '') {
@@ -851,10 +1427,21 @@ class TalerOrderLink extends CommonObject
 		array           $contractTerms,
 		array           $statusData
 	): ?Commande {
+		self::ensureUserRightsLoaded($user);
+
 		$orderId = $link->fk_commande ? (int) $link->fk_commande : 0;
 		if ($orderId > 0) {
 			$commande = new Commande($db);
 			if ($commande->fetch($orderId) > 0) {
+				$currentStatus = (int) ($commande->status ?? $commande->statut ?? 0);
+				if ($currentStatus === 0) {
+					$resValidExisting = $commande->valid($user);
+					if ($resValidExisting > 0) {
+						$commande->fetch($orderId);
+					} else {
+						dol_syslog(__METHOD__.' validate_existing_failed for order '.$link->taler_order_id.' (#'.$orderId.'): '.($commande->error ?: $db->lasterror()), LOG_WARNING);
+					}
+				}
 				return $commande;
 			}
 		}
@@ -929,7 +1516,12 @@ class TalerOrderLink extends CommonObject
 		}
 
 		$commande->update_price(1);
-		$commande->valid($user);
+		$resValid = $commande->valid($user);
+		if ($resValid <= 0) {
+			dol_syslog(__METHOD__.' validate_failed for order '.$link->taler_order_id.' (#'.((int) $commande->id).'): '.($commande->error ?: $db->lasterror()), LOG_WARNING);
+		} else {
+			$commande->fetch((int) $commande->id);
+		}
 
 		return $commande;
 	}
@@ -951,10 +1543,25 @@ class TalerOrderLink extends CommonObject
 		Commande        $commande,
 		array           $statusData
 	): ?Facture {
+		self::ensureUserRightsLoaded($user);
+
 		dol_syslog(__METHOD__.' existing fk_facture='.(int) ($link->fk_facture ?? 0).' for order '.$link->taler_order_id, LOG_DEBUG);
 		if (!empty($link->fk_facture)) {
 			$invoice = new Facture($db);
 			if ($invoice->fetch((int) $link->fk_facture) > 0) {
+				$currentRef = (string) ($invoice->ref ?? '');
+				$currentStatus = (int) ($invoice->status ?? $invoice->statut ?? 0);
+				if ($currentStatus === 0) {
+					$resValidExisting = $invoice->validate($user);
+					if ($resValidExisting > 0) {
+						$invoice->fetch((int) $link->fk_facture);
+					} else {
+						dol_syslog(__METHOD__.' validate_existing_failed for invoice #'.((int) $invoice->id).' (order '.$link->taler_order_id.'): '.($invoice->error ?: $db->lasterror()), LOG_WARNING);
+					}
+				}
+				if (self::isProvisionalRef($currentRef) || self::isProvisionalRef((string) ($invoice->ref ?? ''))) {
+					self::normalizeInvoiceReferenceIfProvisional($db, $invoice, $user, $link);
+				}
 				return $invoice;
 			}
 		}
@@ -975,7 +1582,15 @@ class TalerOrderLink extends CommonObject
 			$invoice->date_lim_reglement = $datePaidTs;
 			$invoice->update($user, 1);
 		}
-		$invoice->validate($user);
+		$resValidate = $invoice->validate($user);
+		if ($resValidate <= 0) {
+			dol_syslog(__METHOD__.' validate_failed for invoice #'.((int) $invoice->id).' (order '.$link->taler_order_id.'): '.($invoice->error ?: $db->lasterror()), LOG_WARNING);
+		} else {
+			$invoice->fetch((int) $invoice->id);
+		}
+		if (self::isProvisionalRef((string) ($invoice->ref ?? ''))) {
+			self::normalizeInvoiceReferenceIfProvisional($db, $invoice, $user, $link);
+		}
 		return $invoice;
 	}
 
@@ -1001,6 +1616,12 @@ class TalerOrderLink extends CommonObject
 			if ($paiement->fetch((int) $link->fk_paiement) > 0) {
 				return $paiement;
 			}
+		}
+
+		$invoiceStatus = (int) ($invoice->status ?? $invoice->statut ?? 0);
+		if ($invoiceStatus === Facture::STATUS_DRAFT || self::isProvisionalRef((string) ($invoice->ref ?? ''))) {
+			dol_syslog(__METHOD__.' skip payment creation for order '.$link->taler_order_id.' because invoice #'.((int) $invoice->id).' is not properly validated (status='.$invoiceStatus.', ref='.(string) ($invoice->ref ?? '').')', LOG_WARNING);
+			return null;
 		}
 
 		$paymentModeId = self::resolvePaymentModeId();
@@ -1040,6 +1661,82 @@ class TalerOrderLink extends CommonObject
 	}
 
 	/**
+	 * Persist wallet payout progress of a credit note as native Dolibarr repayments.
+	 *
+	 * This updates llx_paiement/llx_paiement_facture so the standard credit-note card
+	 * correctly shows "Already paid back" and "Remaining amount to refund".
+	 *
+	 * @param DoliDB   $db            Database connection.
+	 * @param Facture  $creditNote    Validated credit-note invoice.
+	 * @param User     $user          Current user executing the sync.
+	 * @param float    $paidOutAmount Total amount already paid out by wallets (positive).
+	 * @param int|null $paidAtTs      Optional payout timestamp.
+	 * @return int                    1 if a new repayment was created, 0 if nothing to do, -1 on error.
+	 */
+	public static function syncCreditNotePayoutToDolibarr(
+		DoliDB $db,
+		Facture $creditNote,
+		User $user,
+		float $paidOutAmount,
+		?int $paidAtTs = null
+	): int {
+		$creditId = (int) ($creditNote->id ?? 0);
+		if ($creditId <= 0 || (int) ($creditNote->type ?? 0) !== (int) Facture::TYPE_CREDIT_NOTE) {
+			return 0;
+		}
+
+		$targetPaidOut = (float) max(0.0, price2num($paidOutAmount, 'MT'));
+		if ($targetPaidOut <= 0.0) {
+			return 0;
+		}
+
+		$currentPaidRaw = (float) price2num($creditNote->getSommePaiement(), 'MT');
+		$currentPaidOut = $currentPaidRaw < 0.0 ? abs($currentPaidRaw) : 0.0;
+		$delta = (float) price2num($targetPaidOut - $currentPaidOut, 'MT');
+		if ($delta <= 0.00000001) {
+			return 0;
+		}
+
+		$paymentModeId = self::resolvePaymentModeId();
+		if ($paymentModeId === null) {
+			dol_syslog(__METHOD__.' missing payment mode to sync credit note '.$creditId, LOG_WARNING);
+			return -1;
+		}
+
+		$bankAccountId = (int) (self::resolveClearingAccountId() ?? 0);
+		if ($bankAccountId <= 0) {
+			dol_syslog(__METHOD__.' missing GNU Taler clearing account to sync credit note '.$creditId, LOG_WARNING);
+			return -1;
+		}
+
+		$payoutDate = ($paidAtTs !== null && $paidAtTs > 0) ? $paidAtTs : dol_now();
+		$label = 'Taler wallet payout '.($creditNote->ref ?: ('#'.$creditId));
+		$policyLabel = 'DOLI: For refunds we always use the GNU Taler Clearing account';
+
+		$paiement = new Paiement($db);
+		$paiement->datepaye = $payoutDate;
+		$paiement->paiementid = $paymentModeId;
+		$paiement->fk_account = $bankAccountId;
+		$paiement->amounts = array($creditId => -$delta);
+		$paiement->note_public = $label.' - '.$policyLabel;
+
+		$paymentId = $paiement->create($user, 1);
+		if ($paymentId <= 0) {
+			dol_syslog(__METHOD__.' failed to create repayment for credit note '.$creditId.': '.$paiement->error, LOG_ERR);
+			return -1;
+		}
+		$paiement->id = $paymentId;
+
+		$bankLineId = $paiement->addPaymentToBank($user, 'payment', $label.' (GNU Taler Clearing account)', $bankAccountId, '', '');
+		if ($bankLineId <= 0) {
+			dol_syslog(__METHOD__.' repayment created without bank line for credit note '.$creditId.': '.$paiement->error, LOG_WARNING);
+		}
+
+		dol_syslog(__METHOD__.' recorded payout delta='.$delta.' for credit note '.$creditId, LOG_INFO);
+		return 1;
+	}
+
+	/**
 	 * Constructor
 	 *
 	 * @param DoliDB $db Database connector
@@ -1056,6 +1753,56 @@ class TalerOrderLink extends CommonObject
 			if (isset($v['enabled']) && empty($v['enabled'])) {
 				unset($this->fields[$k]);
 			}
+		}
+		$this->filterFieldsByExistingColumns();
+	}
+
+	/**
+	 * Drop field definitions that are not present in the current SQL schema.
+	 *
+	 * This keeps list/card pages operational when a module update introduced new
+	 * columns but the SQL migration was not executed yet.
+	 *
+	 * @return void
+	 */
+	private function filterFieldsByExistingColumns(): void
+	{
+		$tableName = MAIN_DB_PREFIX.$this->table_element;
+		if ($tableName === '' || empty($this->fields)) {
+			return;
+		}
+
+		if (!isset(self::$tableColumnsCache[$tableName])) {
+			$known = array();
+			$resql = $this->db->query('SHOW COLUMNS FROM '.$tableName);
+			if ($resql) {
+				while ($obj = $this->db->fetch_object($resql)) {
+					$col = (string) ($obj->Field ?? '');
+					if ($col !== '') {
+						$known[$col] = true;
+					}
+				}
+				$this->db->free($resql);
+			} else {
+				dol_syslog(__METHOD__.' unable to inspect columns for '.$tableName.': '.$this->db->lasterror(), LOG_WARNING);
+			}
+			self::$tableColumnsCache[$tableName] = $known;
+		}
+
+		$knownColumns = self::$tableColumnsCache[$tableName];
+		if (empty($knownColumns)) {
+			return;
+		}
+
+		$removed = array();
+		foreach (array_keys($this->fields) as $fieldName) {
+			if (!isset($knownColumns[$fieldName])) {
+				unset($this->fields[$fieldName]);
+				$removed[] = $fieldName;
+			}
+		}
+		if (!empty($removed)) {
+			dol_syslog(__METHOD__.' ignored missing columns on '.$tableName.': '.implode(',', $removed), LOG_WARNING);
 		}
 	}
 
@@ -1229,6 +1976,21 @@ class TalerOrderLink extends CommonObject
 			break;
 		}
 		$parsedAmount = self::extractAmount($statusAmount);
+		if (empty($parsedAmount['amount_str'])) {
+			// Fallback for payloads that expose only deposit_total but not amount/contract amount.
+			$depositCandidate = $statusData['deposit_total'] ?? $statusData['total_amount'] ?? null;
+			$parsedDepositAmount = self::extractAmount($depositCandidate);
+			$depositFloat = self::amountToFloat($parsedDepositAmount);
+			$existingOrderFloat = self::amountStringToFloat((string) ($link->order_amount_str ?? ''));
+			$canBackfillFromDeposit = (
+				!empty($parsedDepositAmount['amount_str'])
+				&& $depositFloat > 0.00000001
+				&& ($existingOrderFloat === null || $existingOrderFloat <= 0.00000001)
+			);
+			if ($canBackfillFromDeposit) {
+				$parsedAmount = $parsedDepositAmount;
+			}
+		}
 		if (!empty($parsedAmount['amount_str'])) {
 			$link->order_amount_str = (string) $parsedAmount['amount_str'];
 		}
@@ -1303,8 +2065,9 @@ class TalerOrderLink extends CommonObject
 			$link->taler_state = $stateMap[strtolower($statusText)];
 		}
 
-		if (isset($statusData['wired'])) {
-			$link->taler_wired = (int) ((bool) $statusData['wired']);
+			$wiredFlag = self::parseBoolish($statusData['wired'] ?? null);
+		if ($wiredFlag !== null) {
+			$link->taler_wired = (int) $wiredFlag;
 		}
 		if (!empty($statusData['wtid'])) {
 			$link->taler_wtid = (string) $statusData['wtid'];
@@ -1326,12 +2089,7 @@ class TalerOrderLink extends CommonObject
 		if ($paidTs) {
 			$link->taler_paid_at = $db->idate($paidTs);
 		}
-		if (isset($statusData['refund_pending'])) {
-			$link->taler_refund_pending = (int) ((bool) $statusData['refund_pending']);
-		}
-		if (!empty($statusData['refund_amount'] ?? $statusData['amount_refunded'] ?? '')) {
-			$link->taler_refunded_total = (string) ($statusData['refund_amount'] ?? $statusData['amount_refunded']);
-		}
+		self::applyRefundMetadata($link, $statusData, $db);
 
 		if (!empty($statusData['idempotency_key'])) {
 			$link->idempotency_key = (string) $statusData['idempotency_key'];
@@ -1409,6 +2167,8 @@ class TalerOrderLink extends CommonObject
 			dol_syslog(__METHOD__.' missing order_id in payload', LOG_ERR);
 			return -1;
 		}
+		// Payment upsert handles the "paid" stage (and is also reused by refund/wire paths).
+		// Do not require wire evidence here: normal paid orders usually have wired=false and empty wire_details.
 
 		$contractData = self::normalizeToArray($statusData['contract_terms'] ?? $statusData['contract'] ?? null);
 		$merchantData = self::normalizeToArray($statusData['merchant'] ?? null);
@@ -1580,8 +2340,9 @@ class TalerOrderLink extends CommonObject
 		}
 		$link->merchant_status_raw = $statusText;
 
-		if (isset($statusData['wired'])) {
-			$link->taler_wired = (int) ((bool) $statusData['wired']);
+			$wiredFlag = self::parseBoolish($statusData['wired'] ?? null);
+		if ($wiredFlag !== null) {
+			$link->taler_wired = (int) $wiredFlag;
 		}
 		if (!empty($statusData['wtid'])) {
 			$link->taler_wtid = (string) $statusData['wtid'];
@@ -1589,12 +2350,7 @@ class TalerOrderLink extends CommonObject
 		if (!empty($statusData['exchange_url'])) {
 			$link->taler_exchange_url = (string) $statusData['exchange_url'];
 		}
-		if (isset($statusData['refund_pending'])) {
-			$link->taler_refund_pending = (int) ((bool) $statusData['refund_pending']);
-		}
-		if (!empty($statusData['refund_amount'] ?? $statusData['amount_refunded'] ?? '')) {
-			$link->taler_refunded_total = (string) ($statusData['refund_amount'] ?? $statusData['amount_refunded']);
-		}
+		self::applyRefundMetadata($link, $statusData, $db);
 
 		$link->last_status_check_at = $db->idate(dol_now());
 
@@ -1799,8 +2555,150 @@ class TalerOrderLink extends CommonObject
 
 		$link->taler_state = 50;
 		$link->merchant_status_raw = (string) ($statusData['status'] ?? $statusData['order_status'] ?? 'wired');
-		if (isset($statusData['refund_pending'])) {
-			$link->taler_refund_pending = (int) ((bool) $statusData['refund_pending']);
+		self::applyRefundMetadata($link, $statusData, $db);
+		$link->last_status_check_at = $db->idate(dol_now());
+
+		$resUpdate = $link->update($user, 1);
+		if ($resUpdate <= 0) {
+			dol_syslog(__METHOD__.' failed to persist link '.$orderId.': '.($link->error ?: $db->lasterror()), LOG_ERR);
+			return -1;
+		}
+
+		dol_syslog(__METHOD__.' completed for order '.$orderId, LOG_INFO);
+		return 1;
+	}
+
+	/**
+	 * Upsert triggered when Taler notifies that a refund was approved.
+	 *
+	 * @param DoliDB       $db             DB handler
+	 * @param array|object $statusResponse Raw refund webhook payload
+	 * @param User         $user           Current user
+	 *
+	 * @return int 1=OK, 0=ignored, -1=error
+	 */
+	public static function upsertFromTalerOfRefund(DoliDB $db, $statusResponse, User $user): int
+	{
+		$statusData = self::normalizeToArray($statusResponse);
+		if (empty($statusData)) {
+			dol_syslog(__METHOD__.' empty status payload', LOG_WARNING);
+			return -1;
+		}
+
+		$orderId = (string) ($statusData['order_id'] ?? $statusData['orderId'] ?? '');
+		if ($orderId === '') {
+			dol_syslog(__METHOD__.' missing order_id in payload', LOG_ERR);
+			return -1;
+		}
+
+		$contractData = self::normalizeToArray($statusData['contract_terms'] ?? $statusData['contract'] ?? null);
+		$merchantData = self::normalizeToArray($statusData['merchant'] ?? null);
+		$contractMerchantData = self::normalizeToArray($contractData['merchant'] ?? null);
+
+		$instance = (string) (
+			$statusData['merchant_instance']
+			?? ($merchantData['instance'] ?? $merchantData['id'] ?? '')
+			?? ($contractMerchantData['instance'] ?? $contractMerchantData['id'] ?? '')
+		);
+
+		$config = null;
+		if ($instance !== '') {
+			$config = self::fetchConfigForInstance($db, $instance);
+		}
+		if (!$config) {
+			$cfgErr = null;
+			$config = TalerConfig::fetchSingletonVerified($db, $cfgErr);
+			if (!$config || empty($config->verification_ok)) {
+				dol_syslog(__METHOD__.' configuration not available: '.($cfgErr ?: 'unknown error'), LOG_ERR);
+				return -1;
+			}
+			$instance = (string) $config->username;
+		}
+
+		if ($instance !== '' && empty($statusData['merchant_instance'])) {
+			$statusData['merchant_instance'] = $instance;
+		}
+		if (!empty($contractData)) {
+			$statusData['contract_terms'] = $contractData;
+		}
+
+		// Refund webhook payload is compact; enrich with authoritative status when possible.
+		try {
+			$client = $config->talerMerchantClient();
+			$fetchedStatus = $client->getOrderStatus($orderId, array('allow_refunded_for_repurchase' => 'YES'));
+			if (is_array($fetchedStatus) && !empty($fetchedStatus)) {
+				$fetchedStatus['order_id'] = $fetchedStatus['order_id'] ?? $orderId;
+				if (empty($fetchedStatus['merchant_instance']) && $instance !== '') {
+					$fetchedStatus['merchant_instance'] = $instance;
+				}
+				if (!empty($contractData) && empty($fetchedStatus['contract_terms'])) {
+					$fetchedStatus['contract_terms'] = $contractData;
+				}
+				if (!isset($fetchedStatus['refund_amount']) && isset($statusData['refund_amount'])) {
+					$fetchedStatus['refund_amount'] = $statusData['refund_amount'];
+				}
+				$statusData = array_replace($statusData, $fetchedStatus);
+			}
+		} catch (Throwable $e) {
+			dol_syslog(__METHOD__.' getOrderStatus failed for '.$orderId.': '.$e->getMessage(), LOG_WARNING);
+		}
+
+			$hasRefundEvidence = self::payloadHasRefundEvidence($statusData);
+			$statusText = (string) ($statusData['status'] ?? $statusData['order_status'] ?? '');
+			$refundAmountCandidate = $statusData['refund_amount'] ?? $statusData['amount_refunded'] ?? $statusData['refund'] ?? null;
+			$refundAmountRaw = '';
+		if (is_array($refundAmountCandidate)) {
+			$parsed = self::extractAmount($refundAmountCandidate);
+			$refundAmountRaw = (string) ($parsed['amount_str'] ?? '');
+		} else {
+			$refundAmountRaw = self::coalesceString($refundAmountCandidate);
+		}
+		if ($statusText === '' && $hasRefundEvidence) {
+			$statusData['status'] = 'refunded';
+		}
+		if (!array_key_exists('refund_pending', $statusData) && self::parseBoolish($statusData['refunded'] ?? null) === true) {
+			$statusData['refund_pending'] = false;
+		}
+			$statusKey = strtolower(trim((string) ($statusData['status'] ?? $statusData['order_status'] ?? '')));
+		if (!$hasRefundEvidence && $statusKey !== 'refunded') {
+			dol_syslog(__METHOD__.' ignored for '.$orderId.' because payload has no concrete refund evidence', LOG_WARNING);
+			return 0;
+		}
+
+			$resPayment = self::upsertFromTalerOfPayment($db, $statusData, $user);
+		if ($resPayment < 0) {
+			dol_syslog(__METHOD__.' aborted because payment upsert failed for '.$orderId, LOG_ERR);
+			return -1;
+		}
+
+		$link = new self($db);
+		$loaded = $link->fetchByInstanceOrderId($instance, $orderId);
+		if ($loaded <= 0) {
+			dol_syslog(__METHOD__.' unable to locate order link for '.$instance.'#'.$orderId, $loaded < 0 ? LOG_ERR : LOG_WARNING);
+			return $loaded < 0 ? -1 : 0;
+		}
+		if (empty($link->id)) {
+			$link->id = $link->rowid;
+		}
+
+		self::applyRefundMetadata($link, $statusData, $db);
+
+		$statusText = (string) ($statusData['status'] ?? $statusData['order_status'] ?? 'refunded');
+		if ($statusText === '') {
+			$statusText = 'refunded';
+		}
+		$link->merchant_status_raw = $statusText;
+
+		$isRefunded = (
+			strtolower($statusText) === 'refunded'
+			|| !empty($statusData['refunded'])
+			|| $refundAmountRaw !== ''
+		);
+		if ($isRefunded && (int) $link->taler_state < 70) {
+			$link->taler_state = 70;
+		}
+		if ($isRefunded && !array_key_exists('refund_pending', $statusData)) {
+			$link->taler_refund_pending = 0;
 		}
 		$link->last_status_check_at = $db->idate(dol_now());
 
@@ -1932,22 +2830,8 @@ class TalerOrderLink extends CommonObject
 			}
 		}
 
-		// Prepare order identifier with conflict resolution
-		$candidateIds = array(
-			self::sanitizeOrderIdCandidate((string) ($cmd->ref_client ?? '')),
-			self::sanitizeOrderIdCandidate((string) ($cmd->ref ?? '')),
-			self::sanitizeOrderIdCandidate('CMD-'.$cmd->id),
-		);
-		$orderId = '';
-		foreach ($candidateIds as $cand) {
-			if ($cand !== '') {
-				$orderId = $cand;
-				break;
-			}
-		}
-		if ($orderId === '') {
-			$orderId = 'CMD-'.$cmd->id;
-		}
+		// Generate Taler-style order identifier (avoid provisional Dolibarr refs).
+		$orderId = self::generateTalerOrderIdForCommande($cmd);
 
 		$link = new self($db);
 		$linkRowId = 0;
@@ -1965,13 +2849,10 @@ class TalerOrderLink extends CommonObject
 			// Ensure uniqueness of order id for this instance if the candidate is already linked elsewhere
 			$tmpLink = new self($db);
 			$finalOrderId = $orderId;
-			$attempt = 1;
+			$attempt = 0;
 			while ($tmpLink->fetchByInstanceOrderId($instance, $finalOrderId) > 0 && (int) $tmpLink->fk_commande !== (int) $cmd->id) {
 				$attempt++;
-				$finalOrderId = self::sanitizeOrderIdCandidate($orderId.'-'.$attempt);
-				if ($finalOrderId === '') {
-					$finalOrderId = 'CMD-'.$cmd->id.'-'.$attempt;
-				}
+				$finalOrderId = self::generateTalerOrderIdForCommande($cmd, $attempt);
 			}
 			$orderId = $finalOrderId;
 		}
@@ -1994,7 +2875,25 @@ class TalerOrderLink extends CommonObject
 			$postOrder['delivery_date'] = dol_print_date($cmd->date_livraison, 'dayrfc');
 		}
 		if (!empty($cmd->date_lim_reglement)) {
-			$postOrder['pay_deadline'] = dol_print_date($cmd->date_lim_reglement, 'dayrfc');
+			$payDeadlineTs = self::parseTimestamp($cmd->date_lim_reglement);
+			if ($payDeadlineTs) {
+				$postOrder['pay_deadline'] = array('t_s' => $payDeadlineTs);
+			}
+		}
+		$refundDeadlineTs = null;
+		if (isset($cmd->_taler_refund_deadline_ts)) {
+			$refundDeadlineTs = self::parseTimestamp($cmd->_taler_refund_deadline_ts);
+		}
+		if ($refundDeadlineTs !== null && $refundDeadlineTs > 0) {
+			$postOrder['refund_deadline'] = array('t_s' => $refundDeadlineTs);
+		}
+
+		$wireDeadlineTs = null;
+		if (isset($cmd->_taler_wire_transfer_deadline_ts)) {
+			$wireDeadlineTs = self::parseTimestamp($cmd->_taler_wire_transfer_deadline_ts);
+		}
+		if ($wireDeadlineTs !== null && $wireDeadlineTs > 0) {
+			$postOrder['wire_transfer_deadline'] = array('t_s' => $wireDeadlineTs);
 		}
 
 		$requestPayload = array('order' => $postOrder);
@@ -2115,7 +3014,8 @@ class TalerOrderLink extends CommonObject
 		];
 		$link->merchant_status_raw = $statusText;
 		$link->taler_state = $stateMap[strtolower($statusText)] ?? 10;
-		$link->taler_wired = (int) ((bool) ($statusData['wired'] ?? false));
+			$wiredFlag = self::parseBoolish($statusData['wired'] ?? null);
+			$link->taler_wired = (int) (($wiredFlag !== null) ? $wiredFlag : false);
 		if (!empty($statusData['wtid'])) {
 			$link->taler_wtid = (string) $statusData['wtid'];
 		}

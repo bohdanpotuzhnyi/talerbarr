@@ -1374,6 +1374,7 @@ class TalerConfig extends CommonObject
 	 *
 	 * Checks:
 	 *  - talermerchanturl is a valid/normalized URL and /config returns 200
+	 *  - /config currency matches Dolibarr currency (or configured alias)
 	 *  - username is URL-safe
 	 *  - GET {base}/{private|instances/{username}}/private/categories with Authorization works (200)
 	 *
@@ -1412,10 +1413,34 @@ class TalerConfig extends CommonObject
 
 		// 1.1) /config must be reachable
 		$cfgUrl = rtrim($baseUrl, '/').'/config';
+		$backendConfig = [];
 		try {
-			$this->talerMerchantClient->getBackendConfig();
+			$backendConfig = $this->talerMerchantClient->getBackendConfig();
 		} catch (\Exception $e) {
 			$error = 'Cannot reach '.$cfgUrl.' - '.$e->getMessage();
+			return false;
+		}
+
+		// 1.2) Currency compatibility check (Dolibarr base currency vs Taler /config currency)
+		$merchantCurrency = isset($backendConfig['currency']) ? strtoupper(trim((string) $backendConfig['currency'])) : '';
+		if ($merchantCurrency === '') {
+			$error = 'Taler /config response did not include a valid currency code';
+			return false;
+		}
+
+		$dolibarrCurrency = self::getDolibarrCurrency();
+		$aliasCurrency = isset($this->taler_currency_alias) ? strtoupper(trim((string) $this->taler_currency_alias)) : '';
+
+		$currencyMatches = ($merchantCurrency === $dolibarrCurrency);
+		if (!$currencyMatches && $aliasCurrency !== '') {
+			$currencyMatches = ($merchantCurrency === $aliasCurrency);
+		}
+
+		if (!$currencyMatches) {
+			$error = 'Currency mismatch between Dolibarr and Taler merchant config: Dolibarr='
+				.$dolibarrCurrency.', Taler='.$merchantCurrency
+				.'. Configure the same currency, or set "Taler currency alias" to "'.$merchantCurrency
+				.'" when mapping a Taler test currency.';
 			return false;
 		}
 

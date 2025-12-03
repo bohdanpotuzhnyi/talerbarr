@@ -1,0 +1,43 @@
+---
+# GitHub Actions runner for module CI via Podman
+name: Podman CI
+# Controls when the workflow will run
+on:
+  # workflow called by the parent workflow ci.yml
+  workflow_call:
+  # can run job manually
+  workflow_dispatch:
+
+concurrency:
+  group: podman-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref
+    }}
+  cancel-in-progress: true
+env:
+  GITHUB_JSON: ${{ toJSON(github) }}  # Helps in debugging Github Action
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  podman-ci:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - name: Checkout module
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+          podman --version
+
+      - name: Run module Podman CI
+        env:
+          DOLIBARR_BRANCH: 22.0.3
+          DB: mysql
+          TRAVIS_PHP_VERSION: 8.4
+          PODMAN_NETWORK: bridge
+        run: |
+          chmod +x ./devtools/podman/run-tests-podman.sh
+          ./devtools/podman/run-tests-podman.sh --local-module

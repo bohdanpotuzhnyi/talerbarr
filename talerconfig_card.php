@@ -113,6 +113,7 @@ $backtopage = GETPOST('backtopage', 'alpha');					// if not set, a default page 
 $backtopageforcancel = GETPOST('backtopageforcancel', 'alpha');	// if not set, $backtopage will be used
 $optioncss = GETPOST('optioncss', 'aZ'); // Option for the css output (always '' except when 'print')
 $dol_openinpopup = GETPOST('dol_openinpopup', 'aZ09');
+$backurlforlist = dol_buildpath('/talerbarr/talerconfig_card.php', 1).'?action=create';
 
 // Initialize a technical objects
 $object = new TalerConfig($db);
@@ -304,12 +305,14 @@ if ($action == 'create') {
 }
 $help_url = '';
 
-llxHeader('', $title, $help_url, '', 0, 0, '', '', '', 'mod-talerbarr page-card');
+$morecss = array('/custom/talerbarr/css/talerbarr.css');
+llxHeader('', $title, $help_url, '', 0, 0, array(), $morecss, '', 'mod-talerbarr page-card');
 
 print '<script>
 jQuery(function($){
   var $form = $("form[action=\'"+'.json_encode($_SERVER["PHP_SELF"]).'+ "\']");
   if (!$form.length) return;
+  var twoFaPageUrl = '.json_encode(dol_buildpath('/talerbarr/talerconfig_2fa.php', 1)).';
 
   // Track which submit button was clicked (Save vs Create), useful to restore classes
   var $clickedBtn = null;
@@ -349,6 +352,60 @@ jQuery(function($){
       $form.append($f);
     }
     return $f;
+  }
+
+  function randomHex(len){
+    var chars = "0123456789abcdef";
+    var out = "";
+    if (window.crypto && window.crypto.getRandomValues) {
+      var arr = new Uint8Array(len);
+      window.crypto.getRandomValues(arr);
+      for (var i = 0; i < len; i++) out += chars.charAt(arr[i] & 15);
+      return out;
+    }
+    for (var j = 0; j < len; j++) out += chars.charAt(Math.floor(Math.random() * 16));
+    return out;
+  }
+
+  function buildChallengeBaseUrl(baseUrl, username){
+    var root = (baseUrl || "").replace(/\\/+$/, "");
+    return root + "/instances/" + encodeURIComponent(username) + "/challenge/";
+  }
+
+  function buildPendingContext(baseUrl, username, tokenUrl, basicAuth, body, challengeResponse){
+    var entries = [];
+    try {
+      var fd = new FormData($form.get(0));
+      fd.forEach(function(v, k){
+        if (k === "taler_password") return;
+        entries.push([k, String(v)]);
+      });
+    } catch (e) {}
+
+    return {
+      v: 1,
+      createdAt: Date.now(),
+      tokenUrl: tokenUrl,
+      challengeBaseUrl: buildChallengeBaseUrl(baseUrl, username),
+      basicAuth: basicAuth,
+      tokenRequestBody: body,
+      challengeResponse: challengeResponse || {},
+      formAction: ($form.attr("action") || window.location.pathname),
+      formData: entries
+    };
+  }
+
+  function redirectToTwoFa(ctx){
+    var ctxId = "ctx" + randomHex(20);
+    var storageKey = "talerbarr.tokenctx." + ctxId;
+    try {
+      window.sessionStorage.setItem(storageKey, JSON.stringify(ctx));
+    } catch (e) {
+      alert("Unable to prepare 2FA flow in browser storage: " + (e && e.message ? e.message : e));
+      return false;
+    }
+    window.location.href = twoFaPageUrl + "?ctx=" + encodeURIComponent(ctxId);
+    return true;
   }
 
   async function getTokenThenSubmit(ev, mode){
@@ -397,25 +454,41 @@ jQuery(function($){
       });
 
       var basic = btoa(username + ":" + pwd);
+      var authHeader = "Basic " + basic;
 
       var resp = await fetch(tokenUrl, {
         method: "POST",
         headers: {
           "Accept": "application/json",
           "Content-Type": "application/json",
-          "Authorization": "Basic " + basic
+          "Authorization": authHeader
         },
         body
       });
+
+      var data = {};
+      try { data = await resp.json(); } catch(e){}
+
+      if (resp.status === 202) {
+        if (!data || !Array.isArray(data.challenges) || !data.challenges.length) {
+          alert("Two-factor authentication is required, but no challenges were returned.");
+          $btn.attr("class", originalClass);
+          return;
+        }
+
+        // Keep only in browser storage for a short-lived 2FA handoff.
+        var pendingCtx = buildPendingContext(baseUrl, username, tokenUrl, authHeader, body, data);
+        $("input[name=\'taler_password\']").val("");
+        $btn.attr("class", originalClass);
+        redirectToTwoFa(pendingCtx);
+        return;
+      }
 
       if (!resp.ok) {
         alert("Token endpoint returned HTTP " + resp.status);
         $btn.attr("class", originalClass);
         return;
       }
-
-      var data = {};
-      try { data = await resp.json(); } catch(e){}
 
       // Accept both legacy "token" and newer "access_token"
       var raw = "";
@@ -517,9 +590,6 @@ if ($action == 'create') {
 	unset($object->fields['entity']);
 	unset($object->fields['fk_bank_account']);
 	unset($object->fields['fk_default_customer']);
-	print '<style>.field_expiration{display:none !important;}</style>';
-	print '<style>.field_talertoken{display:none !important;}</style>';
-
 	// Common attributes
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_add.tpl.php';
 
@@ -542,7 +612,7 @@ if ($action == 'create') {
 	print '</tr>';
 
 	$syncTiming = GETPOSTISSET('sync_on_paid') ? GETPOSTINT('sync_on_paid') : (int) (!empty($object->sync_on_paid) ? $object->sync_on_paid : 0);
-	print '<tr class="field_sync_on_paid" style="display:none">';
+	print '<tr class="field_sync_on_paid tb-hidden-row">';
 	print '  <td class="fieldrequired">'.$form->textwithpicto($langs->trans("SyncTiming"), $langs->trans("SyncTimingHelp")).'</td>';
 	print '  <td class="valuefieldcreate">';
 	print '    <select name="sync_on_paid" id="sync_on_paid" class="flat">';
@@ -579,16 +649,6 @@ if ($action == 'create') {
 	$customerFilter = '((s.client:IN:1,2,3) AND (s.status:=:1))';
 	print $form->select_company($defaultCustomerId, 'fk_default_customer', $customerFilter, 1, '', 0, array(), 0, 'maxwidth300 widthcentpercentminusx');
 	print '</td></tr>';
-
-	// style for the switch
-	print '<style>
-.switch{position:relative;display:inline-block;width:46px;height:24px;vertical-align:middle}
-.switch input{opacity:0;width:0;height:0}
-.switch .slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#263d5c;transition:.2s;border-radius:24px}
-.switch .slider:before{position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;background:#fff;transition:.2s;border-radius:50%}
-.switch input:checked + .slider{background:#0042b3}
-.switch input:checked + .slider:before{transform:translateX(22px)}
-</style>';
 
 	print '<script>
 jQuery(function($){
@@ -657,9 +717,6 @@ if (($id || $ref) && $action == 'edit') {
 	unset($object->fields['entity']);
 	unset($object->fields['fk_bank_account']);
 	unset($object->fields['fk_default_customer']);
-	print '<style>.field_expiration{display:none !important;}</style>';
-	print '<style>.field_talertoken{display:none !important;}</style>';
-
 	// Common attributes
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_edit.tpl.php';
 
@@ -682,7 +739,7 @@ if (($id || $ref) && $action == 'edit') {
 	print '</tr>';
 
 	$syncTiming = GETPOSTISSET('sync_on_paid') ? GETPOSTINT('sync_on_paid') : (int) (!empty($object->sync_on_paid) ? $object->sync_on_paid : 0);
-	print '<tr class="field_sync_on_paid" style="display:none">';
+	print '<tr class="field_sync_on_paid tb-hidden-row">';
 	print '  <td class="fieldrequired">'.$form->textwithpicto($langs->trans("SyncTiming"), $langs->trans("SyncTimingHelp")).'</td>';
 	print '  <td class="valuefieldcreate">';
 	print '    <select name="sync_on_paid" id="sync_on_paid" class="flat">';
@@ -719,16 +776,6 @@ if (($id || $ref) && $action == 'edit') {
 	$customerFilter = '((s.client:IN:1,2,3) AND (s.status:=:1))';
 	print $form->select_company($defaultCustomerId, 'fk_default_customer', $customerFilter, 1, '', 0, array(), 0, 'maxwidth300 widthcentpercentminusx');
 	print '</td></tr>';
-
-	// style for the switch
-	print '<style>
-.switch{position:relative;display:inline-block;width:46px;height:24px;vertical-align:middle}
-.switch input{opacity:0;width:0;height:0}
-.switch .slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#263d5c;transition:.2s;border-radius:24px}
-.switch .slider:before{position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;background:#fff;transition:.2s;border-radius:50%}
-.switch input:checked + .slider{background:#0042b3}
-.switch input:checked + .slider:before{transform:translateX(22px)}
-</style>';
 
 	print '<script>
 jQuery(function($){
@@ -873,9 +920,8 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 	print '<div class="fichecenter">';
 	print '<div class="fichehalfleft">';
-	//Hide underbanners
-	print '<style>div.underbanner.clearboth{display:none!important}</style>';
-	print '<div class="underbanner clearboth"></div>';
+		//Hide underbanners
+		print '<div class="underbanner clearboth tb-hide-underbanner"></div>';
 	print '<table class="border centpercent tableforfield">'."\n";
 
 	// Common attributes

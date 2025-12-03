@@ -146,10 +146,31 @@ function talerbarrDecodeWebhookJson(string $raw, ?string &$error = null, ?string
 		$candidates[] = ['body' => $trimmed, 'flags' => JSON_INVALID_UTF8_IGNORE];
 	}
 
+	// Some merchant webhook templates emit embedded objects with HTML-escaped quotes
+	// (for example: "contract_terms":{&quot;order_id&quot;:...}), which breaks top-level
+	// JSON parsing. Try a whole-body HTML entity decode as an additional fallback.
+	$htmlDecoded = html_entity_decode($trimmed, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+	if ($htmlDecoded !== $trimmed) {
+		$candidates[] = ['body' => $htmlDecoded, 'flags' => 0];
+		if (defined('JSON_INVALID_UTF8_IGNORE')) {
+			$candidates[] = ['body' => $htmlDecoded, 'flags' => JSON_INVALID_UTF8_IGNORE];
+		}
+	}
+
 	if ($escapedNested !== $trimmed) {
 		$candidates[] = ['body' => $escapedNested, 'flags' => 0];
 		if (defined('JSON_INVALID_UTF8_IGNORE')) {
 			$candidates[] = ['body' => $escapedNested, 'flags' => JSON_INVALID_UTF8_IGNORE];
+		}
+	}
+
+	if (isset($htmlDecoded) && is_string($htmlDecoded)) {
+		$escapedNestedHtmlDecoded = talerbarrEscapeNestedJsonStrings($htmlDecoded);
+		if ($escapedNestedHtmlDecoded !== $htmlDecoded) {
+			$candidates[] = ['body' => $escapedNestedHtmlDecoded, 'flags' => 0];
+			if (defined('JSON_INVALID_UTF8_IGNORE')) {
+				$candidates[] = ['body' => $escapedNestedHtmlDecoded, 'flags' => JSON_INVALID_UTF8_IGNORE];
+			}
 		}
 	}
 
@@ -473,6 +494,18 @@ switch ($type) {
 		break;
 
 	case 'refund':
+		$orderId = (string) ($payload['order_id'] ?? '');
+		dol_syslog('talerbarr webhook processing refund event for order '.$orderId, LOG_DEBUG);
+		$result = TalerOrderLink::upsertFromTalerOfRefund($db, $payload, $user);
+		if ($result < 0) {
+			talerbarrWebhookRespond(500, 'Failed to ingest refund event', ['order_id' => $orderId]);
+		}
+		if ($result === 0) {
+			talerbarrWebhookRespond(202, 'Refund event ignored', ['order_id' => $orderId]);
+		}
+		talerbarrWebhookRespond(202, 'Refund event processed', ['order_id' => $orderId]);
+		break;
+
 	case 'category_added':
 	case 'category_updated':
 	case 'category_deleted':

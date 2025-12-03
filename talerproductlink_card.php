@@ -142,7 +142,8 @@ if ($vatDiag['taler_rate'] !== null) {
 
 $title = $langs->trans("TalerProductLink").' #'.((int) $object->id);
 
-llxHeader('', $title, '', '', 0, 0, array(), array(), '');
+$morecss = array('/custom/talerbarr/css/talerbarr.css');
+llxHeader('', $title, '', '', 0, 0, array(), $morecss, '', 'mod-talerbarr page-productlink-card');
 
 if (!empty($back)) {
 	print '<a class="button" href="'.dol_escape_htmltag($back).'">'.$langs->trans("Back").'</a>';
@@ -162,23 +163,6 @@ if (isset($object->syncdirection_override)) {
 		$syncDirection = $langs->trans('PushDoliToTaler');
 	}
 }
-
-print '<style>
-.taler-card-wrap{margin:12px 0 18px;}
-.taler-card-heading{font-weight:600;margin:6px 0 6px;font-size:15px;display:flex;align-items:center;gap:8px;}
-.taler-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin:12px 0 18px;}
-.taler-info-card{border:1px solid #dfe3eb;border-radius:10px;padding:12px;background:#f9fbfd;box-shadow:0 1px 2px rgba(16,24,40,0.04);font-size:13px;}
-.taler-info-card h3{margin:0 0 6px;font-size:15px;display:flex;align-items:center;gap:6px;}
-.taler-info-list{list-style:none;padding:0;margin:0;}
-.taler-info-list li{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px dashed #e5e9f0;font-size:12px;}
-.taler-info-list li:last-child{border-bottom:none;}
-.taler-info-label{color:#4a505c;font-size:12px;}
-.taler-info-value{font-size:12px;font-weight:600;text-align:right;}
-.badge-status{padding:3px 10px;border-radius:12px;font-size:11px;color:#fff;}
-.badge-active{background:#2f8f46;}
-.badge-inactive{background:#c1121f;}
-.taler-section-title{font-size:15px;font-weight:600;margin:6px 0;}
-</style>';
 
 print load_fiche_titre($title, '', $object->picto);
 print dol_get_fiche_head();

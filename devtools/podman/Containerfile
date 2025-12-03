@@ -1,0 +1,108 @@
+# Containerfile
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+# Basic tools + PHP repo
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        software-properties-common \
+        gnupg \
+        curl \
+        wget \
+        git \
+        unzip \
+        rsync \
+        perl \
+        mariadb-server \
+        memcached \
+        pgloader \
+        postgresql \
+        postgresql-contrib \
+        apache2 && \
+    add-apt-repository -y ppa:ondrej/php && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        php8.4 \
+        php8.4-cli \
+        php8.4-curl \
+        php8.4-mysql \
+        php8.4-pgsql \
+        php8.4-gd \
+        php8.4-imap \
+        php8.4-intl \
+        php8.4-ldap \
+        php8.4-xml \
+        php8.4-mbstring \
+        php8.4-zip \
+        libapache2-mod-php8.4 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Composer
+RUN curl -sS https://getcomposer.org/installer -o /tmp/composer-setup.php && \
+    php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer && \
+    rm /tmp/composer-setup.php
+
+# PHP tools will be installed into Dolibarr's vendor dir later
+ENV PATH="/opt/dolibarr/htdocs/includes/bin:${PATH}"
+
+# Clone module directly into container (no host mount)
+RUN git clone --branch 22.0.3 --depth 1 https://github.com/Dolibarr/dolibarr.git /opt/dolibarr && \
+    git clone --depth 1 https://github.com/bohdanpotuzhnyi/talerbarr.git /opt/talerbarr-src && \
+    git clone git://git.taler.net/taler-typescript-core.git /opt/wallet-core
+
+# Prepare the apt for talerbarr module
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g pnpm && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+      make \
+      zip \
+      jq \
+      sqlite3 \
+      libsqlite3-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install taler-wallet-cli from wallet-core sources
+#ENV INSTALL_PREFIX=/usr/local
+#RUN cd /opt/wallet-core && \
+#    ./bootstrap && \
+#    ./configure --prefix=${INSTALL_PREFIX} && \
+#    make -j"$(nproc)" && \
+#    make install && \
+#    command -v taler-helper-sqlite3 && \
+#    command -v taler-wallet-cli
+
+# Another way to install it
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wget gnupg && \
+    mkdir -p /etc/apt/keyrings && \
+    wget -O /etc/apt/keyrings/taler-systems.gpg \
+      https://taler.net/taler-systems.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/taler-systems.gpg] https://deb.taler.net/apt/ubuntu/ noble main" \
+      > /etc/apt/sources.list.d/taler.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+      taler-wallet-cli && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Link the sqlite3 to the expected location
+#RUN ln -s /opt/wallet-core/packages/idb-bridge/taler-helper-sqlite3 \
+#          /usr/local/bin/taler-helper-sqlite3
+
+# Create workdir
+WORKDIR /opt/dolibarr
+
+# Simple entry script inside the container
+COPY ci-run.sh /usr/local/bin/ci-run.sh
+RUN chmod +x /usr/local/bin/ci-run.sh
+
+CMD ["ci-run.sh"]

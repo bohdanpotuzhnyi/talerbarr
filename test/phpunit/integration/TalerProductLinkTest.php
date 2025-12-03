@@ -16,7 +16,7 @@
  */
 
 /**
- *      \file       htdocs/custom/talerbarr/test/phpunit/TalerProductLinkTest.php
+ *      \file       htdocs/custom/talerbarr/test/phpunit/integration/TalerProductLinkTest.php
  *      \ingroup    test
  *      \brief      PHPUnit test for TalerBarr synchronisation
  *      \remarks    Run as CLI: phpunit TalerProductLinkTest.php
@@ -24,11 +24,12 @@
 
 global $conf, $user, $db, $langs;
 
-require_once dirname(__FILE__, 6).'/htdocs/master.inc.php';
-require_once dirname(__FILE__, 6).'/test/phpunit/CommonClassTest.class.php';
+require_once dirname(__FILE__, 7).'/htdocs/master.inc.php';
+require_once dirname(__FILE__, 7).'/test/phpunit/CommonClassTest.class.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/core/modules/modTalerBarr.class.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/class/talerproductlink.class.php';
 require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/class/talerconfig.class.php';
+require_once DOL_DOCUMENT_ROOT.'/custom/talerbarr/class/talermerchantclient.class.php';
 require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php'; // needed to activate the module
 
@@ -37,90 +38,6 @@ if (empty($user->id)) {
 	$user->fetch(1);
 	$user->loadRights();
 }
-
-
-if (!class_exists('TalerMerchantClient')) {
-	print "TalerMerchantClient is missing; creating a fake one\n";
-
-	/**
-	 * Very small in-memory fake that honours only the methods the test needs.
-	 */
-	class TalerMerchantClient
-	{
-		/** @var array<string,array> keyed by product_id */
-		private static array $store = [];
-
-		/**
-		 * @param string $baseUrl ignored
-		 * @param string $token   ignored
-		 */
-		public function __construct(string $baseUrl, string $token)
-		{
-			/* no-op */
-		}
-
-		/**
-		 * Simulate POST /products
-		 *
-		 * @param array $detail ProductDetail with mandatory product_id
-		 * @throws Exception on duplicate product_id
-		 * @return void
-		 */
-		public function addProduct(array $detail): void
-		{
-			if (empty($detail['product_id'])) {
-				throw new Exception('Missing product_id');
-			}
-			if (isset(self::$store[$detail['product_id']])) {
-				throw new Exception('HTTP 409');          // emulate conflict
-			}
-			self::$store[$detail['product_id']] = $detail;
-		}
-
-		/**
-		 * Simulate PATCH /products/{id}
-		 *
-		 * @param string $pid    product_id
-		 * @param array  $detail fields to merge
-		 * @throws Exception if product unknown
-		 * @return void
-		 */
-		public function updateProduct(string $pid, array $detail): void
-		{
-			if (!isset(self::$store[$pid])) {
-				throw new Exception('HTTP 404');
-			}
-			self::$store[$pid] = array_merge(self::$store[$pid], $detail);
-		}
-
-		/**
-		 * Simulate GET /products/{id}
-		 *
-		 * @param string $pid product_id
-		 * @throws Exception if product unknown
-		 * @return array
-		 */
-		public function getProduct(string $pid): array
-		{
-			if (!isset(self::$store[$pid])) {
-				throw new Exception('HTTP 404');
-			}
-			return self::$store[$pid];
-		}
-
-		/**
-		 * Simulate DELETE /products/{id}
-		 *
-		 * @param string $pid product_id
-		 * @return void
-		 */
-		public function deleteProduct(string $pid): void
-		{
-			unset(self::$store[$pid]);
-		}
-	}
-}
-
 /* --------------------------------------------------------------------------
  * 4. PHPUnit test-case
  * ------------------------------------------------------------------------ */

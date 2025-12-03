@@ -1,0 +1,162 @@
+.page-index .taler-home-wrap { margin-top: 8px; }
+.page-index .taler-home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.page-index .taler-home-grid--chart { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+.page-index .taler-home-grid--middle { grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
+.page-index .taler-home-grid--bottom { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+.page-index .taler-home-card { background: #fff; border: 1px solid #dfe3eb; border-radius: 10px; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); padding: 14px; }
+.page-index .taler-card-heading { display: flex; align-items: center; justify-content: space-between; font-weight: 600; margin: 0 0 8px; font-size: 15px; }
+.page-index .taler-card-heading .fa { margin-right: 6px; color: #3b4c70; }
+.page-index .taler-card-heading .right-actions a { margin-left: 6px; }
+.page-index .taler-chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.page-index .taler-chip-open { background: #eef2f7; color: #2f3440; border: 1px dashed #9ba4b5; }
+.page-index .taler-chip-ok { background: #2f8f46; color: #fff; }
+.page-index .taler-chip-warn { background: #c57b00; color: #fff; }
+.page-index .taler-chip-missing { background: #c1121f; color: #fff; }
+.page-index .taler-mini-card { border: 1px solid #e6eaf2; border-radius: 8px; padding: 10px; margin-bottom: 8px; background: #f9fbfd; }
+.page-index .taler-mini-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.page-index .taler-mini-title { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.page-index .taler-mini-fields { margin-top: 6px; font-size: 12px; }
+.page-index .taler-field-row { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px dashed #e2e7f0; }
+.page-index .taler-field-row:last-child { border-bottom: none; }
+.page-index .taler-field-label { color: #4a505c; }
+.page-index .taler-field-value { text-align: right; font-weight: 600; }
+.page-index .taler-section-empty { padding: 10px; border: 1px dashed #e2e7f0; border-radius: 8px; background: #f8fafc; color: #6b7280; font-size: 13px; }
+.page-index .taler-section-actions { margin-top: 4px; }
+.page-index .taler-section-actions a { margin-right: 6px; }
+.page-index .taler-meta { font-size: 12px; color: #6b7280; margin-top: 4px; }
+.page-index .taler-highlight { font-weight: 700; color: #1f2a44; }
+.page-index .taler-plain-list { margin: 0; padding: 0; list-style: none; }
+.page-index .taler-plain-list li { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e7f0; }
+.page-index .taler-plain-list li:last-child { border-bottom: none; }
+.page-index .taler-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 8px; }
+.page-index .taler-stat { border: 1px dashed #e2e7f0; border-radius: 8px; padding: 10px; background: #f9fbfd; text-align: center; }
+.page-index .taler-stat .label { color: #4a505c; font-size: 12px; }
+.page-index .taler-stat .value { font-size: 18px; font-weight: 700; color: #1f2a44; }
+.page-index .taler-chart-card { grid-column: 1 / -1; }
+.page-index .taler-chart-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; margin-bottom: 8px; }
+.page-index .taler-chart-legend-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid #e2e7f0; border-radius: 8px; background: #fff; }
+.page-index .taler-chart-legend .swatch { width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; display: inline-block; border: 1px solid #dfe3eb; }
+.page-index .taler-chart { display: grid; align-items: flex-end; gap: var(--taler-chart-gap, 10px); height: 240px; padding: 8px 4px; border: 1px dashed #e2e7f0; border-radius: 10px; background: #f9fbfd; grid-template-columns: repeat(var(--taler-chart-columns, 1), minmax(0, 1fr)); }
+.page-index .taler-chart-col { min-width: 0; text-align: center; }
+.page-index .taler-chart-bar { display: flex; flex-direction: column-reverse; justify-content: flex-start; align-items: stretch; border-radius: 6px 6px 0 0; overflow: hidden; background: linear-gradient(180deg, rgba(40, 48, 168, 0.08), rgba(82, 85, 151, 0.08)); }
+.page-index .taler-chart-seg { width: 100%; position: relative; transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease; cursor: pointer; }
+.page-index .taler-chart-seg:hover { transform: translateY(-2px) scaleX(1.06); box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35); opacity: 0.95; }
+.page-index .taler-chart-seg-empty { background: rgba(82, 85, 151, 0.08); box-shadow: inset 0 0 0 1px #e2e7f0; cursor: default; }
+.page-index .taler-chart-label { font-size: 11px; color: #4a505c; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page-index .taler-chart-empty { padding: 10px; border: 1px dashed #e2e7f0; border-radius: 8px; background: #f8fafc; color: #6b7280; font-size: 13px; text-align: center; }
+.page-index .taler-chart-tooltip { position: fixed; z-index: 9999; padding: 6px 8px; border-radius: 6px; font-size: 12px; line-height: 1.3; background: rgba(15, 23, 42, 0.95); color: #fff; box-shadow: 0 8px 15px rgba(15, 23, 42, 0.35); max-width: 220px; pointer-events: none; transform: translate(-50%, calc(-100% - 8px)); white-space: nowrap; }
+.page-index .taler-sync-debug { margin-top: 8px; padding: 8px; border: 1px dashed #e2e7f0; border-radius: 8px; background: #f8fafc; font-size: 11px; color: #374151; max-height: 220px; overflow: auto; }
+.page-index .taler-sync-debug pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
+.page-index .taler-collapsible { margin: 8px 0 0; border: 1px solid #dfe3eb; border-radius: 8px; background: #fff; }
+.page-index .taler-collapsible-summary { margin: 0; padding: 10px 12px; cursor: pointer; list-style: none; font-weight: 600; }
+.page-index .taler-collapsible-summary::-webkit-details-marker { display: none; }
+.page-index .taler-collapsible-summary::before { content: "\25B8"; margin-right: 8px; color: #3b4c70; }
+.page-index .taler-collapsible[open] .taler-collapsible-summary::before { content: "\25BE"; }
+.page-index .taler-collapsible-body { padding: 0 10px 10px; }
+.page-index .taler-sync-debug-collapsible { margin-top: 14px; }
+.page-index .taler-sync-debug-collapsible .taler-sync-debug { margin-top: 0; }
+.page-index .taler-select-inline { margin-right: 6px; }
+.page-index .taler-hidden { display: none; }
+.page-index .taler-inline-form { display: inline; }
+
+.page-card .field_expiration { display: none !important; }
+.page-card .field_talertoken { display: none !important; }
+.page-card .switch { position: relative; display: inline-block; width: 46px; height: 24px; vertical-align: middle; }
+.page-card .switch input { opacity: 0; width: 0; height: 0; }
+.page-card .switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #263d5c; transition: .2s; border-radius: 24px; }
+.page-card .switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #fff; transition: .2s; border-radius: 50%; }
+.page-card .switch input:checked + .slider { background: #0042b3; }
+.page-card .switch input:checked + .slider:before { transform: translateX(22px); }
+.page-card .tb-hidden-row { display: none; }
+.page-card .tb-hide-underbanner.underbanner.clearboth { display: none !important; }
+
+.page-orderlink-card .taler-flow-wrap { margin: 12px 0 18px; }
+.page-orderlink-card .taler-flow-heading { font-weight: 600; margin: 6px 0 6px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.page-orderlink-card .taler-flow-row { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; margin-bottom: 10px; }
+.page-orderlink-card .taler-flow-step { flex: 1 1 260px; min-width: 240px; background: #f8fafc; border: 1px solid #dfe3eb; border-radius: 10px; padding: 12px; position: relative; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); font-size: 13px; }
+.page-orderlink-card .taler-flow-step.flow-ok { border-color: #2f8f46; background: #f1f7f3; }
+.page-orderlink-card .taler-flow-step.flow-info { border-color: #2b6cb0; background: #f2f7ff; }
+.page-orderlink-card .taler-flow-step.flow-warn { border-color: #c57b00; background: #fff8ec; }
+.page-orderlink-card .taler-flow-step.flow-missing { border-color: #c1121f; background: #fff5f5; }
+.page-orderlink-card .taler-flow-step.flow-open { border-style: dashed; border-width: 2px; }
+.page-orderlink-card .taler-flow-step.flow-disabled { opacity: 0.65; }
+.page-orderlink-card .taler-flow-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.page-orderlink-card .taler-flow-title { display: flex; align-items: center; gap: 8px; }
+.page-orderlink-card .taler-flow-icon { font-size: 18px; color: #3b4c70; }
+.page-orderlink-card .taler-flow-badge { display: inline-block; padding: 3px 10px; font-size: 12px; border-radius: 20px; background: #eef2f7; margin-left: 6px; }
+.page-orderlink-card .flow-ok .taler-flow-badge { background: #2f8f46; color: #fff; }
+.page-orderlink-card .flow-info .taler-flow-badge { background: #2b6cb0; color: #fff; }
+.page-orderlink-card .flow-warn .taler-flow-badge { background: #c57b00; color: #fff; }
+.page-orderlink-card .flow-missing .taler-flow-badge { background: #c1121f; color: #fff; }
+.page-orderlink-card .taler-flow-label { font-size: 13px; font-weight: 700; margin: 0; }
+.page-orderlink-card .taler-flow-lines { font-size: 12px; color: #2f3440; line-height: 1.35; word-break: break-word; }
+.page-orderlink-card .taler-flow-lines div { padding: 2px 0; }
+.page-orderlink-card .taler-flow-action-row { display: inline-block; padding-top: 4px; }
+.page-orderlink-card .taler-refund-policy-toggle { display: inline-block; white-space: nowrap; margin: 2px 0 0; }
+.page-orderlink-card .taler-info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 18px; }
+.page-orderlink-card .taler-info-card { border: 1px solid #dfe3eb; border-radius: 8px; padding: 10px 12px; background: #fff; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); }
+.page-orderlink-card .taler-info-card h3 { margin: 0 0 6px; font-size: 15px; }
+.page-orderlink-card .taler-info-list { list-style: none; padding: 0; margin: 0; }
+.page-orderlink-card .taler-info-list li { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px dashed #e5e9f0; }
+.page-orderlink-card .taler-info-list li:last-child { border-bottom: none; }
+.page-orderlink-card .taler-info-label { color: #4a505c; font-size: 12px; }
+.page-orderlink-card .taler-info-value { font-size: 12px; font-weight: 600; text-align: right; }
+.page-orderlink-card .taler-section-title { font-size: 15px; font-weight: 600; margin: 6px 0; }
+.page-orderlink-card .taler-refund-panel { margin: 12px 0 18px; border: 1px solid #dfe3eb; border-radius: 10px; padding: 12px; background: #fff; }
+.page-orderlink-card .taler-refund-panel-toggleable { margin-top: 4px; }
+.page-orderlink-card .taler-refund-panel.is-eligible { border-color: #2f8f46; background: #f1f7f3; }
+.page-orderlink-card .taler-refund-panel.is-blocked { border-color: #c1121f; background: #fff5f5; }
+.page-orderlink-card .taler-refund-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.page-orderlink-card .taler-refund-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: #3a4050; margin-bottom: 8px; }
+.page-orderlink-card .taler-refund-message { font-size: 13px; margin-bottom: 8px; }
+.page-orderlink-card .taler-refund-fallback { font-size: 12px; color: #5f1320; margin-bottom: 8px; }
+.page-orderlink-card .taler-refund-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.page-orderlink-card .taler-refund-form .field-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
+.page-orderlink-card .taler-refund-form label { font-size: 12px; color: #374151; }
+.page-orderlink-card .taler-refund-form input { padding: 6px 8px; }
+.page-orderlink-card .taler-collapsible { margin: 8px 0 14px; border: 1px solid #dfe3eb; border-radius: 8px; background: #fff; }
+.page-orderlink-card .taler-collapsible-summary { margin: 0; padding: 10px 12px; cursor: pointer; list-style: none; }
+.page-orderlink-card .taler-collapsible-summary::-webkit-details-marker { display: none; }
+.page-orderlink-card .taler-collapsible-summary::before { content: "\25B8"; margin-right: 8px; color: #3b4c70; }
+.page-orderlink-card .taler-collapsible[open] .taler-collapsible-summary::before { content: "\25BE"; }
+.page-orderlink-card .taler-collapsible-body { padding: 0 10px 10px; }
+.page-orderlink-card .taler-debug-card { min-width: 280px; }
+.page-orderlink-card .taler-debug-card h3 { display: flex; align-items: center; gap: 6px; }
+.page-orderlink-card .taler-debug-subtitle { margin: 10px 0 6px; font-size: 12px; font-weight: 700; color: #374151; }
+.page-orderlink-card .taler-debug-meta { margin-top: 6px; font-size: 12px; color: #4b5563; }
+.page-orderlink-card .taler-debug-meta.error { color: #b42318; }
+.page-orderlink-card .taler-debug-url { text-align: left; word-break: break-all; }
+.page-orderlink-card .taler-debug-pre { margin: 8px 0 0; padding: 8px; border: 1px dashed #e2e7f0; border-radius: 8px; background: #f8fafc; font-size: 11px; color: #374151; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+.page-orderlink-card .taler-debug-inner-collapse { margin-top: 8px; }
+.page-orderlink-card .taler-debug-inner-collapse .taler-collapsible-summary { font-size: 12px; font-weight: 600; padding: 8px 10px; }
+.page-orderlink-card .taler-debug-inner-collapse .taler-collapsible-body { padding: 0 8px 8px; }
+
+.page-productlink-card .taler-card-wrap { margin: 12px 0 18px; }
+.page-productlink-card .taler-card-heading { font-weight: 600; margin: 6px 0 6px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.page-productlink-card .taler-info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 18px; }
+.page-productlink-card .taler-info-card { border: 1px solid #dfe3eb; border-radius: 10px; padding: 12px; background: #f9fbfd; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); font-size: 13px; }
+.page-productlink-card .taler-info-card h3 { margin: 0 0 6px; font-size: 15px; display: flex; align-items: center; gap: 6px; }
+.page-productlink-card .taler-info-list { list-style: none; padding: 0; margin: 0; }
+.page-productlink-card .taler-info-list li { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px dashed #e5e9f0; font-size: 12px; }
+.page-productlink-card .taler-info-list li:last-child { border-bottom: none; }
+.page-productlink-card .taler-info-label { color: #4a505c; font-size: 12px; }
+.page-productlink-card .taler-info-value { font-size: 12px; font-weight: 600; text-align: right; }
+.page-productlink-card .badge-status { padding: 3px 10px; border-radius: 12px; font-size: 11px; color: #fff; }
+.page-productlink-card .badge-active { background: #2f8f46; }
+.page-productlink-card .badge-inactive { background: #c1121f; }
+.page-productlink-card .taler-section-title { font-size: 15px; font-weight: 600; margin: 6px 0; }
+
+.page-2fa .taler-home-wrap { margin-top: 8px; max-width: 900px; }
+.page-2fa .taler-home-card { background: #fff; border: 1px solid #dfe3eb; border-radius: 10px; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); padding: 14px; }
+.page-2fa .tb2fa-progress { margin-bottom: 12px; }
+.page-2fa .tb2fa-progress-track { height: 10px; border-radius: 999px; background: #e9edf5; overflow: hidden; }
+.page-2fa .tb2fa-progress-fill { height: 100%; background: #2851a3; transition: width .2s ease; }
+.page-2fa .tb2fa-steps { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 12px; }
+.page-2fa .tb2fa-step { padding: 4px 8px; border-radius: 999px; border: 1px solid #e2e7f0; background: #f8fafc; color: #4a505c; }
+.page-2fa .tb2fa-step.done { border-color: #cde9d5; background: #f3fbf5; color: #1f6b35; }
+.page-2fa .tb2fa-step.pending { border-color: #d9e2f3; background: #f5f8ff; color: #2f487a; }
+.page-2fa .tb2fa-banner { padding: 10px; border-radius: 8px; border: 1px solid #e2e7f0; background: #f8fafc; color: #2f3440; }
+.page-2fa .tb2fa-banner-error { border-color: #f3c8cd; background: #fff5f6; color: #8d1f2c; }
+.page-2fa .tb2fa-note { margin-top: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid #e2e7f0; background: #f8fafc; color: #2f3440; }
+.page-2fa .tb2fa-note.error { border-color: #f3c8cd; background: #fff5f6; color: #8d1f2c; }
+.page-2fa .tb2fa-note.ok { border-color: #cde9d5; background: #f3fbf5; color: #1f6b35; }

@@ -97,6 +97,13 @@ Language files live under `/langs/`.  Contributions are welcome via pull request
 
 ---
 
+## Tests
+
+Test inventory and design notes are documented in:
+`htdocs/custom/talerbarr/test/TESTS.md`
+
+---
+
 ## Contributing
 
 * Fork → feature branch → PR.  Follow the Dolibarr coding style.

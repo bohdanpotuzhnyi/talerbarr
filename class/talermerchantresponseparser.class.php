@@ -4,12 +4,10 @@ declare(strict_types=1);
 /**
  * TalerMerchantResponseParser
  *
- * Lightweight validators/normalisers for responses returned by the GNU Taler
- * merchant backend. Each parser checks that the minimal contract described in
- * the public API documentation is present before the data is consumed by the
- * module.
+ * Lightweight validators/normalisers for responses returned by the GNU Taler
+ * merchant backend.
  *
- * All helpers return the (possibly normalised) payload or throw an
+ * All helpers return the payload or throw an
  * InvalidArgumentException when required fields are missing or of the wrong
  * type.
  */
@@ -107,7 +105,6 @@ class TalerMerchantResponseParser
 		if (!array_key_exists('description', $payload) || !is_string($payload['description']) || $payload['description'] === '') {
 			$payload['description'] = $payload['product_name'];
 		}
-		//TODO: Okay, amount string can be of next p
 		self::requireString($payload, 'description', 'product detail');
 		// unit_total_stock is preferred; fall back to total_stock when absent.
 		if (array_key_exists('unit_total_stock', $payload)) {
