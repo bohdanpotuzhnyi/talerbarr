@@ -148,7 +148,7 @@ before_install:
 
     echo "Calling start endpoint at ${START_URL}"
     START_BODY=$(mktemp)
-    START_CODE=$(curl -s -o "${START_BODY}" -w "%{http_code}" "${START_URL}" || true)
+    START_CODE=$(curl -s -X POST -o "${START_BODY}" -w "%{http_code}" "${START_URL}" || true)
     echo "Start response (HTTP ${START_CODE}):"
     cat "${START_BODY}" || true
     rm -f "${START_BODY}"
