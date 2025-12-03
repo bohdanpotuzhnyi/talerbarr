@@ -27,10 +27,7 @@ addons:
 env:
   global:
     # Set to true for very verbose output
-    - DEBUG=false
-    - COMPOSER_ALLOW_SUPERUSER=1
-    - TALER_STACK_MODE=sandcastle
-    - TALER_PODMAN_OVERRIDE_CONF=/tmp/taler-podman-containers.conf
+    - DEBUG=true
 
 cache:
   directories:
@@ -42,12 +39,12 @@ jobs:
   allow_failures:
     - php: 'latest'
   include:
-#    - stage: PHP min and max
-#      if: type = push
-#      php: '7.1'
-#      env:
-#        - DB=postgresql
-#        - TRAVIS_PHP_VERSION=7.1
+    - stage: PHP min and max
+      if: type = push
+      php: '7.1'
+      env:
+        - DB=postgresql
+        - TRAVIS_PHP_VERSION=7.1
     - stage: PHP min and max
       if: type = pull_request OR type = push
       php: '8.4'
@@ -73,7 +70,7 @@ before_install:
 
   - |
     echo "Prep travis for our module"
-    export DOLIBARR_BRANCH=${DOLIBARR_BRANCH:-22.0.0}
+    export DOLIBARR_BRANCH=${DOLIBARR_BRANCH:-22.0.3}
     sudo apt-get -qq install -y rsync
     export MODULE_DIR="$PWD"
 
@@ -85,7 +82,7 @@ before_install:
     rm -rf talerbarr
 
     echo "Cloning Dolibarr core $DOLIBARR_BRANCH..."
-    git clone --branch 22.0.2 --depth 1 https://github.com/Dolibarr/dolibarr.git talerbarr
+    git clone --branch 22.0.3 --depth 1 https://github.com/Dolibarr/dolibarr.git talerbarr
     cd talerbarr
 
     echo "Placing module into htdocs/custom/talerbarr..."
@@ -98,27 +95,13 @@ before_install:
     sudo rm -fr ~/.phpenv
     sudo rm -fr /root/.phpenv
     sudo add-apt-repository -y ppa:ondrej/php
-    echo "Adding curl 8+ apt repository"
-    sudo add-apt-repository -y ppa:curl/curl
     sudo apt-get -qq update
     echo TRAVIS_PHP_VERSION=$TRAVIS_PHP_VERSION
 
   - |
-    #    echo Install Taler Merchant
-    #    sudo install -d -m 0755 /etc/apt/keyrings
-    #    curl -fsSL https://taler.net/taler-systems.gpg | sudo tee /etc/apt/keyrings/taler-systems.gpg >/dev/null
-    #    echo "deb [signed-by=/etc/apt/keyrings/taler-systems.gpg] https://deb.taler.net/apt/ubuntu/ noble main" | sudo tee /etc/apt/sources.list.d/taler.list
-    #    sudo add-apt-repository -y universe
-    #    sudo apt-get update
-    #    sudo apt-get install -y taler-merchant
-
-  - |
     echo Install packages for PHP
     sudo apt-get -qq install -y curl pgloader memcached
-    CURL_VERSION=$(curl --version | head -n1 | awk '{print $2}')
-    if [ "${CURL_VERSION%%.*}" -lt 8 ]; then
-      echo "Distribution curl ${CURL_VERSION} detected (<8); keeping packaged build so libcurl retains FTP support."
-    fi
+
     if [ "$TRAVIS_PHP_VERSION" = '7.1' ]; then
       sudo apt-get -qq install -y unzip apache2 php7.1 php7.1-cli php7.1-curl php7.1-mysql php7.1-pgsql php7.1-gd php7.1-imap php7.1-intl php7.1-ldap php7.1-xml php7.1-mbstring php7.1-xml php7.1-zip libapache2-mod-php7.1
     fi
@@ -184,14 +167,10 @@ before_install:
       echo "Check pgloader version"
       pgloader --version
       #ps fauxww | grep postgres
+      ls /etc/postgresql/13/main/
 
-      # Detect installed PostgreSQL major version (e.g., 13/14/15) and use it
-      PGVER=$(psql --version | awk '{print $3}' | cut -d. -f1)
-      echo "Detected PostgreSQL major version: $PGVER"
-      ls /etc/postgresql/${PGVER}/main/ || true
-
-      sudo sed -i -e '/local.*peer/s/postgres/all/' -e 's/(peer|md5|scram-sha-256)/trust/g' /etc/postgresql/${PGVER}/main/pg_hba.conf
-      sudo cat /etc/postgresql/${PGVER}/main/pg_hba.conf
+      sudo sed -i -e '/local.*peer/s/postgres/all/' -e 's/peer\|md5/trust/g' /etc/postgresql/13/main/pg_hba.conf
+      sudo cat /etc/postgresql/13/main/pg_hba.conf
 
       sudo service postgresql restart
 
@@ -234,12 +213,6 @@ install:
     sudo composer -n config -g vendor-dir htdocs/includes
     sudo chmod -R a+rwx /home/travis/.config/composer
     echo
-
-    #sudo apt install composer
-    #composer -V
-    #sudo composer -n config -g vendor-dir htdocs/includes
-    #sudo chmod -R a+rwx /home/travis/.config/composer
-    #echo
 
   - |
     echo "Update Composer version and Install tools - PHP Unit, Parallel Lint, PHP CodeSniffer, PHP Vardump check - for $TRAVIS_PHP_VERSION"
@@ -609,9 +582,6 @@ script:
     php upgrade.php 21.0.0 22.0.0 ignoredbversion > $TRAVIS_BUILD_DIR/upgrade21002200.log || cat $TRAVIS_BUILD_DIR/upgrade21002200.log
     php upgrade2.php 21.0.0 22.0.0 > $TRAVIS_BUILD_DIR/upgrade21002200-2.log || cat $TRAVIS_BUILD_DIR/upgrade21002200-2.log
     php step5.php 21.0.0 22.0.0 > $TRAVIS_BUILD_DIR/upgrade21002200-3.log || cat $TRAVIS_BUILD_DIR/upgrade21002200-3.log
-    php upgrade.php 22.0.0 23.0.0 ignoredbversion > $TRAVIS_BUILD_DIR/upgrade22002300.log || cat $TRAVIS_BUILD_DIR/upgrade22002300.log
-    php upgrade2.php 22.0.0 23.0.0 > $TRAVIS_BUILD_DIR/upgrade22002300-2.log || cat $TRAVIS_BUILD_DIR/upgrade22002300-2.log
-    php step5.php 22.0.0 23.0.0 > $TRAVIS_BUILD_DIR/upgrade22002300-3.log || cat $TRAVIS_BUILD_DIR/upgrade22002300-3.log
     set +e
     echo
 
@@ -688,18 +658,7 @@ after_script:
     sudo tail -n 50 $TRAVIS_BUILD_DIR/documents/dolibarr.log
     echo "After script - Output last lines of apache error.log"
     sudo ls /var/log/apache2
-    sudo tail -n 80 /var/log/apache2/travis_error_log
-    echo "After script - Stop sandcastle container if present"
-    if command -v podman >/dev/null 2>&1; then
-      podman_env_cmd=(sudo env)
-      if [ -n "${TALER_PODMAN_OVERRIDE_CONF:-}" ]; then
-        podman_env_cmd+=("CONTAINERS_CONF_OVERRIDE=${TALER_PODMAN_OVERRIDE_CONF}")
-      fi
-      if "${podman_env_cmd[@]}" podman ps -a --format '{{.Names}}' | grep -q '^taler-sandcastle$'; then
-        "${podman_env_cmd[@]}" podman stop taler-sandcastle || true
-        "${podman_env_cmd[@]}" podman rm taler-sandcastle || true
-      fi
-    fi
+    sudo tail -n 200 /var/log/apache2/travis_error_log
 
 after_success:
   - |
@@ -717,14 +676,14 @@ after_failure:
     #done
     # Show Apache log file
     echo "Debugging information for file apache error.log"
-    sudo tail -n 80 /var/log/apache2/travis_error_log
+    sudo tail -n 200 /var/log/apache2/travis_error_log
     if [ "$DEBUG" = true ]; then
       # Dolibarr log file
       echo "Debugging information for file dolibarr.log (latest 50 lines)"
-      tail -n 80 $TRAVIS_BUILD_DIR/documents/dolibarr.log
+      tail -n 200 $TRAVIS_BUILD_DIR/documents/dolibarr.log
       # Database log file
       echo "Debugging information for file mysql error.log"
-      sudo tail -n 80 /var/log/mysql/error.log
+      sudo tail -n 200 /var/log/mysql/error.log
       # TODO: PostgreSQL log file
       echo
     fi
