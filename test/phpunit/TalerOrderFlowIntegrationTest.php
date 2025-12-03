@@ -11,9 +11,9 @@ declare(strict_types=1);
  * Expected environment variables:
  *  - TALER_INTEGRATION_TEST=1                 → opt-in for this heavy test
  *  - TALER_WALLET_CLI                         → path to taler-wallet-cli (if not on PATH)
- *  - TALER_EXCHANGE_URL                       → Exchange URL (default: http://127.0.0.1:16001/)
- *  - TALER_BANK_URL                           → Bank URL (default: http://127.0.0.1:16007/)
- *  - TALER_MERCHANT_URL                       → Merchant URL (default: http://127.0.0.1:16000/)
+ *  - TALER_EXCHANGE_URL                       → Exchange URL (default: http://exchange.test.taler.potuzhnyi.com/)
+ *  - TALER_BANK_URL                           → Bank URL (default: http://bank.test.taler.potuzhnyi.com/)
+ *  - TALER_MERCHANT_URL                       → Merchant URL (default: http://merchant.test.taler.potuzhnyi.com/)
  *  - TALER_MERCHANT_API_KEY                   → OAuth token for the merchant instance
  *  - TALER_INSTANCE                           → Merchant instance name (default: "sandbox")
  * Optional helpers when sandcastle-ng is used:
@@ -52,9 +52,9 @@ class TalerOrderFlowIntegrationTest extends CommonClassTest
 	private const WITHDRAW_AMOUNT = 'KUDOS:20';
 	private const DOL_ORDER_AMOUNT = 'KUDOS:5';
 	private const TALER_ORDER_AMOUNT = 'KUDOS:5';
-	private const DEFAULT_EXCHANGE_URL = 'http://127.0.0.1:16001/';
-	private const DEFAULT_BANK_URL = 'http://127.0.0.1:16007/';
-	private const DEFAULT_MERCHANT_URL = 'http://127.0.0.1:16000/';
+	private const DEFAULT_EXCHANGE_URL = 'http://exchange.test.taler.potuzhnyi.com/';
+	private const DEFAULT_BANK_URL = 'http://bank.test.taler.potuzhnyi.com/';
+	private const DEFAULT_MERCHANT_URL = 'http://merchant.test.taler.potuzhnyi.com/';
 	private const DEFAULT_MERCHANT_TOKEN = 'secret-token:sandbox';
 	private const DEFAULT_INSTANCE = 'sandbox';
 	private const DEFAULT_SANDBOX_CONTAINER = 'taler-sandcastle';

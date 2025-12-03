@@ -107,6 +107,7 @@ class TalerMerchantResponseParser
 		if (!array_key_exists('description', $payload) || !is_string($payload['description']) || $payload['description'] === '') {
 			$payload['description'] = $payload['product_name'];
 		}
+		//TODO: Okay, amount string can be of next p
 		self::requireString($payload, 'description', 'product detail');
 		// unit_total_stock is preferred; fall back to total_stock when absent.
 		if (array_key_exists('unit_total_stock', $payload)) {

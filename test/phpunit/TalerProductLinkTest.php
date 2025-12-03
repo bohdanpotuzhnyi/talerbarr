@@ -135,7 +135,7 @@ if (!class_exists('TalerMerchantClient')) {
 class TalerProductLinkTest extends CommonClassTest
 {
 	private const DEFAULT_TALER_INSTANCE = 'sandbox';
-	private const DEFAULT_TALER_BASEURL = 'http://127.0.0.1:16000/';
+	private const DEFAULT_TALER_BASEURL = 'http://merchant.test.taler.potuzhnyi.com/';
 	private const DEFAULT_TALER_TOKEN = 'secret-token:sandbox';
 	private const DEFAULT_TALER_PASSWORD = 'sandbox';
 

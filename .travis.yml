@@ -139,19 +139,44 @@ before_install:
     fi
 
   - |
-    echo "Bootstrap GNU Taler services for integration tests"
-    LOGFILE=/tmp/taler_stack.install.log
+    echo "Bootstrap GNU Taler services for integration tests (remote sandcastle)"
     set -eo pipefail
-    bash htdocs/custom/talerbarr/devtools/ci/install_taler_stack.sh >"$LOGFILE" 2>&1 &
-    INSTALL_PID=$!
-    # Heartbeat: tail last 100 lines every 60s to avoid CI timeout without flooding logs
-    while kill -0 "$INSTALL_PID" 2>/dev/null; do
-      tail -n 100 "$LOGFILE"
+    TALER_STACK_HOST=${TALER_STACK_HOST:-test.taler.potuzhnyi.com}
+    BASE_URL="http://${TALER_STACK_HOST}"
+    START_URL="${BASE_URL}/start"
+    STATUS_URL="${BASE_URL}/status"
+
+    echo "Calling start endpoint at ${START_URL}"
+    START_BODY=$(mktemp)
+    START_CODE=$(curl -s -o "${START_BODY}" -w "%{http_code}" "${START_URL}" || true)
+    echo "Start response (HTTP ${START_CODE}):"
+    cat "${START_BODY}" || true
+    rm -f "${START_BODY}"
+    if [ "${START_CODE}" != "200" ]; then
+      echo "Failed to trigger remote stack reset (HTTP ${START_CODE})"
+      exit 1
+    fi
+
+    echo "Polling status endpoint ${STATUS_URL} (up to 10 minutes)..."
+    DEADLINE=$((SECONDS + 600))
+    ATTEMPT=0
+    while true; do
+      ATTEMPT=$((ATTEMPT + 1))
+      STATUS_BODY=$(mktemp)
+      STATUS_CODE=$(curl -s -o "${STATUS_BODY}" -w "%{http_code}" "${STATUS_URL}" || true)
+      STATUS_TEXT=$(cat "${STATUS_BODY}" | tr -d '\r')
+      rm -f "${STATUS_BODY}"
+      echo "[${ATTEMPT}] HTTP ${STATUS_CODE} body='${STATUS_TEXT}'"
+      if [ "${STATUS_CODE}" = "200" ] && echo "${STATUS_TEXT}" | grep -qi 'active'; then
+        echo "Remote sandcastle is active."
+        break
+      fi
+      if [ "${SECONDS}" -ge "${DEADLINE}" ]; then
+        echo "Timeout waiting for remote sandcastle to become active."
+        exit 1
+      fi
       sleep 60
     done
-    wait "$INSTALL_PID"
-    echo "Sandcastle stack install logs (last 200 lines):"
-    tail -n 200 "$LOGFILE"
 
   - |
     echo Install pgsql if run is for pgsql
