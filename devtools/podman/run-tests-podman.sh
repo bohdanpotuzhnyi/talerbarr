@@ -31,8 +31,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Podman network mode (host often fixes DNS in corporate/VPN setups)
-PODMAN_NETWORK="${PODMAN_NETWORK:-host}"
+# Podman network mode
+PODMAN_NETWORK="${PODMAN_NETWORK:-slirp4netns}"
+
+# GitHub runners usually use rootless podman and reject "bridge"/"host".
+IS_ROOTLESS_PODMAN="$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null || echo false)"
+if [ "${IS_ROOTLESS_PODMAN}" = "true" ]; then
+  case "${PODMAN_NETWORK}" in
+    slirp4netns|pasta|none)
+      ;;
+    *)
+      echo "Rootless podman detected; overriding unsupported PODMAN_NETWORK='${PODMAN_NETWORK}' to 'slirp4netns'."
+      PODMAN_NETWORK="slirp4netns"
+      ;;
+  esac
+fi
 
 # Build image (only re-build when necessary)
 echo "== Building image ${IMAGE_NAME} =="

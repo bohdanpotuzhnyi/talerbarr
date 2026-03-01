@@ -37,7 +37,7 @@ jobs:
           DOLIBARR_BRANCH: 22.0.3
           DB: mysql
           TRAVIS_PHP_VERSION: 8.4
-          PODMAN_NETWORK: bridge
+          PODMAN_NETWORK: slirp4netns
         run: |
           chmod +x ./devtools/podman/run-tests-podman.sh
           ./devtools/podman/run-tests-podman.sh --local-module
