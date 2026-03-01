@@ -235,5 +235,12 @@ this the command has to be called from the Dolibarr root folder.
 The new stages have been introduced to test that refunds and wire transfers are working properly. Some problems with
  the webhook test of the wire transfer were faced, which is now described with the bug number #0011139, so this of course
 will not be requested. The possible problem is nearly fully connected to the fact how the taler exchange bank is configured 
-on the Taler demo system, because with simulation of info from the webhook tests are passing.
+on the Taler demo system, because with simulation of info from the webhook tests are passing, as shown on next picture.
+
+![Testing](./img3/github_test_suite.png)
+
+## Documentation
+
+Is as always available in the code, and can be generated using the phpDocumentor(as in the previous phases). In the next
+phase tutorials would be added, to ease the module onboarding.
 
