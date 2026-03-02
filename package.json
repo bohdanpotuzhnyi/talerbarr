@@ -1,6 +1,6 @@
 {
   "name": "talerbarr",
-  "version": "1.0.0",
+  "version": "0.3.0",
   "description": "> **Bridge your Dolibarr catalogue with the free‑software payment ecosystem powered by [GNU Taler](https://taler.net)**",
   "main": "index.js",
   "directories": {
@@ -15,8 +15,8 @@
     "url": "git+https://github.com/bohdanpotuzhnyi/talerbarr.git"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Potuzhnyi",
+  "license": "AGPL-3.0",
   "bugs": {
     "url": "https://github.com/bohdanpotuzhnyi/talerbarr/issues"
   },
