@@ -1,6 +1,6 @@
 {
   "name": "talerbarr",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "> **Bridge your Dolibarr catalogue with the free‑software payment ecosystem powered by [GNU Taler](https://taler.net)**",
   "main": "index.js",
   "directories": {

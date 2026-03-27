@@ -59,6 +59,20 @@ $listOfModuleContent = [
  */
 $exclude_list = [
 	'/^.git$/',
+	'/^\.github$/',
+	'/^\.tx$/',
+	'/^devtools$/',
+	'/^node_modules$/',
+	'/^vendor$/',
+	'/^test$/',
+	'/^composer\.lock$/',
+	'/^package-lock\.json$/',
+	'/^\.editorconfig$/',
+	'/^\.gitattributes$/',
+	'/^\.gitignore$/',
+	'/^\.pre-commit-config\.yaml$/',
+	'/\.back$/',
+	'/\.old$/',
 	'/.*js.map/',
 	'/DEV.md/'
 ];
@@ -213,17 +227,19 @@ function rcopy($src, $dst)
 		// Loop through the files in source directory
 		while ($file = readdir($dir)) {
 			if (($file != '.') && ($file != '..')) {
-				if (is_dir($src . '/' . $file)) {
+				$childSrc = $src . '/' . $file;
+				if (is_excluded($file) || is_excluded($childSrc)) {
+					continue;
+				}
+				if (is_dir($childSrc)) {
 					// Recursively calling custom copy function
 					// for sub directory
-					if (!rcopy($src . '/' . $file, $dst . '/' . $file)) {
+					if (!rcopy($childSrc, $dst . '/' . $file)) {
 						return false;
 					}
 				} else {
-					if (!is_excluded($file)) {
-						if (!copy($src . '/' . $file, $dst . '/' . $file)) {
-							return false;
-						}
+					if (!copy($childSrc, $dst . '/' . $file)) {
+						return false;
 					}
 				}
 			}
@@ -282,7 +298,11 @@ function zipDir($folder, &$zip, $root = "")
  */
 
 list($mod, $version) = detectModule();
-$outzip = sys_get_temp_dir() . "/module_" . $mod . "-" . $version . ".zip";
+$outdir = __DIR__ . '/../bin';
+if (!is_dir($outdir)) {
+	mkdirAndCheck($outdir);
+}
+$outzip = $outdir . "/module_" . $mod . "-" . $version . ".zip";
 if (file_exists($outzip)) {
 	secureUnlink($outzip);
 }
@@ -296,6 +316,9 @@ mkdirAndCheck($dst);
 
 foreach ($listOfModuleContent as $moduleContent) {
 	foreach (glob($moduleContent) as $entry) {
+		if (is_excluded(basename($entry)) || is_excluded($entry)) {
+			continue;
+		}
 		if (!rcopy($entry, $dst . '/' . $entry)) {
 			echo "[fail]  Error on copy " . $entry . " to " . $dst . "/" . $entry . "\n";
 			echo "Please take time to analyze the problem and fix the bug\n";

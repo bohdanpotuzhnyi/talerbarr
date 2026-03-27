@@ -40,3 +40,21 @@ Additional environment variables customise the container workflow:
 If the requested override is missing, the helper automatically tries `ci`, then `demo`, and finally the first available override file. Set `SANDCASTLE_OVERRIDE_NAME` to an empty string to opt out of this fallback and launch without an override.
 
 The GitHub Actions Podman CI configuration enables sandcastle mode by default so module integration tests run against a self-contained GNU Taler deployment.
+
+## Packaging
+
+Do not use the Dolibarr Module Builder UI to create the release zip from this working tree. 
+It packages the whole module directory and will include local dev dependencies.
+
+Build the lean module archive with:
+
+```bash
+cd htdocs/custom/talerbarr
+php build/buildzip.php
+```
+
+The generated archive is written to:
+
+```bash
+htdocs/custom/talerbarr/bin/module_talerbarr-<version>.zip
+```
