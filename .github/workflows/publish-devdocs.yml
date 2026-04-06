@@ -1,0 +1,49 @@
+name: Publish Dev Docs
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Optional tag to publish explicitly'
+        required: false
+        type: string
+
+jobs:
+  publish-docs:
+    name: Trigger docs publisher
+    runs-on: ubuntu-latest
+    environment: talerbarr-actions
+
+    steps:
+      - name: Resolve target tag
+        id: target
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_TAG: ${{ github.ref_name }}
+        run: |
+          if [ -n "${INPUT_TAG}" ]; then
+            echo "tag=${INPUT_TAG}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "tag=${REF_TAG}" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Trigger docs sync endpoint
+        env:
+          DOCS_TRIGGER_URL: ${{ secrets.DOCS_TRIGGER_URL }}
+          DOCS_TRIGGER_TOKEN: ${{ secrets.DOCS_TRIGGER_TOKEN }}
+          TARGET_TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          test -n "${DOCS_TRIGGER_URL}"
+          test -n "${DOCS_TRIGGER_TOKEN}"
+          test -n "${TARGET_TAG}"
+
+          curl --fail --show-error --silent \
+            -X POST \
+            -H "Authorization: Bearer ${DOCS_TRIGGER_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag\":\"${TARGET_TAG}\"}" \
+            "${DOCS_TRIGGER_URL}"
