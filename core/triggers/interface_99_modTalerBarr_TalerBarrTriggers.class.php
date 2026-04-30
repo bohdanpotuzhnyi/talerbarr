@@ -346,17 +346,24 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 			return 0;
 		}
 
-		$targetPaymentModeId = (int) getDolGlobalInt('TALERBARR_PAYMENT_MODE_ID');
-		if ($targetPaymentModeId > 0) {
-			$currentPaymentModeId = 0;
-			if (!empty($object->mode_reglement_id)) {
-				$currentPaymentModeId = (int) $object->mode_reglement_id;
-			} elseif (!empty($object->fk_mode_reglement)) {
-				$currentPaymentModeId = (int) $object->fk_mode_reglement;
-			}
-			if ($currentPaymentModeId !== $targetPaymentModeId) {
-				return 0;
-			}
+		$targetPaymentModeId = $this->resolveTalerPaymentModeId($conf);
+		if ($targetPaymentModeId <= 0) {
+			dol_syslog(__METHOD__.' skipped because Taler payment mode TLR is not configured', LOG_WARNING);
+			return 0;
+		}
+
+		$currentPaymentModeId = 0;
+		if (!empty($object->mode_reglement_id)) {
+			$currentPaymentModeId = (int) $object->mode_reglement_id;
+		} elseif (!empty($object->fk_mode_reglement)) {
+			$currentPaymentModeId = (int) $object->fk_mode_reglement;
+		}
+		if ($currentPaymentModeId !== $targetPaymentModeId) {
+			dol_syslog(
+				__METHOD__.' skipped because payment mode '.$currentPaymentModeId.' is not TLR '.$targetPaymentModeId,
+				LOG_DEBUG
+			);
+			return 0;
 		}
 
 		try {
@@ -369,6 +376,38 @@ class InterfaceTalerBarrTriggers extends DolibarrTriggers
 			);
 			return -1;
 		}
+	}
+
+	/**
+	 * Resolve the Dolibarr payment mode id used for GNU Taler payments.
+	 *
+	 * @param Conf $conf Global configuration
+	 * @return int Payment mode id, or 0 when unavailable
+	 */
+	private function resolveTalerPaymentModeId(Conf $conf): int
+	{
+		$global = (int) getDolGlobalInt('TALERBARR_PAYMENT_MODE_ID');
+		if ($global > 0) {
+			return $global;
+		}
+
+		$entityId = !empty($conf->entity) ? (int) $conf->entity : 1;
+		$sql = 'SELECT id FROM '.MAIN_DB_PREFIX."c_paiement WHERE code = '".$this->db->escape('TLR')."'";
+		$sql .= ' AND entity IN ('.getEntity('c_paiement', true).')';
+		$sql .= ' ORDER BY active DESC, entity = '.$entityId.' DESC LIMIT 1';
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			dol_syslog(__METHOD__.' sql_error '.$this->db->lasterror(), LOG_ERR);
+			return 0;
+		}
+
+		$id = 0;
+		if ($obj = $this->db->fetch_object($resql)) {
+			$id = (int) $obj->id;
+		}
+		$this->db->free($resql);
+
+		return $id;
 	}
 
 	/**
